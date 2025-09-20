@@ -1,0 +1,1 @@
+node tools/print-tree.mjs src 3 > FRONTEND_TREE.txt

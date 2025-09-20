@@ -1,0 +1,44 @@
+src/
+├── api/
+│   └── api.ts
+├── assets/
+│   └── react.svg
+├── components/
+│   ├── cards/
+│   │   └── SymbolCard.tsx
+│   ├── charts/
+
+│   ├── common/
+│   │   └── Toaster.tsx
+│   ├── controls/
+
+│   └── layout/
+│       └── TopBar.tsx
+├── constants/
+│   └── memo.ts
+├── hooks/
+│   ├── useApi.ts
+│   ├── useInterval.ts
+│   ├── useSSEQuotes.ts
+│   └── useToast.ts
+├── lib/
+│   ├── errors.ts
+│   ├── http.ts
+│   └── sse.ts
+├── pages/
+│   └── Dashboard.tsx
+├── routes/
+│   └── index.tsx
+├── store/
+│   ├── market.ts
+│   ├── metrics.ts
+│   ├── strategy.ts
+│   ├── symbols.ts
+│   └── toast.ts
+├── styles/
+│   └── index.css
+├── types/
+│   └── api.ts
+├── App.tsx
+├── main.tsx
+└── vite-env.d.ts

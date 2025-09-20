@@ -1,0 +1,8 @@
+/* Tailwind v4: just import the framework */
+@import "tailwindcss";
+
+/* Optional tweaks for dark theme */
+:root {
+  --card-bg: 24 24 27;     /* zinc-900 */
+  --card-border: 63 63 70; /* zinc-700 */
+}
