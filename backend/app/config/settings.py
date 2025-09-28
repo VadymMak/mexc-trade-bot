@@ -1,6 +1,6 @@
 # app/config/settings.py
 import os
-from typing import List, Sequence, Any
+from typing import List, Any, Tuple, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, AliasChoices
 
@@ -65,11 +65,31 @@ class Settings(BaseSettings):
         description="Echo SQL statements (debug).",
     )
 
-    # ========== Core ==========
-    mode: str = Field(
-        default=(os.getenv("MODE", "paper") or "paper").lower(),
-        validation_alias=AliasChoices("MODE", "mode"),
-        description="paper | live",
+    # ========== Active selection (new; overrides legacy when set) ==========
+    active_provider_env: str = Field(
+        default=os.getenv("ACTIVE_PROVIDER", ""),
+        validation_alias=AliasChoices("ACTIVE_PROVIDER", "active_provider"),
+        description="Preferred: MEXC | BINANCE | GATE (overrides EXCHANGE_PROVIDER if set)",
+    )
+    active_mode_env: str = Field(
+        default=os.getenv("ACTIVE_MODE", ""),
+        validation_alias=AliasChoices("ACTIVE_MODE", "active_mode"),
+        description="Preferred: PAPER | DEMO | LIVE (overrides ACCOUNT_MODE if set)",
+    )
+
+    # ========== Core / Provider & Mode (legacy keys still supported) ==========
+    # Back-compat: MODE (paper|live) остаётся, но приоритет у ACCOUNT_MODE / ACTIVE_MODE
+    # ACCOUNT_MODE: PAPER | LIVE | DEMO
+    account_mode: str = Field(
+        default=(os.getenv("ACCOUNT_MODE", os.getenv("MODE", "paper")) or "paper").lower(),
+        validation_alias=AliasChoices("ACCOUNT_MODE", "account_mode", "MODE", "mode"),
+        description="paper | live | demo",
+    )
+    # EXCHANGE_PROVIDER: MEXC | BINANCE (по умолчанию MEXC); now also GATE
+    exchange_provider: str = Field(
+        default=(os.getenv("EXCHANGE_PROVIDER", "MEXC") or "MEXC").upper(),
+        validation_alias=AliasChoices("EXCHANGE_PROVIDER", "exchange_provider"),
+        description="MEXC | BINANCE | GATE",
     )
 
     # Single-workspace for now (easy to expand later)
@@ -79,7 +99,7 @@ class Settings(BaseSettings):
         description="Numeric workspace identifier (single-tenant for now)",
     )
 
-    # API keys (live/private)
+    # ========== MEXC keys/urls ==========
     api_key: str = Field(
         default=os.getenv("MEXC_API_KEY", ""),
         validation_alias=AliasChoices("MEXC_API_KEY", "mexc_api_key"),
@@ -87,6 +107,46 @@ class Settings(BaseSettings):
     api_secret: str = Field(
         default=os.getenv("MEXC_API_SECRET", ""),
         validation_alias=AliasChoices("MEXC_API_SECRET", "mexc_api_secret"),
+    )
+
+    # ========== Binance (Demo/Live) ==========
+    binance_api_key: str | None = Field(
+        default=os.getenv("BINANCE_API_KEY"),
+        validation_alias=AliasChoices("BINANCE_API_KEY", "binance_api_key"),
+    )
+    binance_api_secret: str | None = Field(
+        default=os.getenv("BINANCE_API_SECRET"),
+        validation_alias=AliasChoices("BINANCE_API_SECRET", "binance_api_secret"),
+    )
+    binance_rest_base: str = Field(
+        default=os.getenv("BINANCE_REST_BASE", "https://testnet.binance.vision"),
+        validation_alias=AliasChoices("BINANCE_REST_BASE", "binance_rest_base"),
+        description="Binance REST base (demo by default)",
+    )
+    binance_ws_base: str = Field(
+        default=os.getenv("BINANCE_WS_BASE", "wss://testnet.binance.vision/ws"),
+        validation_alias=AliasChoices("BINANCE_WS_BASE", "binance_ws_base"),
+        description="Binance WS base (demo by default)",
+    )
+
+    # ========== Gate (Live) ==========
+    gate_api_key: str | None = Field(default=os.getenv("GATE_API_KEY"),
+                                     validation_alias=AliasChoices("GATE_API_KEY", "gate_api_key"))
+    gate_api_secret: str | None = Field(default=os.getenv("GATE_API_SECRET"),
+                                        validation_alias=AliasChoices("GATE_API_SECRET", "gate_api_secret"))
+    gate_rest_base: str = Field(default=os.getenv("GATE_REST_BASE", "https://api.gateio.ws/api/v4"),
+                                validation_alias=AliasChoices("GATE_REST_BASE", "gate_rest_base"))
+    gate_ws_base: str = Field(default=os.getenv("GATE_WS_BASE", "wss://api.gateio.ws/ws/v4/"),
+                              validation_alias=AliasChoices("GATE_WS_BASE", "gate_ws_base"))
+
+    # ========== Gate (Testnet) ==========
+    gate_testnet_api_key: str | None = Field(default=os.getenv("GATE_TESTNET_API_KEY"))
+    gate_testnet_api_secret: str | None = Field(default=os.getenv("GATE_TESTNET_API_SECRET"))
+    gate_testnet_rest_base: str = Field(
+        default=os.getenv("GATE_TESTNET_REST_BASE", "https://api-testnet.gateapi.io/api/v4")
+    )
+    gate_testnet_ws_base: str = Field(
+        default=os.getenv("GATE_TESTNET_WS_BASE", "wss://ws-testnet.gate.com/v4/ws/spot")
     )
 
     # Optional UI id (tracing/WS)
@@ -113,10 +173,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CORS_ORIGINS_CSV", "cors_origins_csv"),
     )
 
-    # ========== HTTP (REST / PS fallback) ==========
+    # ========== HTTP (REST / PS fallback) — legacy MEXC defaults ==========
     rest_base_url: str = Field(
         default=os.getenv("REST_BASE_URL", "https://api.mexc.com/api/v3"),
         validation_alias=AliasChoices("REST_BASE_URL", "rest_base_url"),
+        description="MEXC REST base URL (legacy field)",
     )
     poll_interval_sec: float = Field(
         default=float(os.getenv("POLL_INTERVAL_SEC", "1.5")),
@@ -129,10 +190,11 @@ class Settings(BaseSettings):
         description="Depth limit for HTTP orderbook snapshots (if used)",
     )
 
-    # ========== WebSocket (public) ==========
+    # ========== WebSocket (public) — legacy MEXC defaults ==========
     ws_url_public: str = Field(
         default=os.getenv("WS_URL_PUBLIC", "wss://wbs-api.mexc.com/ws"),
         validation_alias=AliasChoices("WS_URL_PUBLIC", "ws_url_public"),
+        description="MEXC public WS URL (legacy field)",
     )
     ws_open_timeout: int = Field(
         default=int(os.getenv("WS_OPEN_TIMEOUT", "20")),
@@ -298,6 +360,80 @@ class Settings(BaseSettings):
             return env_list
         csv_list = _normalize_cors(self.cors_origins_csv)
         return csv_list
+
+    # ---------- Active provider/mode resolution (new) ----------
+    @property
+    def active_provider(self) -> str:
+        # ACTIVE_PROVIDER (if set) overrides legacy EXCHANGE_PROVIDER
+        base = (self.active_provider_env or self.exchange_provider or "MEXC").strip().upper()
+        if base not in {"MEXC", "BINANCE", "GATE"}:
+            base = "MEXC"
+        return base
+
+    @property
+    def active_mode(self) -> str:
+        # ACTIVE_MODE (if set) overrides legacy ACCOUNT_MODE
+        base = (self.active_mode_env or self.account_mode or "paper").strip().upper()
+        if base not in {"PAPER", "DEMO", "LIVE"}:
+            base = "PAPER"
+        return base
+
+    # Convenience flags (keep old ones for compatibility)
+    @property
+    def is_binance(self) -> bool:
+        return self.active_provider == "BINANCE"
+
+    @property
+    def is_mexc(self) -> bool:
+        return self.active_provider == "MEXC"
+
+    @property
+    def is_gate(self) -> bool:
+        return self.active_provider == "GATE"
+
+    @property
+    def is_demo(self) -> bool:
+        return self.active_mode == "DEMO"
+
+    @property
+    def is_paper(self) -> bool:
+        return self.active_mode == "PAPER"
+
+    @property
+    def is_live(self) -> bool:
+        return self.active_mode == "LIVE"
+
+    # ---------- Provider-resolved endpoints & keys ----------
+    @property
+    def rest_base_url_resolved(self) -> str:
+        """Provider/mode-aware REST base."""
+        if self.is_gate:
+            return self.gate_testnet_rest_base if self.is_demo else self.gate_rest_base
+        if self.is_binance:
+            return self.binance_rest_base
+        # default MEXC
+        return self.rest_base_url
+
+    @property
+    def ws_base_url_resolved(self) -> str:
+        """Provider/mode-aware WS base (public market stream)."""
+        if self.is_gate:
+            return self.gate_testnet_ws_base if self.is_demo else self.gate_ws_base
+        if self.is_binance:
+            return self.binance_ws_base
+        # default MEXC
+        return self.ws_url_public
+
+    def api_key_pair(self) -> Tuple[Optional[str], Optional[str]]:
+        """Return (api_key, api_secret) for the *active* provider/mode."""
+        if self.is_gate:
+            if self.is_demo:
+                return self.gate_testnet_api_key, self.gate_testnet_api_secret
+            return self.gate_api_key, self.gate_api_secret
+        if self.is_binance:
+            return self.binance_api_key, self.binance_api_secret
+        # MEXC
+        return self.api_key, self.api_secret
 
 
 settings = Settings()

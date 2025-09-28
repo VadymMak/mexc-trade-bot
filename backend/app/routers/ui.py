@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
+from app.utils.symbols import ui_symbol
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.config.settings import settings
-from app.models.base import get_db  # << switched to models.base
+from app.db.session import get_db
 from app.services.session_manager import SessionManager
 from app.services.strategy_service import StrategyService
 from app.execution.router import exec_router
@@ -57,11 +58,11 @@ def _etag(revision: int) -> str:
     return f'"{int(revision)}"'
 
 def _norm_symbols(raw: List[str]) -> List[str]:
-    # trim + uppercase + unique, сохраняя порядок первого появления
+    # normalize + uppercase + unique, preserving order of first appearance
     out: List[str] = []
     seen = set()
     for s in raw or []:
-        sym = (s or "").strip().upper()
+        sym = ui_symbol(s)   # << normalize consistently
         if not sym or sym in seen:
             continue
         seen.add(sym)
@@ -72,7 +73,7 @@ def _get_watchlist_symbols(ui: UIState) -> List[str]:
     wl = ui.watchlist or {}
     syms = wl.get("symbols")
     if isinstance(syms, list):
-        # нормализуем на чтение для стабильности
+        # normalize on read for stability
         return _norm_symbols([str(x) for x in syms])
     return []
 
@@ -172,8 +173,9 @@ def _query_orders_and_fills(
     q_fills = db.query(Fill).filter(Fill.workspace_id == workspace_id)
 
     if symbols:
-        q_orders = q_orders.filter(Order.symbol.in_(symbols))
-        q_fills = q_fills.filter(Fill.symbol.in_(symbols))
+        normed = [ui_symbol(s) for s in symbols]   # << normalize before DB query
+        q_orders = q_orders.filter(Order.symbol.in_(normed))
+        q_fills = q_fills.filter(Fill.symbol.in_(normed))
 
     orders = q_orders.order_by(Order.id.desc()).limit(_SNAPSHOT_MAX_ORDERS).all()
     fills = q_fills.order_by(Fill.id.desc()).limit(_SNAPSHOT_MAX_FILLS).all()

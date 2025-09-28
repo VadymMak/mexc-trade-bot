@@ -1,11 +1,11 @@
 import type { AxiosError } from "axios";
 
+/** Normalize unknown error into a human-friendly message */
 export function getErrorMessage(err: unknown): string {
-  // axios-ошибка с generic "unknown"
+  // axios-ошибка
   const maybeAxios = err as AxiosError<unknown>;
-
-  // пробуем достать detail/message, если это объект
   const data = maybeAxios?.response?.data;
+
   if (typeof data === "object" && data !== null) {
     const d = data as Record<string, unknown>;
     if (typeof d.detail === "string" && d.detail.trim()) return d.detail;

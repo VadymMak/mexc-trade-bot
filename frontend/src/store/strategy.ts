@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { apiStartSymbols, apiStopAll, apiStopSymbols } from "@/hooks/useApi";
+import { apiStartSymbols, apiStopAll, apiStopSymbols } from "@/api/api";
 import { useSymbols } from "@/store/symbols";
 
 type StrategyState = {
@@ -12,29 +12,34 @@ type StrategyState = {
 function normList(list: string[]): string[] {
   const seen = new Set<string>();
   for (const raw of list) {
-    const s = raw.trim().toUpperCase();
-    if (!s) continue;
-    seen.add(s);
+    const s = String(raw ?? "").trim().toUpperCase();
+    if (s) seen.add(s);
   }
   return Array.from(seen);
 }
 
-export const useStrategy = create<StrategyState>((set) => ({
+export const useStrategy = create<StrategyState>((set, get) => ({
   busy: false,
 
   start: async (symbols) => {
     const syms = normList(symbols);
-    if (!syms.length) return;
+    if (syms.length === 0) return;
+
+    // prevent overlapping actions
+    if (get().busy) return;
     set({ busy: true });
+
     try {
       await apiStartSymbols(syms);
-      // локально отмечаем running = true (только если реально меняется)
-      const { start, add } = useSymbols.getState();
-      // если символ не в списке карточек — добавим его
-      const existing = new Set(useSymbols.getState().items.map((i) => i.symbol));
+
+      // Reflect UI state:
+      // 1) ensure cards exist (single-pass; no re-renders per item)
+      // 2) mark only changed items as running (per-item, but guarded)
+      const symStore = useSymbols.getState();
+      symStore.ensureSymbols(syms);
+
       for (const s of syms) {
-        if (!existing.has(s)) add(s);
-        start(s);
+        symStore.start(s); // start() is already no-op if it's already running
       }
     } finally {
       set({ busy: false });
@@ -43,23 +48,32 @@ export const useStrategy = create<StrategyState>((set) => ({
 
   stop: async (symbols, flatten = false) => {
     const syms = normList(symbols);
-    if (!syms.length) return;
+    if (syms.length === 0) return;
+
+    if (get().busy) return;
     set({ busy: true });
+
     try {
       await apiStopSymbols(syms, flatten);
-      const { stop } = useSymbols.getState();
-      for (const s of syms) stop(s);
+
+      // Flip running flags only for these symbols
+      const symStore = useSymbols.getState();
+      for (const s of syms) symStore.stop(s); // stop() is no-op if already stopped
     } finally {
       set({ busy: false });
     }
   },
 
   stopAll: async (flatten = false) => {
+    if (get().busy) return;
     set({ busy: true });
+
     try {
       await apiStopAll(flatten);
-      const { stopAll } = useSymbols.getState();
-      stopAll(); // локально погасим все «running»
+
+      // Single store update instead of per-symbol loop
+      const symStore = useSymbols.getState();
+      symStore.stopAll();
     } finally {
       set({ busy: false });
     }

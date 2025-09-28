@@ -1,4 +1,3 @@
-# app/routers/market.py  (or wherever your router lives)
 from __future__ import annotations
 
 import asyncio
@@ -29,12 +28,18 @@ def _origin_ok(origin: Optional[str]) -> bool:
     return bool(origin) and origin in ALLOWED_ORIGINS
 
 
-def _sse_format(event: str | None, data: dict | str) -> bytes:
+def _sse_format(event: str | None, data: dict | str, *, retry_ms: int | None = None) -> bytes:
+    """
+    Build a compliant SSE frame.
+    - If retry_ms is provided, add a `retry:` hint for client reconnection backoff.
+    """
     if isinstance(data, (dict, list)):
         payload = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
     else:
         payload = str(data)
-    lines = []
+    lines: list[str] = []
+    if retry_ms is not None:
+        lines.append(f"retry: {int(retry_ms)}")
     if event:
         lines.append(f"event: {event}")
     for line in payload.splitlines() or [""]:
@@ -69,12 +74,26 @@ async def stream_market(
     emit_depth: bool = Query(True, description="Also emit 'depth' events with L2 data"),
 ) -> StreamingResponse:
     origin = request.headers.get("origin", "")
-    if not symbols.strip():
+
+    if not symbols or not symbols.strip():
         raise HTTPException(status_code=400, detail="symbols query param is required")
 
-    syms: List[str] = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    syms_raw = [s.strip().upper() for s in symbols.split(",") if s and s.strip()]
+    # uniquify while preserving order
+    seen: set[str] = set()
+    syms: List[str] = []
+    for s in syms_raw:
+        if s not in seen:
+            seen.add(s)
+            syms.append(s)
+
     if not syms:
         raise HTTPException(status_code=400, detail="No valid symbols provided")
+
+    # guard: enforce server-side bulk limit
+    max_bulk = int(getattr(settings, "max_watchlist_bulk", 50) or 50)
+    if len(syms) > max_bulk:
+        raise HTTPException(status_code=400, detail=f"Too many symbols; max {max_bulk}")
 
     def _only_nonzero(quotes: List[dict]) -> List[dict]:
         # filter out placeholders (bid==ask==0)
@@ -82,7 +101,7 @@ async def stream_market(
 
     def _l2_payload(quotes: List[dict]) -> List[dict]:
         # slimmer payload just for order book widgets
-        out = []
+        out: List[dict] = []
         for q in quotes:
             bids = q.get("bids") or []
             asks = q.get("asks") or []
@@ -96,6 +115,10 @@ async def stream_market(
         return out
 
     async def event_generator() -> AsyncGenerator[bytes, None]:
+        # first message includes server-suggested retry backoff
+        retry_ms = int(getattr(settings, "sse_retry_base_ms", 1000) or 1000)
+        yield _sse_format("hello", {"type": "hello"}, retry_ms=retry_ms)
+
         try:
             # 0) ensure live ingestion
             try:
@@ -103,7 +126,7 @@ async def stream_market(
             except Exception:
                 pass  # best-effort
 
-            # 1) warm-up snapshot
+            # 1) warm-up snapshot (brief wait for first nonzero ticks)
             warmup_ms = max(300, min(5000, int(interval_ms * 4)))
             deadline = asyncio.get_event_loop().time() + (warmup_ms / 1000.0)
             snapshot_quotes: List[dict] = []

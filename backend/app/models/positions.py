@@ -1,7 +1,6 @@
 from __future__ import annotations
-from datetime import datetime
-from enum import Enum
 from typing import Optional
+from enum import Enum
 
 from sqlalchemy import (
     Column,
@@ -21,7 +20,6 @@ from app.models.base import Base
 
 
 # ───────────────────────────── Enums ─────────────────────────────
-
 class PositionSide(str, Enum):
     BUY = "BUY"    # long
     SELL = "SELL"  # short
@@ -33,7 +31,6 @@ class PositionStatus(str, Enum):
 
 
 # ─────────────────────── Common mixins/columns ───────────────────
-
 @declarative_mixin
 class TimestampsMixin:
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -52,7 +49,6 @@ class RevisionMixin:
 
 
 # ─────────────────────────── Positions ───────────────────────────
-
 class Position(Base, TimestampsMixin, RevisionMixin):
     """
     Spot position (workspace-scoped).
@@ -83,7 +79,7 @@ class Position(Base, TimestampsMixin, RevisionMixin):
     unrealized_pnl: Optional[Numeric] = Column(Numeric(28, 12))   # snapshot cache (optional)
 
     # Lifecycle
-    status = Column(SAEnum(PositionStatus), nullable=False, server_default=text("'OPEN'"))
+    status = Column(SAEnum(PositionStatus), nullable=False, server_default="OPEN")
     opened_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     closed_at = Column(DateTime(timezone=True))
 

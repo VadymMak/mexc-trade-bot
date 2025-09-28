@@ -1,5 +1,4 @@
 # app/models/__init__.py
-
 """
 SQLAlchemy models registry.
 
@@ -10,8 +9,7 @@ SQLAlchemy models registry.
 
 from app.models.base import Base  # базовый класс декларативных моделей
 
-# Импортируем сами модули, без конкретных имён классов
-# (если какого-то модуля нет — можно опционально залогировать, но не падать)
+# Базовые модели (best-effort)
 try:
     import app.models.orders  # noqa: F401
 except Exception:
@@ -32,7 +30,20 @@ try:
 except Exception:
     pass
 
-# Новые модели состояния UI/стратегий
-# Эти файлы у нас точно существуют — импортируем обязательно.
+# Новые модели состояния UI/стратегий (обязательные)
 import app.models.ui_state  # noqa: F401
 import app.models.strategy_state  # noqa: F401
+
+# ─────────────── PnL tables (новые) ───────────────
+# Регистрируем леджер и агрегаты, чтобы Base.metadata знала о таблицах
+try:
+    import app.models.pnl_ledger  # noqa: F401
+except Exception:
+    pass
+
+try:
+    import app.models.pnl_daily  # noqa: F401
+except Exception:
+    pass
+
+__all__ = ["Base"]

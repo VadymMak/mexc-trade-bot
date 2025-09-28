@@ -1,11 +1,17 @@
-import { useToastStore, ToastKind } from "@/store/toast";
+import { useToastStore, type ToastKind } from "@/store/toast";
 
+/** Hook to push/remove/clear toast notifications */
 export function useToast() {
   const add = useToastStore((s) => s.add);
   const remove = useToastStore((s) => s.remove);
   const clear = useToastStore((s) => s.clear);
 
-  function push(kind: ToastKind, message: string, title?: string, timeoutMs?: number) {
+  function push(
+    kind: ToastKind,
+    message: string,
+    title?: string,
+    timeoutMs?: number
+  ) {
     return add({ kind, message, title, timeoutMs });
   }
 

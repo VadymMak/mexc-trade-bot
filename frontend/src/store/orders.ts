@@ -9,24 +9,14 @@ import type {
 export type OrderItem = ApiOrderItem;
 export type FillItem = ApiFillItem;
 
-type OrdersState = {
-  /** Orders by symbol */
-  orders: Record<string, OrderItem[]>;
-  /** Fills by symbol */
-  fills: Record<string, FillItem[]>;
-
-  /** Merge from UI snapshot (dedupes by id, keeps latest by time) */
-  setFromSnapshot: (payload: {
-    orders?: OrderItem[];
-    fills?: FillItem[];
-  }) => void;
-};
-
 const HISTORY_CAP = 500; // per-symbol storage cap
-
 const normSymbol = (s?: string) => String(s ?? "").trim().toUpperCase();
 
-/** backend may occasionally send string times - support them without `any` */
+// Shared empties to prevent rerenders from new [] instances
+const EMPTY_ORDERS: OrderItem[] = [];
+const EMPTY_FILLS:  FillItem[]  = [];
+
+// backend may occasionally send string times - support them without `any`
 type OrderExtra = OrderItem & { submitted_at?: string };
 type FillExtra = FillItem & { executed_at?: string };
 
@@ -65,25 +55,56 @@ function dedupeByIdLatest<T extends { id: string | number }>(
   return Array.from(map.values());
 }
 
-export const useOrders = create<OrdersState>()((set) => ({
+type OrdersState = {
+  /** Orders by symbol */
+  orders: Record<string, OrderItem[]>;
+  /** Fills by symbol */
+  fills: Record<string, FillItem[]>;
+
+  /** Clear all */
+  clear: () => void;
+
+  /** Merge from UI snapshot (dedupes by id, keeps latest by time) */
+  setFromSnapshot: (payload: {
+    orders?: OrderItem[];
+    fills?: FillItem[];
+  }) => void;
+
+  /** Optional: incremental upserts (for future streaming) */
+  upsertOrders: (rows: OrderItem[]) => void;
+  upsertFills: (rows: FillItem[]) => void;
+
+  /** Selectors */
+  ordersOf: (symbol: string) => OrderItem[];
+  fillsOf: (symbol: string) => FillItem[];
+};
+
+export const useOrders = create<OrdersState>()((set, get) => ({
   orders: {},
   fills: {},
 
+  clear: () => set({ orders: {}, fills: {} }),
+
   setFromSnapshot: ({ orders, fills }) =>
     set((state) => {
+      // quick skip if payload is empty
+      if ((!orders || orders.length === 0) && (!fills || fills.length === 0)) {
+        return state;
+      }
+
       const nextOrders: Record<string, OrderItem[]> = { ...state.orders };
       const nextFills: Record<string, FillItem[]> = { ...state.fills };
 
       if (orders && orders.length) {
-        // group by symbol then merge+dedupe
         const grouped: Record<string, OrderItem[]> = {};
         for (const o of orders) {
           const sym = normSymbol(o.symbol);
+          if (!sym) continue;
           (grouped[sym] ||= []).push(o);
         }
         for (const sym of Object.keys(grouped)) {
-          const cur = nextOrders[sym] ?? [];
-          const merged = dedupeByIdLatest<OrderItem>(cur, grouped[sym], (x) =>
+          const cur = nextOrders[sym] ?? EMPTY_ORDERS;
+          const merged = dedupeByIdLatest(cur, grouped[sym], (x) =>
             orderTs(x as OrderExtra)
           )
             .sort((a, b) => orderTs(b as OrderExtra) - orderTs(a as OrderExtra))
@@ -96,11 +117,12 @@ export const useOrders = create<OrdersState>()((set) => ({
         const grouped: Record<string, FillItem[]> = {};
         for (const f of fills) {
           const sym = normSymbol(f.symbol);
+          if (!sym) continue;
           (grouped[sym] ||= []).push(f);
         }
         for (const sym of Object.keys(grouped)) {
-          const cur = nextFills[sym] ?? [];
-          const merged = dedupeByIdLatest<FillItem>(cur, grouped[sym], (x) =>
+          const cur = nextFills[sym] ?? EMPTY_FILLS;
+          const merged = dedupeByIdLatest(cur, grouped[sym], (x) =>
             fillTs(x as FillExtra)
           )
             .sort((a, b) => fillTs(b as FillExtra) - fillTs(a as FillExtra))
@@ -111,4 +133,65 @@ export const useOrders = create<OrdersState>()((set) => ({
 
       return { orders: nextOrders, fills: nextFills };
     }),
+
+  upsertOrders: (rows) =>
+    set((state) => {
+      if (!rows?.length) return state;
+      const grouped: Record<string, OrderItem[]> = {};
+      for (const o of rows) {
+        const sym = normSymbol(o.symbol);
+        if (!sym) continue;
+        (grouped[sym] ||= []).push(o);
+      }
+      const next = { ...state.orders };
+      for (const sym of Object.keys(grouped)) {
+        const cur = next[sym] ?? EMPTY_ORDERS;
+        next[sym] = dedupeByIdLatest(cur, grouped[sym], (x) =>
+          orderTs(x as OrderExtra)
+        )
+          .sort((a, b) => orderTs(b as OrderExtra) - orderTs(a as OrderExtra))
+          .slice(0, HISTORY_CAP);
+      }
+      return { orders: next };
+    }),
+
+  upsertFills: (rows) =>
+    set((state) => {
+      if (!rows?.length) return state;
+      const grouped: Record<string, FillItem[]> = {};
+      for (const f of rows) {
+        const sym = normSymbol(f.symbol);
+        if (!sym) continue;
+        (grouped[sym] ||= []).push(f);
+      }
+      const next = { ...state.fills };
+      for (const sym of Object.keys(grouped)) {
+        const cur = next[sym] ?? EMPTY_FILLS;
+        next[sym] = dedupeByIdLatest(cur, grouped[sym], (x) =>
+          fillTs(x as FillExtra)
+        )
+          .sort((a, b) => fillTs(b as FillExtra) - fillTs(a as FillExtra))
+          .slice(0, HISTORY_CAP);
+      }
+      return { fills: next };
+    }),
+
+  ordersOf: (symbol) => {
+    const sym = normSymbol(symbol);
+    return get().orders[sym] ?? EMPTY_ORDERS;
+  },
+  fillsOf: (symbol) => {
+    const sym = normSymbol(symbol);
+    return get().fills[sym] ?? EMPTY_FILLS;
+  },
 }));
+
+declare global {
+  interface Window {
+    __useOrders?: typeof useOrders;
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.__useOrders = useOrders;
+}

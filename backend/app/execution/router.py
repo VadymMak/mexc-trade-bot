@@ -1,45 +1,61 @@
 # app/execution/router.py
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict
 
-from app.execution.paper_executor import PaperExecutor
-# from app.execution.live_executor import LiveExecutor  # future
 from app.config.settings import settings
 from app.models.base import SessionLocal
+from app.execution.paper_executor import PaperExecutor, PositionTrackerProto
+from app.services.position_tracker import PositionTracker  # your concrete tracker
 
 
 class ExecutionRouter:
-    """
-    Picks the correct execution port depending on mode.
-    - PaperExecutor is instantiated per workspace_id (default=1).
-    - Each PaperExecutor is wired with SessionLocal so Orders/Fills/Positions persist.
-    """
     def __init__(self) -> None:
         self._paper_by_ws: Dict[int, PaperExecutor] = {}
-        # self._live_by_ws: Dict[int, LiveExecutor] = {}
+        self._tracker_by_ws: Dict[int, PositionTrackerProto] = {}
 
-    def get_port(self, workspace_id: int = 1) -> PaperExecutor:  # | LiveExecutor in future
-        mode = (getattr(settings, "mode", "paper") or "paper").lower()
-        if mode == "live":
-            # TODO: wire LiveExecutor here when ready
-            # return self._get_live(workspace_id)
-            # For now, fall back to paper to avoid crashes.
+    def get_tracker(self, workspace_id: int = 1) -> PositionTrackerProto:
+        tr = self._tracker_by_ws.get(workspace_id)
+        if tr is None:
+            # NOTE: PositionTracker currently requires a live DB session
+            db = SessionLocal()  # long-lived session owned by the tracker
+            tr = PositionTracker(db=db, workspace_id=workspace_id)
+            self._tracker_by_ws[workspace_id] = tr
+        return tr
+
+    def get_port(self, workspace_id: int = 1) -> PaperExecutor:
+        if settings.is_paper or settings.is_demo or settings.is_live:
             return self._get_paper(workspace_id)
         return self._get_paper(workspace_id)
 
     def _get_paper(self, workspace_id: int) -> PaperExecutor:
-        if workspace_id not in self._paper_by_ws:
-            # Wire to DB for persistence
-            self._paper_by_ws[workspace_id] = PaperExecutor(
+        port = self._paper_by_ws.get(workspace_id)
+        if port is None:
+            tracker = self.get_tracker(workspace_id)
+            port = PaperExecutor(
                 session_factory=SessionLocal,
                 workspace_id=workspace_id,
+                position_tracker=tracker,
             )
-        return self._paper_by_ws[workspace_id]
+            self._paper_by_ws[workspace_id] = port
+        return port
+
+    def _get_paper(self, workspace_id: int) -> PaperExecutor:
+        port = self._paper_by_ws.get(workspace_id)
+        if port is None:
+            tracker = self.get_tracker(workspace_id)
+            port = PaperExecutor(
+                session_factory=SessionLocal,
+                workspace_id=workspace_id,
+                position_tracker=tracker,  # inject durable tracker
+            )
+            self._paper_by_ws[workspace_id] = port
+        return port
 
     # def _get_live(self, workspace_id: int) -> LiveExecutor:
     #     if workspace_id not in self._live_by_ws:
-    #         self._live_by_ws[workspace_id] = LiveExecutor(...)
+    #         tracker = self.get_tracker(workspace_id)
+    #         self._live_by_ws[workspace_id] = LiveExecutor(..., position_tracker=tracker)
     #     return self._live_by_ws[workspace_id]
 
 

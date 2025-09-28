@@ -1,15 +1,16 @@
 # app/main.py
 from __future__ import annotations
 
-from typing import Any, Sequence, cast
 import asyncio
+import logging
 from contextlib import asynccontextmanager, suppress
+from typing import Any, Sequence, cast
 
-from fastapi import FastAPI, Response, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse, Response as FastAPIResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
-# Prometheus is optional
+# Prometheus (optional)
 try:
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
     _PROM_AVAILABLE = True
@@ -17,28 +18,29 @@ except Exception:
     CONTENT_TYPE_LATEST = "text/plain; version=0.0.4"
     _PROM_AVAILABLE = False
 
-from starlette.types import ASGIApp, Receive, Scope, Send
-from starlette.datastructures import Headers, MutableHeaders
+from sqlalchemy import inspect
 
 from app.config.settings import settings
 from app.api import routes as api_routes
 from app.services.book_tracker import on_book_ticker
+from app.services.config_manager import config_manager
 
-# 🔑 Ensure DB schema exists on startup (dev convenience; Alembic in prod)
+# Ensure DB schema exists on startup (dev convenience; Alembic in prod)
 from app.db.engine import engine
 from app.models.base import Base
 
-# !!! ВАЖНО: регистрируем ВСЕ модели до create_all, иначе таблицы не появятся
-import app.models.ui_state          # noqa: F401
-import app.models.strategy_state    # noqa: F401
-import app.models.orders            # noqa: F401
-import app.models.positions         # noqa: F401
-import app.models.fills             # noqa: F401
-import app.models.sessions          # noqa: F401
-
-from sqlalchemy import inspect
+# IMPORTANT: import ALL models before create_all so tables are known
+import app.models.ui_state           # noqa: F401
+import app.models.strategy_state     # noqa: F401
+import app.models.orders             # noqa: F401
+import app.models.positions          # noqa: F401
+import app.models.fills              # noqa: F401
+import app.models.sessions           # noqa: F401
+import app.models.pnl_ledger         # noqa: F401  # PnL ledger
+import app.models.pnl_daily          # noqa: F401  # PnL daily
 
 APP_VERSION = "0.1.0"
+logger = logging.getLogger("app.main")
 
 
 # ------------------------------- helpers ------------------------------------
@@ -47,8 +49,10 @@ async def _rest_update_adapter(symbol: str, last: float | None, bid: float | Non
     a = float(ask or 0.0)
     await on_book_ticker(symbol=symbol, bid=b, bid_qty=0.0, ask=a, ask_qty=0.0, ts_ms=None)
 
+
 def _symbols_ok(syms: Sequence[str] | None) -> bool:
     return bool(syms) and any(str(s or "").strip() for s in (syms or []))
+
 
 async def _cancel_and_await(task: asyncio.Task | None, timeout: float = 3.0) -> None:
     if not task:
@@ -64,29 +68,22 @@ async def _cancel_and_await(task: asyncio.Task | None, timeout: float = 3.0) -> 
         with suppress(Exception):
             await asyncio.gather(task, return_exceptions=True)
 
+
 def _safe_settings_dict() -> dict[str, Any]:
     try:
         data = settings.model_dump()
     except Exception:
-        data = {"mode": getattr(settings, "mode", None), "symbols": getattr(settings, "symbols", [])}
-    for key in ("api_key", "api_secret"):
-        if key in data and data[key]:
-            data[key] = "****"
+        data = {
+            "mode": getattr(settings, "active_mode", None),
+            "symbols": getattr(settings, "symbols", []),
+        }
+    # mask obvious secrets
+    for key in list(data.keys()):
+        lk = key.lower()
+        if "secret" in lk or ("key" in lk and "base" not in lk):
+            if data.get(key):
+                data[key] = "****"
     return data
-
-def _is_ws_running(app: FastAPI) -> bool:
-    task = getattr(app.state, "ws_task", None)
-    return bool(task) and not task.done()
-
-def _is_ps_running(app: FastAPI) -> bool:
-    poller = getattr(app.state, "ps_poller", None)
-    if not poller:
-        return False
-    for attr in ("running", "is_running", "started"):
-        val = getattr(poller, attr, None)
-        if isinstance(val, bool):
-            return val
-    return True
 
 
 # ------------------------------ lifespan ------------------------------------
@@ -100,11 +97,12 @@ async def lifespan(app: FastAPI):
         insp = inspect(engine)
         tables = sorted(insp.get_table_names())
         print(f"📦 DB schema ensured (create_all). Tables: {tables}")
-        if "fills" not in tables:
-            print("⚠️  WARNING: 'fills' table is missing after create_all — проверьте импорты моделей и Base.metadata.")
+        if "pnl_ledger" not in tables or "pnl_daily" not in tables:
+            print("⚠️  WARNING: PnL tables missing — check model imports and Base.metadata registration.")
     except Exception as e:
         print(f"⚠️ DB schema init failed: {e}")
 
+    # State holders
     app.state.ws_client = cast(Any | None, None)
     app.state.ws_task = cast(asyncio.Task | None, None)
     app.state.ps_poller = cast(Any | None, None)
@@ -113,233 +111,220 @@ async def lifespan(app: FastAPI):
     enable_ws = getattr(settings, "enable_ws", False)
     enable_ps = getattr(settings, "enable_ps_poller", True)
 
-    print(f"🧭 Startup config: ENABLE_WS={enable_ws} | ENABLE_PS_POLLER={enable_ps} | symbols={symbols}")
+    # Resolved provider/mode + REST base (initial)
+    initial_provider = str(getattr(settings, "active_provider", getattr(settings, "exchange_provider", "MEXC"))).upper()
+    initial_mode = str(getattr(settings, "active_mode", getattr(settings, "account_mode", "PAPER"))).upper()
+    rest_base = getattr(settings, "rest_base_url_resolved", getattr(settings, "rest_base_url", ""))
 
-    if enable_ws and _symbols_ok(symbols):
-        try:
-            from app.market_data.ws_client import MEXCWebSocketClient
-            app.state.ws_client = MEXCWebSocketClient([s for s in symbols if str(s).strip()])
-            app.state.ws_task = asyncio.create_task(app.state.ws_client.run())
-            print("✅ WS market client started.")
-        except Exception as e:
-            print(f"❌ Failed to start WS client: {e}")
-            print("↪️ Will try PS poller (if enabled).")
-            app.state.ws_client = None
-            app.state.ws_task = None
-    elif enable_ws and not _symbols_ok(symbols):
-        print("⚠️ ENABLE_WS=true, but symbols are empty — WS not started.")
+    print(
+        f"🧭 Startup config: PROVIDER={initial_provider} | MODE={initial_mode} | ENABLE_WS={enable_ws} | "
+        f"ENABLE_PS_POLLER={enable_ps} | symbols={symbols} | REST_BASE={rest_base}"
+    )
 
-    if app.state.ws_client is None and enable_ps:
-        try:
-            from app.market_data.http_client_ps import PSMarketPoller
-            app.state.ps_poller = PSMarketPoller(
-                symbols=symbols,
-                interval=getattr(settings, "poll_interval_sec", 2.0),
-                depth_limit=getattr(settings, "depth_limit", 10),
-                on_update=_rest_update_adapter,
-            )
-            await app.state.ps_poller.start()
-            print("⚠️ Using PS market poller (WS disabled or failed to start).")
-        except Exception as e:
-            print(f"⚠️ PS poller import/start failed, skipping: {e}")
-            app.state.ps_poller = None
-
-    print("🚀 Application startup complete.")
+    # Import here to avoid circulars
     try:
-        yield
-    finally:
-        if app.state.ps_poller:
-            with suppress(Exception):
-                await app.state.ps_poller.stop()
-            app.state.ps_poller = None
+        from app.services.book_tracker import ensure_symbols_subscribed
+    except Exception as e:
+        ensure_symbols_subscribed = None  # type: ignore
+        print(f"⚠️ Cannot import ensure_symbols_subscribed: {e}")
 
+    # ────────────────────── Hooks for ConfigManager ───────────────────────
+    async def _hook_stop_all_strategies() -> None:
+        try:
+            from app.services.strategy_service import StrategyService  # type: ignore
+            svc = getattr(StrategyService, "get", None)
+            if callable(svc):
+                inst = svc()
+                stopper = getattr(inst, "stop_all", None) or getattr(inst, "stop_all_symbols", None)
+                if stopper:
+                    res = stopper()
+                    if asyncio.iscoroutine(res):
+                        await res
+                    return
+        except Exception as e:
+            logger.warning(f"StrategyService stop_all failed/unknown: {e}")
+        logger.info("No strategy stop hook found; continuing.")
+
+    async def _hook_stop_streams() -> None:
+        # PS poller
+        if app.state.ps_poller:
+            try:
+                await app.state.ps_poller.stop()
+            except Exception as e:
+                logger.warning(f"PS poller stop error: {e}")
+            finally:
+                app.state.ps_poller = None
+        # WS client
         if app.state.ws_client:
             with suppress(Exception):
                 await app.state.ws_client.stop()
-
         await _cancel_and_await(app.state.ws_task, timeout=3.0)
         app.state.ws_task = None
         app.state.ws_client = None
+        logger.info("Streams stopped.")
+
+    def _hook_reset_book_tracker() -> None:
+        try:
+            from app.services import book_tracker as bt  # type: ignore
+            reset_fn = getattr(bt, "reset", None)
+            if callable(reset_fn):
+                reset_fn()
+                logger.info("Book tracker reset() called.")
+                return
+            clear_all = getattr(bt, "clear_all", None) or getattr(bt, "clear", None)
+            if callable(clear_all):
+                clear_all()
+                logger.info("Book tracker clear() called.")
+                return
+            logger.info("Book tracker has no reset(); will re-seed by ensure_symbols_subscribed later.")
+        except Exception as e:
+            logger.warning(f"Book tracker reset failed: {e}")
+
+    async def _hook_start_streams(provider: str, mode: str) -> bool:
+        prov = (provider or "").strip().upper()
+        ws_enabled_flag = False
+
+        # Always try (re)subscription via service layer
+        if ensure_symbols_subscribed and _symbols_ok(symbols):
+            try:
+                await ensure_symbols_subscribed(symbols)
+            except Exception as e:
+                logger.warning(f"ensure_symbols_subscribed failed: {e}")
+
+        # MEXC WS
+        if prov == "MEXC" and enable_ws and _symbols_ok(symbols):
+            try:
+                from app.market_data.ws_client import MEXCWebSocketClient
+                app.state.ws_client = MEXCWebSocketClient([s for s in symbols if str(s).strip()])
+                app.state.ws_task = asyncio.create_task(app.state.ws_client.run())
+                logger.info("✅ WS market client started (MEXC).")
+                ws_enabled_flag = True
+            except Exception as e:
+                logger.error(f"❌ Failed to start MEXC WS client: {e}")
+                app.state.ws_client = None
+                app.state.ws_task = None
+
+        # GATE WS
+        if prov == "GATE" and enable_ws and _symbols_ok(symbols) and app.state.ws_client is None:
+            try:
+                from app.market_data.gate_ws import GateWebSocketClient
+                app.state.ws_client = GateWebSocketClient(
+                    [s for s in symbols if str(s).strip()],
+                    depth_limit=getattr(settings, "depth_limit", 10),
+                    want_tickers=True,
+                    want_order_book=True,
+                )
+                app.state.ws_task = asyncio.create_task(app.state.ws_client.run())
+                logger.info("✅ WS market client started (GATE).")
+                ws_enabled_flag = True
+            except Exception as e:
+                logger.error(f"❌ Failed to start GATE WS client: {e}")
+                app.state.ws_client = None
+                app.state.ws_task = None
+
+        # PS poller (fallback)
+        if app.state.ws_client is None and getattr(settings, "enable_ps_poller", True):
+            try:
+                from app.market_data.http_client_ps import PSMarketPoller
+                app.state.ps_poller = PSMarketPoller(
+                    symbols=symbols,
+                    interval=getattr(settings, "poll_interval_sec", 2.0),
+                    depth_limit=getattr(settings, "depth_limit", 10),
+                    on_update=_rest_update_adapter,
+                )
+                await app.state.ps_poller.start()
+                logger.info("⚠️ Using PS market poller (WS disabled or not started).")
+            except Exception as e:
+                logger.error(f"⚠️ PS poller import/start failed, skipping: {e}")
+                app.state.ps_poller = None
+
+        return ws_enabled_flag
+
+    # Wire hooks into ConfigManager
+    config_manager.set_hooks(
+        stop_all_strategies=_hook_stop_all_strategies,
+        stop_streams=_hook_stop_streams,
+        start_streams=_hook_start_streams,
+        reset_book_tracker=_hook_reset_book_tracker,
+    )
+
+    # Initialize ConfigManager state and start initial streams
+    config_manager._state.active = initial_provider  # type: ignore[attr-defined]
+    config_manager._state.mode = initial_mode        # type: ignore[attr-defined]
+    try:
+        await config_manager.init_on_startup()
+    except Exception as e:
+        logger.error(f"ConfigManager init_on_startup failed: {e}")
+
+    print("🚀 Application startup complete (managed by ConfigManager).")
+    try:
+        yield
+    finally:
+        with suppress(Exception):
+            await _hook_stop_streams()
         print("🛑 Application shutdown complete.")
 
 
 # ------------------------------ app setup -----------------------------------
 app = FastAPI(title="MEXC Trade Bot API", version=APP_VERSION, lifespan=lifespan)
 
-# --- CORS (DEV-BULLETPROOF) --------------------------------------------------
-def _parse_origins(raw) -> list[str]:
-    """
-    Accepts:
-      - list/tuple of strings
-      - JSON array string: '["http://localhost:5173"]'
-      - comma-separated string: 'http://localhost:5173,http://127.0.0.1:5173'
-      - '*' (wildcard)
-    Returns a clean list (may contain '*').
-    """
-    if raw is None:
-        return []
-    if isinstance(raw, (list, tuple)):
-        return [str(x).strip() for x in raw if str(x).strip()]
-    if isinstance(raw, str):
-        s = raw.strip()
-        if not s:
-            return []
-        if s == "*":
-            return ["*"]
-        # try JSON array first
-        if s.startswith("[") and s.endswith("]"):
-            try:
-                import json
-                arr = json.loads(s)
-                if isinstance(arr, list):
-                    return [str(x).strip() for x in arr if str(x).strip()]
-            except Exception:
-                pass
-        # fallback: comma-separated
-        return [p.strip() for p in s.split(",") if p.strip()]
-    # anything else -> string repr
-    return [str(raw).strip()] if str(raw).strip() else []
-
-_configured_origins = _parse_origins(getattr(settings, "cors_origins", None))
-
-DEFAULT_DEV_ORIGINS = [
+# ------------------------------ CORS ----------------------------------------
+_allowed_origins = list(getattr(settings, "cors_origins", []) or []) or [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
-ALLOWED_ORIGINS = _configured_origins or DEFAULT_DEV_ORIGINS
-_ALLOW_ALL = "*" in ALLOWED_ORIGINS
-
-print(f"🌐 CORS origins: {_configured_origins or '(default dev list)'} | ALLOW_ALL={_ALLOW_ALL}")
-
-class RawCORSMiddleware:
-    """
-    ASGI-level CORS middleware that:
-      - Answers preflight OPTIONS before routers run.
-      - Injects ACAO/ACAC on every response (including streaming/SSE).
-    Keep this FIRST in the stack so nothing can bypass it.
-    """
-    def __init__(self, app: ASGIApp, allowed_origins: list[str], allow_all: bool = False):
-        self.app = app
-        self.allowed = set(allowed_origins)
-        self.allow_all = allow_all or ("*" in self.allowed)
-
-    def _origin_ok(self, origin: str | None) -> bool:
-        if not origin:
-            return False
-        return self.allow_all or (origin in self.allowed)
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        method = scope.get("method", "GET").upper()
-        headers = Headers(raw=scope.get("headers", []))
-        origin = headers.get("origin")
-
-        # Preflight: short-circuit with 204 + CORS headers
-        if method == "OPTIONS" and self._origin_ok(origin):
-            allow_headers = headers.get("access-control-request-headers") or (
-                "Content-Type, Authorization, If-Match, X-Idempotency-Key, Accept, Cache-Control"
-            )
-            allow_methods = "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
-            allow_origin_value = origin or "*"
-
-            await send({
-                "type": "http.response.start",
-                "status": 204,
-                "headers": [
-                    (b"access-control-allow-origin", allow_origin_value.encode()),
-                    (b"access-control-allow-credentials", b"true"),
-                    (b"access-control-allow-methods", allow_methods.encode()),
-                    (b"access-control-allow-headers", allow_headers.encode()),
-                    (b"access-control-max-age", b"86400"),
-                    (b"vary", b"Origin"),
-                ],
-            })
-            await send({"type": "http.response.body", "body": b"", "more_body": False})
-            return
-
-        # Wrap send() to inject ACAO on *every* response start
-        async def send_wrapper(message):
-            if message["type"] == "http.response.start" and self._origin_ok(origin):
-                mh = MutableHeaders(raw=message.setdefault("headers", []))
-                allow_origin_value = origin or "*"
-                if "access-control-allow-origin" not in mh:
-                    mh.append("Access-Control-Allow-Origin", allow_origin_value)
-                    mh.append("Access-Control-Allow-Credentials", "true")
-                    vary = mh.get("Vary")
-                    if not vary:
-                        mh.append("Vary", "Origin")
-                    elif "Origin" not in vary:
-                        mh["Vary"] = f"{vary}, Origin"
-            await send(message)
-
-        await self.app(scope, receive, send_wrapper)
-
-# 0) Install the ASGI-level guard FIRST so it wraps everything (incl. StreamingResponse)
-app.add_middleware(RawCORSMiddleware, allowed_origins=ALLOWED_ORIGINS, allow_all=_ALLOW_ALL)
-
-# 1) Normal FastAPI CORS (nice defaults, header reflection, etc.)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS if not _ALLOW_ALL else [],
-    allow_origin_regex=".*" if _ALLOW_ALL else None,
-    allow_credentials=True,  # cookie/auth flows from Vite dev server
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["ETag", "Last-Event-ID", "Retry-After", "Location"],
-    max_age=86400,
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "If-Match",
+        "X-Idempotency-Key",
+        "Accept",
+        "Cache-Control",
+    ],
 )
 
-# 2) Router-level OPTIONS catch-all (extra safety)
-@app.options("/{rest_of_path:path}")
-async def _preflight_cors(rest_of_path: str, request: Request) -> FastAPIResponse:
-    origin = request.headers.get("origin", "")
-    acr_headers = request.headers.get("access-control-request-headers", "")
-    headers: dict[str, str] = {}
-    if (_ALLOW_ALL and origin) or (origin in ALLOWED_ORIGINS):
-        headers["Access-Control-Allow-Origin"] = origin
-        headers["Access-Control-Allow-Credentials"] = "true"
-        headers["Vary"] = "Origin"
-        headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
-        headers["Access-Control-Allow-Headers"] = acr_headers or \
-            "Content-Type, Authorization, If-Match, X-Idempotency-Key, Accept, Cache-Control"
-        headers["Access-Control-Max-Age"] = "86400"
-    return FastAPIResponse(status_code=204, headers=headers)
-
-
-# ------------------------------ route mounting -------------------------------
-# Mount the hub router (contains market/strategy/etc.)
+# ------------------------------ route mounting ------------------------------
+# app/api/routes.py mounts all sub-routers (market/strategy/execution/health/account/config + SSE)
 app.include_router(api_routes.router)
 
-# Also mount UI router here *safely* (only if not already mounted via api_routes)
-def _mount_ui_router_if_needed(app: FastAPI) -> None:
+# --- Debug: list all routes at startup ---
+def _print_routes(app_: FastAPI) -> None:
+    try:
+        print("🧭 Routes:")
+        for r in getattr(app_, "routes", []):
+            path = getattr(r, "path", None) or getattr(r, "path_format", None) or str(r)
+            methods = ",".join(sorted(getattr(r, "methods", set())))
+            print(f"  {methods or '-':<12} {path}")
+    except Exception as e:
+        print(f"⚠️ Route listing failed: {e}")
+
+_print_routes(app)
+
+# Optionally mount UI router here if not already included by api.routes
+def _mount_ui_router_if_needed(app_: FastAPI) -> None:
     try:
         from app.routers import ui as ui_module
     except Exception as e:
         print(f"ℹ️ UI router import skipped: {e}")
         return
-
-    ui_paths = {"/api/ui", "/api/ui/"}
-    already = any(
-        (getattr(r, "path", None) or "").startswith("/api/ui")
-        for r in getattr(app, "routes", [])
-    )
+    already = any((getattr(r, "path", None) or "").startswith("/api/ui") for r in getattr(app_, "routes", []))
     if already:
         print("✅ UI router already mounted (skipping duplicate).")
         return
-
     try:
-        app.include_router(ui_module.router)
+        app_.include_router(ui_module.router)
         print("✅ UI router mounted at /api/ui")
     except Exception as e:
         print(f"⚠️ Failed to mount UI router: {e}")
 
 _mount_ui_router_if_needed(app)
-
 
 # ------------------------------ basic endpoints ------------------------------
 @app.get("/ping")
@@ -348,56 +333,19 @@ async def ping():
 
 @app.get("/")
 async def root():
-    return {"ok": True, "name": "MEXC Trade Bot API", "version": APP_VERSION}
+    return {"ok": True, "name": "MEXC Trade Bot API", "version": APP_VERSION, "config": _safe_settings_dict()}
 
+# --- Ultra simple health for request loop ---
+@app.get("/__debug")
+async def __debug():
+    return {"ok": True}
 
-# ------------------------------ ops endpoints ------------------------------
-@app.get("/healthz")
-async def healthz():
-    return {"status": "ok"}
-
-@app.get("/readyz")
-async def readyz():
-    ready = _is_ws_running(app) or _is_ps_running(app)
-    return JSONResponse(status_code=200 if ready else 503, content={"ready": ready})
-
-@app.get("/version")
-async def version():
-    return {"version": APP_VERSION}
-
-@app.get("/debug/config")
-async def debug_config():
-    return _safe_settings_dict()
-
-@app.get("/status")
-async def status():
-    ws_client = getattr(app.state, "ws_client", None)
-    ws_connected = bool(getattr(ws_client, "_connected", False))
-    ws_symbols = list(getattr(ws_client, "symbols", []) or [])
-    ps_active = _is_ps_running(app)
-    ps = getattr(app.state, "ps_poller", None)
-    ps_symbols = list(getattr(ps, "symbols", []) or [])
-    return {
-        "version": APP_VERSION,
-        "ws": {
-            "enabled": getattr(settings, "enable_ws", False),
-            "connected": ws_connected,
-            "running": _is_ws_running(app),
-            "symbols": ws_symbols,
-        },
-        "ps_poller": {
-            "enabled": getattr(settings, "enable_ps_poller", True),
-            "running": ps_active,
-            "symbols": ps_symbols,
-        },
-    }
-
-@app.get("/metrics")
-async def metrics():
-    if not _PROM_AVAILABLE:
-        return PlainTextResponse(
-            "prometheus_client not installed. Run: pip install prometheus-client",
-            status_code=503,
-        )
-    output = generate_latest()
-    return Response(content=output, media_type=CONTENT_TYPE_LATEST)
+# ------------------------------ ops: /metrics -------------------------------
+if _PROM_AVAILABLE:
+    @app.get("/metrics")
+    async def metrics():
+        try:
+            data = generate_latest()  # type: ignore[no-untyped-call]
+            return PlainTextResponse(data.decode("utf-8"), media_type=CONTENT_TYPE_LATEST)  # type: ignore[arg-type]
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)

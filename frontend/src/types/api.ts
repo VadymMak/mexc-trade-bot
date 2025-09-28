@@ -63,7 +63,7 @@ export type OrderItem = {
   /** мс-таймстамп, если есть (например, из submitted_at/last_event_at); может отсутствовать */
   ts_ms?: number;
 
-  // опциональные поля, которые может прислать бэкенд
+  // опциональные поля
   is_active?: boolean;
   filled_qty?: number;
   avg_fill_price?: number | null;
@@ -92,8 +92,36 @@ export type FillItem = {
   liquidity?: "MAKER" | "TAKER";
 };
 
+// ---- UI/Strategy State (из /api/ui/snapshot) ----
+export type UIState = {
+  /** Канонический список, если бэкенд кладёт прямо сюда */
+  watchlist?: string[];
+
+  /** Часто бэкенд вкладывает внутрь data */
+  data?: {
+    watchlist?: string[];
+    [k: string]: unknown;
+  };
+
+  layout?: unknown;
+  ui_prefs?: unknown;
+  revision?: number;
+  updated_at?: string; // ISO string
+};
+
+export type StrategyState = {
+  per_symbol?: Record<string, unknown>;
+  revision?: number;
+  updated_at?: string; // ISO string
+};
+
 // ---- UI Snapshot ----
 export type UISnapshot = {
+  ui_state?: UIState;
+  strategy_state?: StrategyState;
+
+  /** Опциональные секции, если запрошены include=positions,orders,fills */
+  positions?: Position[];
   orders?: OrderItem[];
   fills?: FillItem[];
 };

@@ -3,27 +3,19 @@ import { useMemo, memo } from "react";
 import { useOrders } from "@/store/orders";
 import type { OrderItem, FillItem } from "@/types/api";
 
-type Props = {
-  symbol: string;
-  /** total items to render (viewport still shows ~3 rows via fixed height) */
-  limit?: number;
-};
-
-/* ----------------------------- fallbacks ----------------------------- */
-const EMPTY_ORDERS: ReadonlyArray<OrderItem> = Object.freeze([]);
-const EMPTY_FILLS: ReadonlyArray<FillItem> = Object.freeze([]);
+type Props = { symbol: string; limit?: number };
 
 /* -------------------------------- utils -------------------------------- */
 function formatTs(ts?: number | string | null): string {
   if (!ts) return "—";
   const d = typeof ts === "number" ? new Date(ts) : new Date(ts);
-  return Number.isNaN(d.getTime())
-    ? "—"
-    : d.toLocaleTimeString(undefined, { hour12: false });
+  const t = d.getTime();
+  if (!Number.isFinite(t)) return "—";
+  return d.toLocaleTimeString(undefined, { hour12: false });
 }
 
 function toNum(v: unknown, digits = 6): number | string {
-  if (typeof v === "number" && Number.isFinite(v)) return Number(v.toFixed(digits));
+  if (typeof v === "number" && Number.isFinite(v)) return +v.toFixed(digits);
   if (v == null) return "—";
   if (typeof v === "string") return v;
   return String(v);
@@ -33,31 +25,44 @@ function toNum(v: unknown, digits = 6): number | string {
 type OrderLike = OrderItem & {
   submitted_at?: string;
   ts_ms?: number;
-  avg_fill_price?: number;
+  avg_fill_price?: number | null;
+  status?: string | null;
 };
 
 type FillLike = FillItem & {
   executed_at?: string;
   ts_ms?: number;
-  fee?: number;
+  fee?: number | null;
 };
 
 const getOrderTime = (o: OrderLike): number => {
   const t: string | number | undefined = o.submitted_at ?? o.ts_ms;
-  return typeof t === "string" ? new Date(t).getTime() : (t ?? 0);
+  if (typeof t === "number") return Number.isFinite(t) ? t : 0;
+  if (typeof t === "string") {
+    const ms = Date.parse(t);
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  return 0;
 };
 
 const getFillTime = (f: FillLike): number => {
   const t: string | number | undefined = f.executed_at ?? f.ts_ms;
-  return typeof t === "string" ? new Date(t).getTime() : (t ?? 0);
+  if (typeof t === "number") return Number.isFinite(t) ? t : 0;
+  if (typeof t === "string") {
+    const ms = Date.parse(t);
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  return 0;
 };
 
 const getOrderPrice = (o: OrderLike): number | null | undefined =>
   o.price ?? o.avg_fill_price;
 
-const getOrderStatus = (o: OrderLike): string | null | undefined => o.status ?? null;
+const getOrderStatus = (o: OrderLike): string | null =>
+  typeof o.status === "string" ? o.status : null;
 
-const getFillFee = (f: FillLike): number | null | undefined => f.fee ?? null;
+const getFillFee = (f: FillLike): number | null =>
+  typeof f.fee === "number" ? f.fee : null;
 
 const statusClass = (s?: string | null): string => {
   const v = (s ?? "").toUpperCase();
@@ -69,13 +74,13 @@ const statusClass = (s?: string | null): string => {
 
 /** Keep only the latest item per id */
 function dedupeLatestById<T extends { id: string | number }>(
-  items: T[],
+  items: ReadonlyArray<T>,
   getTime: (x: T) => number
 ): T[] {
   const map = new Map<string | number, T>();
   for (const it of items) {
-    const cur = map.get(it.id);
-    if (!cur || getTime(it) > getTime(cur)) map.set(it.id, it);
+    const prev = map.get(it.id);
+    if (!prev || getTime(it) > getTime(prev)) map.set(it.id, it);
   }
   return Array.from(map.values());
 }
@@ -119,18 +124,17 @@ const FillRow = memo(function FillRow({ f }: { f: FillLike }) {
 /* ----------------------------- component ----------------------------- */
 
 const OrdersFills = memo(function OrdersFills({ symbol, limit = 50 }: Props) {
-  const allOrders = useOrders((st) => st.orders[symbol] ?? EMPTY_ORDERS);
-  const allFills = useOrders((st) => st.fills[symbol] ?? EMPTY_FILLS);
+  // Use per-symbol selectors to avoid rerenders on other symbols’ updates
+  const allOrders = useOrders((s) => s.ordersOf(symbol));
+  const allFills  = useOrders((s) => s.fillsOf(symbol));
 
   const orders = useMemo(() => {
-    const normalized = allOrders.map((o) => o as OrderLike);
-    const deduped = dedupeLatestById(normalized, getOrderTime);
+    const deduped = dedupeLatestById(allOrders as OrderLike[], getOrderTime);
     return deduped.sort((a, b) => getOrderTime(b) - getOrderTime(a)).slice(0, limit);
   }, [allOrders, limit]);
 
   const fills = useMemo(() => {
-    const normalized = allFills.map((f) => f as FillLike);
-    const deduped = dedupeLatestById(normalized, getFillTime);
+    const deduped = dedupeLatestById(allFills as FillLike[], getFillTime);
     return deduped.sort((a, b) => getFillTime(b) - getFillTime(a)).slice(0, limit);
   }, [allFills, limit]);
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import List, Optional, Dict, Any, Awaitable, Callable
+from typing import List, Optional, Dict, Any, Awaitable, Callable, Union
 
 from fastapi import APIRouter, Body, HTTPException, Query, Header
 
@@ -9,12 +9,24 @@ from app.config.settings import settings
 from app.execution.router import exec_router
 from app.strategy.engine import StrategyEngine, StrategyParams
 from app.services import book_tracker as bt_service
-from app.infra.metrics import (
-    strategy_entries_total,
-    strategy_exits_total,
-    strategy_open_positions,
-    strategy_realized_pnl_total,
-)
+from app.services.book_tracker import ensure_symbols_subscribed
+
+# Metrics are optional; keep imports guarded
+try:
+    from app.infra.metrics import (
+        strategy_entries_total,
+        strategy_exits_total,
+        strategy_open_positions,
+        strategy_realized_pnl_total,
+        # extra metrics (may be unused here but kept for parity)
+        strategy_symbols_running,
+        strategy_trade_pnl_bps,
+        strategy_trade_duration_seconds,
+        strategy_edge_bps_at_entry,
+    )
+    _METRICS_OK = True
+except Exception:
+    _METRICS_OK = False
 
 # ───────────────────────────── Optional idempotency service ─────────────────────────────
 try:
@@ -49,6 +61,44 @@ async def _idempotent_execute(
     return result
 
 
+def _normalize_symbols_param(symbols: Union[str, List[str], None]) -> List[str]:
+    """
+    Accepts:
+      - None → []
+      - "BTCUSDT" → ["BTCUSDT"]
+      - "BTCUSDT,ETHUSDT" → ["BTCUSDT","ETHUSDT"]
+      - ["BTCUSDT","ETHUSDT"] → ["BTCUSDT","ETHUSDT"]
+    """
+    if symbols is None:
+        return []
+    if isinstance(symbols, list):
+        raw = symbols
+    else:
+        raw = [symbols]
+    out: List[str] = []
+    for item in raw:
+        if not item:
+            continue
+        parts = str(item).split(",")
+        for p in parts:
+            s = p.strip().upper()
+            if s:
+                out.append(s)
+    seen = set()
+    uniq: List[str] = []
+    for s in out:
+        if s not in seen:
+            seen.add(s)
+            uniq.append(s)
+    return uniq
+
+
+def _enforce_bulk_limit(syms: List[str]) -> None:
+    max_bulk = int(getattr(settings, "max_watchlist_bulk", 50) or 50)
+    if len(syms) > max_bulk:
+        raise HTTPException(status_code=400, detail=f"Too many symbols; max {max_bulk}")
+
+
 # ───────────────────────────── Params ─────────────────────────────
 @router.get("/params")
 async def get_params() -> dict:
@@ -75,8 +125,14 @@ async def start_symbols(
     syms = [str(s).strip().upper() for s in symbols if str(s).strip()]
     if not syms:
         raise HTTPException(status_code=400, detail="No valid symbols provided")
+    _enforce_bulk_limit(syms)
 
     async def _do() -> Dict[str, Any]:
+        # warm up market data (best-effort)
+        try:
+            await ensure_symbols_subscribed(syms)
+        except Exception:
+            pass
         await _engine.start_symbols(syms)
         return {"ok": True, "started": syms}
 
@@ -97,8 +153,15 @@ async def stop_symbols(
     syms = [s.strip().upper() for s in symbols if s and s.strip()]
     if not syms:
         raise HTTPException(status_code=400, detail="Field 'symbols' must be a non-empty list")
+    _enforce_bulk_limit(syms)
 
     async def _do() -> Dict[str, Any]:
+        # ensure we have fresh data if flatten requested
+        if flatten:
+            try:
+                await ensure_symbols_subscribed(syms)
+            except Exception:
+                pass
         await _engine.stop_symbols(syms, flatten=bool(flatten))
         return {"ok": True, "stopped": syms, "flatten": bool(flatten)}
 
@@ -134,24 +197,41 @@ async def get_position(symbol: str = Query(..., description="e.g. HBARUSDT")) ->
     if not sym:
         raise HTTPException(status_code=400, detail="symbol is required")
     port = exec_router.get_port(settings.workspace_id)
-    return await port.get_position(sym)
+    try:
+        return await port.get_position(sym)
+    except Exception:
+        # defensive: never 500 for a bad symbol
+        return {"symbol": sym, "qty": 0.0, "avg_price": 0.0, "unrealized_pnl": 0.0, "realized_pnl": 0.0, "ts_ms": 0}
 
 
 @router.get("/positions")
-async def get_positions(symbols: Optional[List[str]] = Query(None)) -> list[dict]:
+async def get_positions(
+    symbols: Union[str, List[str], None] = Query(
+        None,
+        description="Symbol list; supports repeated keys (?symbols=A&symbols=B) or CSV (?symbols=A,B).",
+    )
+) -> list[dict]:
     """
     Returns positions for provided symbols, or for all known symbols from the quote tracker.
     """
     port = exec_router.get_port(settings.workspace_id)
-    if symbols:
-        syms = [s.strip().upper() for s in symbols if s and s.strip()]
+
+    syms = _normalize_symbols_param(symbols)
+    if syms:
+        _enforce_bulk_limit(syms)
     else:
-        quotes = await bt_service.get_all_quotes()  # use public API
-        syms = [q["symbol"] for q in quotes]
+        try:
+            quotes = await bt_service.get_all_quotes()  # use public API
+            syms = [q["symbol"] for q in quotes]
+        except Exception:
+            syms = []
 
     out: list[dict] = []
     for s in syms:
-        out.append(await port.get_position(s))
+        try:
+            out.append(await port.get_position(s))
+        except Exception:
+            out.append({"symbol": s, "qty": 0.0, "avg_price": 0.0, "unrealized_pnl": 0.0, "realized_pnl": 0.0, "ts_ms": 0})
     return out
 
 
@@ -175,6 +255,9 @@ def _collect_metric_samples(metric) -> list[Dict[str, Any]]:
 
 @router.get("/metrics")
 async def strategy_metrics() -> dict:
+    if not _METRICS_OK:
+        return {"entries": {}, "exits": {}, "open_positions": {}, "realized_pnl": {}}
+
     entries: Dict[str, float] = {}
     for s in _collect_metric_samples(strategy_entries_total):
         sym = s["labels"].get("symbol")

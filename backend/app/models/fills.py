@@ -1,6 +1,6 @@
-# app/models/fills.py
 from __future__ import annotations
 from enum import Enum
+
 from sqlalchemy import (
     Column,
     Integer,
@@ -16,11 +16,11 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_mixin
+
 from app.models.base import Base
 
 
 # ───────────────────────────── Enums ─────────────────────────────
-
 class Liquidity(str, Enum):
     MAKER = "MAKER"
     TAKER = "TAKER"
@@ -32,7 +32,6 @@ class FillSide(str, Enum):
 
 
 # ─────────────────────── Common mixins/columns ───────────────────
-
 @declarative_mixin
 class TimestampsMixin:
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -51,7 +50,6 @@ class RevisionMixin:
 
 
 # ───────────────────────────── Fills ─────────────────────────────
-
 class Fill(Base, TimestampsMixin, RevisionMixin):
     """
     Per-execution record (workspace-scoped).
@@ -85,15 +83,15 @@ class Fill(Base, TimestampsMixin, RevisionMixin):
     exchange_order_id = Column(String(64), nullable=True)
     trade_id = Column(String(64), nullable=True)             # venue trade id if available
 
-    # Timing
-    executed_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # Timing (nullable so executor can pass None; DB default still applies if omitted)
+    executed_at = Column(DateTime(timezone=True), nullable=True, server_default=func.now())
 
     # Optional attribution / notes
     strategy_tag = Column(String(64))
     note = Column(String(255))
 
     __table_args__ = (
-        # ⚠️ Без DEFERRABLE/INITIALLY для совместимости с SQLite
+        # ⚠️ No DEFERRABLE for SQLite compatibility
         UniqueConstraint("workspace_id", "symbol", "trade_id", name="uq_fills_ws_symbol_trade"),
         Index("ix_fills_ws_symbol_time", "workspace_id", "symbol", "executed_at"),
         Index("ix_fills_ws_coid", "workspace_id", "client_order_id"),

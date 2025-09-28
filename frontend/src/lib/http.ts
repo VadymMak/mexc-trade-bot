@@ -1,5 +1,5 @@
 // src/lib/http.ts
-import axios, { AxiosError, AxiosInstance } from "axios";
+import axios, { type AxiosError, type AxiosInstance } from "axios";
 import { useToastStore } from "@/store/toast";
 
 /**
@@ -25,7 +25,10 @@ const http: AxiosInstance = axios.create({
   withCredentials: false, // flip to true only if you start using cookies
   headers: {
     Accept: "application/json",
+    "X-Requested-With": "XMLHttpRequest",
   },
+  // pass through only 2xx by default
+  validateStatus: (status) => status >= 200 && status < 300,
 });
 
 // Strip Content-Type on GET to avoid preflights on some setups
@@ -43,23 +46,42 @@ http.interceptors.response.use(
   (res) => res,
   (error: AxiosError) => {
     // Axios sets code='ECONNABORTED' on timeouts
-    const isTimeout = error.code === "ECONNABORTED" || /timeout/i.test(String(error.message));
+    const isTimeout =
+      error.code === "ECONNABORTED" || /timeout/i.test(String(error.message));
+
     const status = error.response?.status;
     const data = error.response?.data;
 
+    // prefer detail/message fields; gracefully handle arrays/objects
     let detail: string | undefined;
     if (data && typeof data === "object") {
-      const d = (data as Record<string, unknown>).detail;
-      const m = (data as Record<string, unknown>).message;
-      if (typeof d === "string") detail = d;
-      else if (typeof m === "string") detail = m;
+      const d = data as Record<string, unknown>;
+      if (typeof d.detail === "string" && d.detail.trim()) detail = d.detail;
+      else if (typeof d.message === "string" && d.message.trim()) detail = d.message;
+      else if (Array.isArray(d.detail)) {
+        const parts = d.detail
+          .map((it) =>
+            typeof it === "string"
+              ? it
+              : typeof it === "object" && it !== null
+              ? String((it as Record<string, unknown>).message ?? (it as Record<string, unknown>).msg ?? "")
+              : ""
+          )
+          .filter(Boolean);
+        if (parts.length) detail = parts.join("; ");
+      }
     }
 
-    const timeoutMs = typeof http.defaults.timeout === "number" ? http.defaults.timeout : resolveTimeoutMs();
+    const timeoutMs =
+      typeof http.defaults.timeout === "number"
+        ? http.defaults.timeout
+        : resolveTimeoutMs();
+
     const msg =
       detail ??
       (isTimeout ? `timeout of ${timeoutMs}ms exceeded` : error.message ?? "Request failed");
 
+    // fire-and-forget toast (guard if store not ready)
     try {
       useToastStore.getState().add({
         kind: "error",
@@ -68,10 +90,13 @@ http.interceptors.response.use(
         timeoutMs: 5500,
       });
     } catch {
-      /* ignore toast store errors */
+      /* ignore toast store access issues */
     }
 
-    return Promise.reject(new Error(`[${status ?? (isTimeout ? "TIMEOUT" : "ERR")}] ${msg}`));
+    // normalize rejection so callers get a simple Error with user-readable text
+    return Promise.reject(
+      new Error(`[${status ?? (isTimeout ? "TIMEOUT" : "ERR")}] ${msg}`)
+    );
   }
 );
 

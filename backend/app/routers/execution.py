@@ -8,6 +8,9 @@ from fastapi import APIRouter, Body, HTTPException, Path, Query, Header
 from app.config.settings import settings
 from app.execution.router import exec_router
 
+# Subscribe symbols to market data before actions
+from app.services.book_tracker import ensure_symbols_subscribed, get_all_quotes
+
 # Optional idempotency (reuses your StrategyService infra)
 try:
     from app.services.strategy_service import StrategyService
@@ -19,6 +22,14 @@ router = APIRouter(prefix="/api/exec", tags=["execution"])
 
 
 # ---------------------------- helpers ----------------------------
+def _parse_float(v: Any, default: float = 0.0) -> float:
+    try:
+        if v is None or v == "":
+            return default
+        return float(v)
+    except Exception:
+        return default
+
 async def _idempotent(
     op_name: str,
     key: Optional[str],
@@ -40,10 +51,10 @@ async def place_order(
         description=(
             "Example:\n"
             "{\n"
-            '  "symbol": "ATHUSDT",\n'
+            '  "symbol": "BTCUSDT",\n'
             '  "side": "BUY",              // BUY | SELL\n'
-            '  "qty":  10.0,               // base size\n'
-            '  "price": 0.1234,            // optional hint price\n'
+            '  "qty":  0.01,               // base size\n'
+            '  "price": 10000,             // optional hint price (paper) / limit price (live LIMIT)\n'
             '  "tag": "mm"                 // optional tag\n'
             "}\n"
         ),
@@ -52,8 +63,8 @@ async def place_order(
 ) -> dict:
     sym = str(payload.get("symbol", "")).strip().upper()
     side = str(payload.get("side", "")).strip().upper()
-    qty = float(payload.get("qty", 0) or 0)
-    price = float(payload.get("price", 0) or 0)
+    qty = _parse_float(payload.get("qty"), 0.0)
+    price = _parse_float(payload.get("price"), 0.0)
     tag = str(payload.get("tag", "mm"))
 
     if not sym:
@@ -63,13 +74,19 @@ async def place_order(
     if qty <= 0:
         raise HTTPException(status_code=400, detail="qty must be > 0")
 
-    port = exec_router.get_port()  # keep consistent with strategy router usage
+    # make sure data stream is hot for this symbol (best-effort)
+    try:
+        await ensure_symbols_subscribed([sym])
+    except Exception:
+        pass
+
+    port = exec_router.get_port()
 
     async def _act() -> Dict[str, Any]:
         coid = await port.place_maker(sym, side, price, qty, tag=tag)
         if not coid:
-            raise HTTPException(status_code=500, detail="failed to place order")
-        pos = await port.get_position(sym)  # return position snapshot too
+            raise HTTPException(status_code=400, detail="order rejected (risk guard or no price)")
+        pos = await port.get_position(sym)
         return {"ok": True, "client_order_id": coid, "position": pos}
 
     return await _idempotent(
@@ -82,12 +99,18 @@ async def place_order(
 
 @router.post("/flatten/{symbol}")
 async def flatten_symbol(
-    symbol: str = Path(..., description="e.g. HBARUSDT"),
+    symbol: str = Path(..., description="e.g. BTCUSDT"),
     x_idempotency_key: Optional[str] = Header(default=None, alias="X-Idempotency-Key"),
 ) -> dict:
     sym = symbol.strip().upper()
     if not sym:
         raise HTTPException(status_code=400, detail="symbol is required")
+
+    # keep quotes fresh (best-effort)
+    try:
+        await ensure_symbols_subscribed([sym])
+    except Exception:
+        pass
 
     port = exec_router.get_port()
 
@@ -105,10 +128,14 @@ async def flatten_symbol(
 
 
 @router.get("/position/{symbol}")
-async def get_position(symbol: str = Path(..., description="e.g. HBARUSDT")) -> dict:
+async def get_position(symbol: str = Path(..., description="e.g. BTCUSDT")) -> dict:
     sym = symbol.strip().upper()
     if not sym:
         raise HTTPException(status_code=400, detail="symbol is required")
+    try:
+        await ensure_symbols_subscribed([sym])
+    except Exception:
+        pass
     port = exec_router.get_port()
     return await port.get_position(sym)
 
@@ -118,14 +145,28 @@ async def get_positions(symbols: Optional[List[str]] = Query(None)) -> list[dict
     """
     If no symbols are provided, returns positions for all symbols we currently have quotes for.
     """
-    from app.services.book_tracker import get_all_quotes
     port = exec_router.get_port()
 
     if symbols:
-        syms = [s.strip().upper() for s in symbols if s and s.strip()]
+        # normalize + unique
+        seen = set()
+        syms: List[str] = []
+        for s in symbols:
+            if not s:
+                continue
+            ss = s.strip().upper()
+            if ss and ss not in seen:
+                seen.add(ss)
+                syms.append(ss)
     else:
         quotes = await get_all_quotes()
         syms = [q["symbol"] for q in quotes]
+
+    try:
+        if syms:
+            await ensure_symbols_subscribed(syms)
+    except Exception:
+        pass
 
     out: list[dict] = []
     for s in syms:

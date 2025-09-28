@@ -1,26 +1,36 @@
-import http from "@/lib/http";
-import type { StrategyMetricsJSON, Position } from "@/types/api";
+// src/hooks/useApi.ts
 
-export async function apiStartSymbols(symbols: string[]) {
-  await http.post("/api/strategy/start", { symbols });
-}
+export {
+  // strategy control
+  apiStartSymbols,
+  apiStopSymbols,
+  apiStopAll,
 
-export async function apiStopSymbols(symbols: string[], flatten = false) {
-  await http.post("/api/strategy/stop", { symbols, flatten });
-}
+  // strategy params
+  getStrategyParams,
+  setStrategyParams,
+  type StrategyParams,
 
-export async function apiStopAll(flatten = false) {
-  await http.post("/api/strategy/stop-all", { flatten });
-}
+  // watchlist
+  apiWatchlistBulk,
 
-export async function apiGetPositions(symbols: string[]): Promise<Position[]> {
-  const params = new URLSearchParams();
-  for (const s of symbols) params.append("symbols", s);
-  const res = await http.get<Position[]>("/api/strategy/positions", { params });
-  return res.data;
-}
+  // positions / metrics
+  apiGetPositions,
+  apiGetAllPositions,
+  apiGetExecPositions,
+  apiGetPosition,
+  apiGetMetrics,
 
-export async function apiGetMetrics(): Promise<StrategyMetricsJSON> {
-  const res = await http.get<StrategyMetricsJSON>("/api/strategy/metrics");
-  return res.data;
-}
+  // UI snapshot
+  apiGetUISnapshot,
+
+  // execution
+  apiPlaceOrder,
+  apiFlatten,
+  apiCancel,
+
+  // response types
+  type StrategyStartResponse,
+  type StrategyStopResponse,
+  type StopAllResponse,
+} from "@/api/api";

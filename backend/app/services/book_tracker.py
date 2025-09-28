@@ -2,35 +2,101 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
+from contextlib import suppress  # ✅ always available
 from typing import Any, Dict, List, Optional, Sequence, Tuple, AsyncGenerator, Set
+
+import httpx  # ✅ move to top for static analyzers
+
+from app.config.settings import settings
+
+
+# ----- provider helpers -----
+def _provider() -> str:
+    try:
+        ap = getattr(settings, "active_provider", None)
+        if ap:
+            return str(ap).upper()
+        return (settings.exchange_provider or "").upper()
+    except Exception:
+        return (os.getenv("ACTIVE_PROVIDER", "") or os.getenv("EXCHANGE_PROVIDER", "") or "").upper()
+
+
+def _mode() -> str:
+    try:
+        am = getattr(settings, "active_mode", None)
+        if am:
+            return str(am).lower()
+        return (settings.account_mode or "").lower()
+    except Exception:
+        return (os.getenv("ACTIVE_MODE", "") or os.getenv("ACCOUNT_MODE", "") or "").lower()
+
+
+def _is_mexc() -> bool:
+    return _provider() == "MEXC"
+
+
+def _is_binance() -> bool:
+    return _provider() == "BINANCE"
+
+
+def _is_gate() -> bool:
+    p = _provider()
+    return p in {"GATE", "GATEIO", "GATE.IO", "GATEIO_SPOT"}
+
+
+def _rest_base_url() -> str:
+    if _is_binance():
+        return getattr(settings, "binance_rest_base", None) or os.getenv(
+            "BINANCE_REST_BASE", "https://testnet.binance.vision"
+        )
+    if _is_gate():
+        demo = _mode() in {"demo", "paper", "test", "testnet"}
+        if demo:
+            return getattr(settings, "gate_testnet_rest_base", None) or os.getenv(
+                "GATE_TESTNET_REST_BASE", "https://api-testnet.gateapi.io/api/v4"
+            )
+        else:
+            return getattr(settings, "gate_rest_base", None) or os.getenv(
+                "GATE_REST_BASE", "https://api.gateio.ws/api/v4"
+            )
+    rb = getattr(settings, "rest_base_url", None) or os.getenv("REST_BASE_URL") or ""
+    return rb or "https://api.mexc.com"
+
+
+# ----- Gate symbol mapping -----
+def _to_gate_pair(sym: str) -> str:
+    s = (sym or "").upper().strip()
+    if "_" in s:
+        return s
+    for q in ("USDT", "USD", "BTC", "ETH"):
+        if s.endswith(q):
+            base = s[: -len(q)]
+            return f"{base}_{q}"
+    if len(s) > 4:
+        return f"{s[:-4]}_{s[-4:]}"
+    return s
+
+
+def _from_gate_pair(pair: str) -> str:
+    return (pair or "").replace("_", "").upper()
+
 
 # Try full tracker first; fallback to a minimal one if unavailable.
 try:
     from app.market_data.book_tracker import (
-        book_tracker,            # singleton BookTracker (subscribe/unsubscribe, etc.)
+        book_tracker,
         on_book_ticker as _on_bt,
         on_partial_depth as _on_depth,
     )
 except Exception:
-    # ── Minimal fallback (lets the app boot without market_data.*) ──
     class _MiniBookTracker:
-        """
-        Minimal L1/L2 quote tracker with subscriptions.
-        API surface used by the app:
-          - subscribe() -> asyncio.Queue[dict]
-          - unsubscribe(queue)
-          - update_book_ticker(...)
-          - update_partial_depth(...)
-          - get_quote(symbol)
-          - get_quotes(symbols?)
-        """
         def __init__(self) -> None:
             self._lock = asyncio.Lock()
             self._quotes: Dict[str, Dict[str, Any]] = {}
             self._subscribers: List[asyncio.Queue[Dict[str, Any]]] = []
 
-        # ----- subscriptions -----
         async def subscribe(self) -> asyncio.Queue[Dict[str, Any]]:
             q: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
             async with self._lock:
@@ -39,21 +105,16 @@ except Exception:
 
         async def unsubscribe(self, q: asyncio.Queue[Dict[str, Any]]) -> None:
             async with self._lock:
-                try:
+                with suppress(ValueError):
                     self._subscribers.remove(q)
-                except ValueError:
-                    pass
 
         async def _broadcast(self, evt: Dict[str, Any]) -> None:
             async with self._lock:
                 subs = list(self._subscribers)
             for qq in subs:
-                try:
+                with suppress(Exception):
                     qq.put_nowait(dict(evt))
-                except Exception:
-                    pass  # never break on client queue issues
 
-        # ----- L1 update -----
         async def update_book_ticker(
             self,
             symbol: str,
@@ -75,17 +136,13 @@ except Exception:
             }
             async with self._lock:
                 prev = self._quotes.get(sym) or {}
-                # keep existing depth arrays if any
-                bids = prev.get("bids")
-                asks = prev.get("asks")
-                if bids is not None:
-                    evt["bids"] = bids
-                if asks is not None:
-                    evt["asks"] = asks
+                if "bids" in prev:
+                    evt["bids"] = prev["bids"]
+                if "asks" in prev:
+                    evt["asks"] = prev["asks"]
                 self._quotes[sym] = evt
             await self._broadcast(evt)
 
-        # ----- L2 update -----
         async def update_partial_depth(
             self,
             symbol: str,
@@ -94,16 +151,8 @@ except Exception:
             ts_ms: Optional[int] = None,
             keep_levels: int = 10,
         ) -> None:
-            """
-            Store top-of-book levels (price, qty). We sort:
-              - bids: by price DESC
-              - asks: by price ASC
-            and clip to keep_levels.
-            """
             sym = (symbol or "").upper()
             ts = ts_ms if ts_ms is not None else int(time.time() * 1000)
-
-            # normalize & sort (keep only positive price/qty)
             nbids = sorted(
                 [(float(p), float(q)) for p, q in bids if (p > 0 and q > 0)],
                 key=lambda x: x[0],
@@ -113,24 +162,18 @@ except Exception:
                 [(float(p), float(q)) for p, q in asks if (p > 0 and q > 0)],
                 key=lambda x: x[0],
             )[:keep_levels]
-
             async with self._lock:
                 entry = dict(self._quotes.get(sym) or {})
                 entry["bids"] = nbids
                 entry["asks"] = nasks
-                # derive L1 if missing
                 if "bid" not in entry and nbids:
-                    entry["bid"] = nbids[0][0]
-                    entry["bidQty"] = nbids[0][1]
+                    entry["bid"], entry["bidQty"] = nbids[0]
                 if "ask" not in entry and nasks:
-                    entry["ask"] = nasks[0][0]
-                    entry["askQty"] = nasks[0][1]
+                    entry["ask"], entry["askQty"] = nasks[0]
                 entry["ts_ms"] = int(ts)
                 self._quotes[sym] = entry
-
             await self._broadcast({"symbol": sym, **self._quotes[sym]})
 
-        # ----- reads -----
         async def get_quote(self, symbol: str) -> Dict[str, Any]:
             async with self._lock:
                 return dict(self._quotes.get((symbol or "").upper(), {}))
@@ -139,8 +182,7 @@ except Exception:
             async with self._lock:
                 if not symbols:
                     return [dict(v) for v in self._quotes.values()]
-                sel: List[str] = []
-                seen: Set[str] = set()
+                sel, seen = [], set()
                 for s in symbols:
                     sym = (s or "").upper()
                     if sym and sym not in seen:
@@ -148,47 +190,48 @@ except Exception:
                         sel.append(sym)
                 return [dict(v) for k, v in self._quotes.items() if k in sel]
 
+        def reset(self) -> None:
+            self._quotes.clear()
+
     book_tracker = _MiniBookTracker()  # type: ignore
 
-    async def _on_bt(symbol: str, bid: float, bid_qty: float, ask: float, ask_qty: float, ts_ms: Optional[int]) -> None:
+    async def _on_bt(
+        symbol: str,
+        bid: float,
+        bid_qty: float,
+        ask: float,
+        ask_qty: float,
+        ts_ms: Optional[int],
+    ) -> None:
         await book_tracker.update_book_ticker(symbol, bid, bid_qty, ask, ask_qty, ts_ms=ts_ms)
 
-    async def _on_depth(symbol: str, bids: Sequence[Tuple[float, float]], asks: Sequence[Tuple[float, float]], ts_ms: Optional[int]) -> None:
+    async def _on_depth(
+        symbol: str,
+        bids: Sequence[Tuple[float, float]],
+        asks: Sequence[Tuple[float, float]],
+        ts_ms: Optional[int],
+    ) -> None:
         await book_tracker.update_partial_depth(symbol, bids, asks, ts_ms=ts_ms, keep_levels=10)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
-
 def _with_derived(q: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Stable shape for UI & executors with derived metrics.
-    Keys: symbol, bid, ask, bidQty, askQty, ts_ms, mid, spread, spread_bps
-    Also passes through 'bids'/'asks' when present.
-    """
     if not q:
         return {}
-
     sym = (q.get("symbol") or "").upper()
     bid = float(q.get("bid") or 0.0)
     ask = float(q.get("ask") or 0.0)
     bid_qty = float(q.get("bidQty") or q.get("bid_qty") or 0.0)
     ask_qty = float(q.get("askQty") or q.get("ask_qty") or 0.0)
-
-    # Only set a "now" timestamp if we actually have a price; otherwise keep 0
     ts_raw = q.get("ts_ms") or q.get("ts") or 0
     try:
         ts_i = int(ts_raw)
     except Exception:
         ts_i = 0
-    if (bid > 0.0 or ask > 0.0):
-        ts_ms = ts_i if ts_i > 0 else int(time.time() * 1000)
-    else:
-        ts_ms = 0
-
+    ts_ms = ts_i if ts_i > 0 and (bid > 0.0 or ask > 0.0) else (int(time.time() * 1000) if (bid > 0.0 or ask > 0.0) else 0)
     mid = (bid + ask) * 0.5 if (bid > 0.0 and ask > 0.0) else (bid or ask or 0.0)
     spread = (ask - bid) if (ask > 0.0 and bid > 0.0) else 0.0
     spread_bps = (spread / mid * 1e4) if mid > 0 else 0.0
-
     out: Dict[str, Any] = {
         "symbol": sym,
         "bid": bid,
@@ -204,28 +247,24 @@ def _with_derived(q: Dict[str, Any]) -> Dict[str, Any]:
         out["bids"] = q["bids"]
     if "asks" in q:
         out["asks"] = q["asks"]
+    try:
+        bq = float(out.get("bidQty", 0.0))
+        aq = float(out.get("askQty", 0.0))
+        out["imbalance"] = (bq / (bq + aq)) if (bq > 0.0 or aq > 0.0) else 0.5
+    except Exception:
+        out["imbalance"] = 0.5
     return out
 
 
 async def on_book_ticker(
-    symbol: str,
-    bid: float,
-    bid_qty: float,
-    ask: float,
-    ask_qty: float,
-    ts_ms: Optional[int] = None,
+    symbol: str, bid: float, bid_qty: float, ask: float, ask_qty: float, ts_ms: Optional[int] = None
 ) -> None:
-    """WS/REST callback → updates top-of-book."""
     await _on_bt(symbol, bid, bid_qty, ask, ask_qty, ts_ms)
 
 
 async def on_partial_depth(
-    symbol: str,
-    bids: Sequence[Tuple[float, float]],
-    asks: Sequence[Tuple[float, float]],
-    ts_ms: Optional[int] = None,
+    symbol: str, bids: Sequence[Tuple[float, float]], asks: Sequence[Tuple[float, float]], ts_ms: Optional[int] = None
 ) -> None:
-    """WS/REST callback → updates L2 (if enabled)."""
     await _on_depth(symbol, bids, asks, ts_ms)
 
 
@@ -236,14 +275,12 @@ async def get_quote(symbol: str) -> Dict[str, Any]:
 
 async def get_all_quotes(symbols: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
     raws = await book_tracker.get_quotes(symbols)
-    out: List[Dict[str, Any]] = []
-    seen: Set[str] = set()
+    out, seen = [], set()
     for q in raws:
         sym = (q.get("symbol") or "").upper()
         if not sym or sym in seen:
             continue
         qd = _with_derived(q)
-        # Filter out placeholders (bid==ask==0).
         if (qd.get("bid", 0.0) > 0.0) or (qd.get("ask", 0.0) > 0.0):
             out.append(qd)
             seen.add(sym)
@@ -251,17 +288,10 @@ async def get_all_quotes(symbols: Optional[Sequence[str]] = None) -> List[Dict[s
 
 
 # ── Coalesced streaming for SSE ─────────────────────────────────────────────
-
-# ── Coalesced streaming for SSE ─────────────────────────────────────────────
-async def stream_quote_batches(
-    symbols: Sequence[str],
-    interval_ms: int = 500,
-) -> AsyncGenerator[List[Dict[str, Any]], None]:
+async def stream_quote_batches(symbols: Sequence[str], interval_ms: int = 500) -> AsyncGenerator[List[Dict[str, Any]], None]:
     """
-    Yield latest quotes every interval_ms, already normalized with _with_derived.
-    Ensures each yielded quote carries L2 ('bids'/'asks'):
-      1) try from tracker cache,
-      2) if still missing, fetch from REST depth and attach (best-effort).
+    Yield latest quotes every interval_ms, normalized with _with_derived.
+    Ensures ingestion for requested symbols even if settings.symbols is empty.
     """
     # Normalize/unique symbols once
     want: List[str] = []
@@ -272,12 +302,18 @@ async def stream_quote_batches(
             seen_syms.add(sym)
             want.append(sym)
 
+    # Ensure ingestion (WS or REST)
+    if want:
+        try:
+            await ensure_symbols_subscribed(want)
+        except Exception:
+            pass  # best-effort
+
     queue: asyncio.Queue[Dict[str, Any]] = await book_tracker.subscribe()
     try:
         latest: Dict[str, Dict[str, Any]] = {}
 
         async def drain_once(timeout: float) -> None:
-            """Drain updates for 'timeout' seconds, keep only the latest per symbol."""
             loop = asyncio.get_event_loop()
             deadline = loop.time() + timeout
             while True:
@@ -291,17 +327,12 @@ async def stream_quote_batches(
                 sym = (evt.get("symbol") or "").upper()
                 if not sym or (want and sym not in want):
                     continue
-                latest[sym] = evt  # keep the most recent per symbol
+                latest[sym] = evt  # keep most recent per symbol
 
         period = max(0.05, min(interval_ms / 1000.0, 60.0))
 
-        # Reuse one HTTP client for depth lookups while this generator is alive
-        import httpx  # already imported at module scope, but safe here too
-        async with httpx.AsyncClient(
-            base_url="https://api.mexc.com",
-            headers={"Accept": "application/json"},
-            timeout=5.0,
-        ) as depth_client:
+        rest_base = _rest_base_url()
+        async with httpx.AsyncClient(base_url=rest_base, headers={"Accept": "application/json"}, timeout=5.0) as depth_client:
             while True:
                 await drain_once(period)
 
@@ -309,7 +340,8 @@ async def stream_quote_batches(
                     batch = await get_all_quotes(want)
                 else:
                     batch = [
-                        q for q in (_with_derived(v) for v in latest.values())
+                        q
+                        for q in (_with_derived(v) for v in latest.values())
                         if (q.get("bid", 0.0) > 0.0) or (q.get("ask", 0.0) > 0.0)
                     ]
                     latest.clear()
@@ -317,12 +349,12 @@ async def stream_quote_batches(
                 if not batch:
                     continue
 
-                # Try to enrich from tracker first
+                # Attach L2 from cache if present
                 need_l2 = [q["symbol"] for q in batch if not q.get("bids") or not q.get("asks")]
                 if need_l2:
                     try:
                         raws = await book_tracker.get_quotes(need_l2)  # type: ignore[attr-defined]
-                        by_sym = { (r.get("symbol") or "").upper(): r for r in raws }
+                        by_sym = {(r.get("symbol") or "").upper(): r for r in raws}
                         for q in batch:
                             raw = by_sym.get(q["symbol"])
                             if not raw:
@@ -332,24 +364,20 @@ async def stream_quote_batches(
                             if raw.get("asks") and not q.get("asks"):
                                 q["asks"] = raw["asks"]
                     except Exception:
-                        pass  # best-effort
+                        pass
 
-                # If still missing, fetch from REST and attach + persist via _on_depth
+                # Fill remaining L2 via REST (best effort)
                 still_missing = [q["symbol"] for q in batch if not q.get("bids") or not q.get("asks")]
                 if still_missing:
                     try:
-                        tasks = [asyncio.create_task(_fetch_depth(depth_client, s, limit=10)) for s in still_missing]
+                        tasks = [asyncio.create_task(_fetch_depth_generic(depth_client, s, limit=10)) for s in still_missing]
                         results = await asyncio.gather(*tasks, return_exceptions=True)
                         for res in results:
                             if isinstance(res, Exception) or res is None:
                                 continue
                             sym = (res.get("symbol") or "").upper()
-                            # write back to tracker so future snapshots have L2 immediately
-                            try:
+                            with suppress(Exception):
                                 await _on_depth(sym, res.get("bids", []), res.get("asks", []), ts_ms=res.get("ts_ms"))
-                            except Exception:
-                                pass
-                            # attach to the batch we are about to yield
                             for q in batch:
                                 if q["symbol"] == sym:
                                     if res.get("bids"):
@@ -357,19 +385,15 @@ async def stream_quote_batches(
                                     if res.get("asks"):
                                         q["asks"] = res["asks"]
                     except Exception:
-                        pass  # best-effort depth fill
+                        pass
 
-                # Only yield if we have quotes (with or without L2). UI will use L2 when present.
                 if batch:
                     yield batch
     finally:
         await book_tracker.unsubscribe(queue)
 
 
-
 # ── WS manager + REST fallback ──────────────────────────────────────────────
-
-# WS client (preferred)
 try:
     from app.market_data.ws_client import (
         MEXCWebSocketClient as _WSClient,
@@ -379,23 +403,19 @@ except Exception:
     _WSClient = None
     _WS_PROTO_OK = False
 
-# REST fallback
-import httpx
-
 _REST_POLL_TASK: Optional[asyncio.Task[None]] = None
 _SUBSCRIBED: Set[str] = set()
 
 _WS_TASK: Optional[asyncio.Task[None]] = None
-_WS_CLIENT: Optional[Any] = None   # instance of MEXCWebSocketClient when WS is used
+_WS_CLIENT: Optional[Any] = None
 _WS_WANTED: Set[str] = set()
 _WS_RUNNING: Set[str] = set()
 
-# Depth refresher (active in WS mode to guarantee L2 updates)
 _DEPTH_TASK: Optional[asyncio.Task[None]] = None
 _DEPTH_SUBSCRIBED: Set[str] = set()
 
 
-async def _fetch_ticker(client: httpx.AsyncClient, symbol: str) -> Optional[Dict[str, Any]]:
+async def _fetch_ticker_binance_mexc(client: httpx.AsyncClient, symbol: str) -> Optional[Dict[str, Any]]:
     try:
         r = await client.get("/api/v3/ticker/bookTicker", params={"symbol": symbol}, timeout=5.0)
         if r.status_code != 200:
@@ -411,7 +431,7 @@ async def _fetch_ticker(client: httpx.AsyncClient, symbol: str) -> Optional[Dict
         return None
 
 
-async def _fetch_depth(client: httpx.AsyncClient, symbol: str, limit: int = 10) -> Optional[Dict[str, Any]]:
+async def _fetch_depth_binance_mexc(client: httpx.AsyncClient, symbol: str, limit: int = 10) -> Optional[Dict[str, Any]]:
     try:
         r = await client.get("/api/v3/depth", params={"symbol": symbol, "limit": limit}, timeout=5.0)
         if r.status_code != 200:
@@ -422,27 +442,83 @@ async def _fetch_depth(client: httpx.AsyncClient, symbol: str, limit: int = 10) 
         bids: List[Tuple[float, float]] = []
         asks: List[Tuple[float, float]] = []
         for it in bids_raw:
-            try:
-                p = float(it[0]); q = float(it[1])
+            with suppress(Exception):
+                p = float(it[0])
+                q = float(it[1])
                 if p > 0 and q > 0:
                     bids.append((p, q))
-            except Exception:
-                continue
         for it in asks_raw:
-            try:
-                p = float(it[0]); q = float(it[1])
+            with suppress(Exception):
+                p = float(it[0])
+                q = float(it[1])
                 if p > 0 and q > 0:
                     asks.append((p, q))
-            except Exception:
-                continue
         ts_ms = int(time.time() * 1000)
         return {"symbol": symbol, "bids": bids, "asks": asks, "ts_ms": ts_ms}
     except Exception:
         return None
 
 
+async def _fetch_ticker_gate(client: httpx.AsyncClient, symbol: str) -> Optional[Dict[str, Any]]:
+    try:
+        pair = _to_gate_pair(symbol)
+        r = await client.get("/spot/tickers", params={"currency_pair": pair}, timeout=6.0)
+        if r.status_code != 200:
+            return None
+        j = r.json()
+        if isinstance(j, list) and j:
+            j = j[0]
+        bid = float(j.get("highest_bid") or 0.0)
+        ask = float(j.get("lowest_ask") or 0.0)
+        ts_ms = int(time.time() * 1000)
+        return {"symbol": symbol, "bid": bid, "ask": ask, "bidQty": 0.0, "askQty": 0.0, "ts_ms": ts_ms}
+    except Exception:
+        return None
+
+
+async def _fetch_depth_gate(client: httpx.AsyncClient, symbol: str, limit: int = 10) -> Optional[Dict[str, Any]]:
+    try:
+        pair = _to_gate_pair(symbol)
+        r = await client.get("/spot/order_book", params={"currency_pair": pair, "limit": limit}, timeout=6.0)
+        if r.status_code != 200:
+            return None
+        j = r.json()
+        bids_raw = j.get("bids") or []
+        asks_raw = j.get("asks") or []
+        bids: List[Tuple[float, float]] = []
+        asks: List[Tuple[float, float]] = []
+        for it in bids_raw:
+            with suppress(Exception):
+                p = float(it[0])
+                q = float(it[1])
+                if p > 0 and q > 0:
+                    bids.append((p, q))
+        for it in asks_raw:
+            with suppress(Exception):
+                p = float(it[0])
+                q = float(it[1])
+                if p > 0 and q > 0:
+                    asks.append((p, q))
+        ts_ms = int(time.time() * 1000)
+        return {"symbol": symbol, "bids": bids, "asks": asks, "ts_ms": ts_ms}
+    except Exception:
+        return None
+
+
+async def _fetch_ticker_generic(client: httpx.AsyncClient, symbol: str) -> Optional[Dict[str, Any]]:
+    if _is_gate():
+        return await _fetch_ticker_gate(client, symbol)
+    return await _fetch_ticker_binance_mexc(client, symbol)
+
+
+async def _fetch_depth_generic(client: httpx.AsyncClient, symbol: str, limit: int = 10) -> Optional[Dict[str, Any]]:
+    if _is_gate():
+        return await _fetch_depth_gate(client, symbol, limit=limit)
+    return await _fetch_depth_binance_mexc(client, symbol, limit=limit)
+
+
 async def _rest_poller_loop() -> None:
-    base = "https://api.mexc.com"
+    base = _rest_base_url()
     depth_min_period_s = 0.8
     last_depth_at: Dict[str, float] = {}
     try:
@@ -453,9 +529,9 @@ async def _rest_poller_loop() -> None:
                     await asyncio.sleep(0.5)
                     continue
 
-                # ticker batch
-                ticker_tasks = [asyncio.create_task(_fetch_ticker(client, s)) for s in syms]
+                ticker_tasks = [asyncio.create_task(_fetch_ticker_generic(client, s)) for s in syms]
                 ticker_res = await asyncio.gather(*ticker_tasks, return_exceptions=True)
+
                 now_ms = int(time.time() * 1000)
                 for res in ticker_res:
                     if isinstance(res, Exception) or res is None:
@@ -470,25 +546,20 @@ async def _rest_poller_loop() -> None:
                         ts_ms=tick.get("ts_ms", now_ms),
                     )
 
-                # depth batch
                 depth_tasks: List[asyncio.Task[Optional[Dict[str, Any]]]] = []
                 now = time.monotonic()
                 for s in syms:
                     if now - last_depth_at.get(s, 0.0) >= depth_min_period_s:
                         last_depth_at[s] = now
-                        depth_tasks.append(asyncio.create_task(_fetch_depth(client, s, limit=10)))
+                        depth_tasks.append(asyncio.create_task(_fetch_depth_generic(client, s, limit=10)))
+
                 if depth_tasks:
                     depth_res = await asyncio.gather(*depth_tasks, return_exceptions=True)
                     for res in depth_res:
                         if isinstance(res, Exception) or res is None:
                             continue
                         d = res
-                        await _on_depth(
-                            d["symbol"],
-                            d.get("bids", []),
-                            d.get("asks", []),
-                            ts_ms=d.get("ts_ms"),
-                        )
+                        await _on_depth(d["symbol"], d.get("bids", []), d.get("asks", []), ts_ms=d.get("ts_ms"))
 
                 await asyncio.sleep(0.5)
     except asyncio.CancelledError:
@@ -498,11 +569,7 @@ async def _rest_poller_loop() -> None:
 
 
 async def _depth_refresher_loop() -> None:
-    """
-    WS mode depth drip: fetch /depth periodically so L2 is always populated
-    even if the WS client doesn't deliver DEPTH messages.
-    """
-    base = "https://api.mexc.com"
+    base = _rest_base_url()
     min_period_s = 0.9
     last_at: Dict[str, float] = {}
     try:
@@ -517,7 +584,7 @@ async def _depth_refresher_loop() -> None:
                 for s in syms:
                     if now - last_at.get(s, 0.0) >= min_period_s:
                         last_at[s] = now
-                        tasks.append(asyncio.create_task(_fetch_depth(client, s, limit=10)))
+                        tasks.append(asyncio.create_task(_fetch_depth_generic(client, s, limit=10)))
                 if tasks:
                     res = await asyncio.gather(*tasks, return_exceptions=True)
                     for r in res:
@@ -532,11 +599,10 @@ async def _depth_refresher_loop() -> None:
 
 
 async def _rest_seed_symbols(symbols: Sequence[str]) -> None:
-    """Best-effort single-pass L1+L2 seed, used in both WS and REST modes."""
+    base = _rest_base_url()
     try:
-        async with httpx.AsyncClient(base_url="https://api.mexc.com", headers={"Accept": "application/json"}) as client:
-            # L1
-            t_tasks = [asyncio.create_task(_fetch_ticker(client, s)) for s in symbols]
+        async with httpx.AsyncClient(base_url=base, headers={"Accept": "application/json"}) as client:
+            t_tasks = [asyncio.create_task(_fetch_ticker_generic(client, s)) for s in symbols]
             ticks = await asyncio.gather(*t_tasks, return_exceptions=True)
             now_ms = int(time.time() * 1000)
             for res in ticks:
@@ -551,8 +617,7 @@ async def _rest_seed_symbols(symbols: Sequence[str]) -> None:
                     tick.get("askQty", 0.0),
                     ts_ms=tick.get("ts_ms", now_ms),
                 )
-            # L2
-            d_tasks = [asyncio.create_task(_fetch_depth(client, s, limit=10)) for s in symbols]
+            d_tasks = [asyncio.create_task(_fetch_depth_generic(client, s, limit=10)) for s in symbols]
             deps = await asyncio.gather(*d_tasks, return_exceptions=True)
             for res in deps:
                 if isinstance(res, Exception) or res is None:
@@ -567,10 +632,8 @@ async def _stop_rest_poller() -> None:
     global _REST_POLL_TASK
     if _REST_POLL_TASK and not _REST_POLL_TASK.done():
         _REST_POLL_TASK.cancel()
-        try:
+        with suppress(Exception):
             await _REST_POLL_TASK
-        except Exception:
-            pass
     _REST_POLL_TASK = None
 
 
@@ -584,10 +647,8 @@ async def _stop_depth_refresher() -> None:
     global _DEPTH_TASK, _DEPTH_SUBSCRIBED
     if _DEPTH_TASK and not _DEPTH_TASK.done():
         _DEPTH_TASK.cancel()
-        try:
+        with suppress(Exception):
             await _DEPTH_TASK
-        except Exception:
-            pass
     _DEPTH_TASK = None
     _DEPTH_SUBSCRIBED.clear()
 
@@ -602,18 +663,17 @@ async def _stop_ws() -> None:
     global _WS_TASK, _WS_CLIENT, _WS_RUNNING
     if _WS_TASK and not _WS_TASK.done():
         _WS_TASK.cancel()
-        try:
+        with suppress(Exception):
             await _WS_TASK
-        except Exception:
-            pass
     _WS_TASK = None
     _WS_CLIENT = None
     _WS_RUNNING = set()
 
 
 async def _start_ws(symbols: Set[str]) -> None:
-    """Start a new WS client for the given symbol set (restarts if running)."""
     global _WS_TASK, _WS_CLIENT, _WS_RUNNING
+    if not _is_mexc():
+        return
     if not _WSClient or not _WS_PROTO_OK:
         return
     await _stop_ws()
@@ -623,33 +683,35 @@ async def _start_ws(symbols: Set[str]) -> None:
 
 
 async def ensure_symbols_subscribed(symbols: Sequence[str]) -> None:
-    """
-    Make sure we are ingesting updates for requested symbols.
-    Prefer WS feed if protobuf decoders are available; otherwise use REST poller.
-    Also seeds L1/L2 immediately for better snapshots.
-    """
-    # normalize/unique
     norm: Set[str] = set((s or "").upper() for s in symbols if (s or "").strip())
     if not norm:
         return
-
-    # Prefer WS when available
-    if _WSClient and _WS_PROTO_OK:
+    if _is_mexc() and _WSClient and _WS_PROTO_OK:
         _WS_WANTED.update(norm)
-        if (_WS_TASK is None or _WS_TASK.done()) or (not _WS_WANTED.issubset(_WS_RUNNING) or not _WS_RUNNING.issubset(_WS_WANTED)):
+        if (_WS_TASK is None or _WS_TASK.done()) or (
+            not _WS_WANTED.issubset(_WS_RUNNING) or not _WS_RUNNING.issubset(_WS_WANTED)
+        ):
             await _start_ws(_WS_WANTED)
-        # Seed immediately so first snapshot has L1+L2
         await _rest_seed_symbols(list(norm))
-        # Ensure REST ticker poller is off
         await _stop_rest_poller()
-        # Start depth refresher in WS mode (guarantees L2 updates)
         _DEPTH_SUBSCRIBED.update(norm)
         await _start_depth_refresher()
         return
-
-    # Otherwise: REST fallback (start poller and seed once)
     _SUBSCRIBED.update(norm)
     await _start_rest_poller()
     await _rest_seed_symbols(list(norm))
-    # No extra depth refresher in REST mode (poller already does depth)
     await _stop_depth_refresher()
+
+
+# ── reset hook for provider switching ────────────────────────────────────────
+def reset() -> None:
+    _SUBSCRIBED.clear()
+    _WS_WANTED.clear()
+    _WS_RUNNING.clear()
+    _DEPTH_SUBSCRIBED.clear()
+    try:
+        reset_fn = getattr(book_tracker, "reset", None)
+        if callable(reset_fn):
+            reset_fn()
+    except Exception:
+        pass

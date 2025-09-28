@@ -2,15 +2,36 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from dataclasses import dataclass
-from decimal import Decimal, getcontext
-from typing import Callable, Dict, Optional, Protocol
+from decimal import Decimal, getcontext, ROUND_DOWN
+from typing import Any, Dict, Optional, Protocol, Tuple
 
+from sqlalchemy.orm import Session
+
+from app.config.settings import settings
 from app.services import book_tracker as bt_service
+from app.services.book_tracker import ensure_symbols_subscribed
 from app.models.orders import Order, OrderSide, OrderType, OrderStatus, TimeInForce
 from app.models.fills import Fill, FillSide, Liquidity
 from app.models.positions import Position, PositionSide, PositionStatus
+
+# PnL service (for ledger writes + SSE pnl_tick)
+from datetime import datetime
+from app.pnl.service import PnlService
+
+class PositionTrackerProto(Protocol):
+    def on_fill(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        qty: Decimal,
+        price: Decimal,
+        ts_ms: int,
+        strategy_tag: str,
+    ) -> None: ...
 
 # Use sane precision for price/qty math (matches Numeric(28,12))
 getcontext().prec = 34
@@ -19,15 +40,14 @@ getcontext().prec = 34
 @dataclass
 class MemPosition:
     symbol: str
-    qty: Decimal = Decimal("0")        # >0 long, <0 short (we only open long in paper)
+    qty: Decimal = Decimal("0")        # >0 long, <0 short (paper keeps long-only)
     avg_price: Decimal = Decimal("0")
     realized_pnl: Decimal = Decimal("0")
     ts_ms: int = 0
 
 
 class SessionFactory(Protocol):
-    """A Protocol so any callable returning a SQLAlchemy Session fits."""
-    def __call__(self):
+    def __call__(self) -> Session:
         ...
 
 
@@ -43,68 +63,150 @@ def _dec(x: float | str | Decimal | None) -> Decimal:
     return Decimal(str(x))
 
 
+# ---------- rounding helpers (paper-friendly defaults) ----------
+def _price_places(symbol: str) -> int:
+    s = symbol.upper()
+    return 2 if s.endswith("USDT") else 6
+
+
+def _qty_places(symbol: str) -> int:
+    return 6
+
+
+def _qty_quantum(symbol: str) -> Decimal:
+    return Decimal("1").scaleb(-_qty_places(symbol))  # e.g. 1e-6
+
+
+def _round_price(symbol: str, price: Decimal) -> Decimal:
+    if price <= 0:
+        return Decimal("0")
+    places = _price_places(symbol)
+    quant = Decimal("1").scaleb(-places)
+    return price.quantize(quant, rounding=ROUND_DOWN)
+
+
+def _round_qty(symbol: str, qty: Decimal) -> Decimal:
+    if qty <= 0:
+        return Decimal("0")
+    quant = _qty_quantum(symbol)
+    rounded = qty.quantize(quant, rounding=ROUND_DOWN)
+    if rounded <= 0 and qty > 0:
+        rounded = quant
+    return rounded
+
+
+def _split_symbol(symbol: str) -> Tuple[str, str]:
+    s = symbol.upper()
+    for tail in ("USDT", "USDC", "FDUSD", "BUSD"):
+        if s.endswith(tail):
+            return s[:-len(tail)], tail
+    return s[:-3] or s, s[-3:] or "USDT"
+
+
+# ---------- debug helpers ----------
+def _dbg_enabled() -> bool:
+    return str(os.getenv("PAPER_DEBUG", "0")).lower() in {"1", "true", "yes", "on"}
+
+
+def _dbg(msg: str) -> None:
+    if _dbg_enabled():
+        print(f"[PAPER] {msg}")
+
+
 class PaperExecutor:
     """
-    Paper execution simulator with DB persistence:
-      - place_maker("BUY") fills at best bid; "SELL" fills at best ask (instant fill).
-      - flatten_symbol() sells any open long at best ask.
-      - cancel_orders() is a no-op (no queue modeled).
-    Persistence:
-      - Writes Order (status=FILLED), Fill, and updates/creates Position.
+    Paper execution simulator with DB persistence.
+    Guards:
+      - Global exposure cap via settings.max_exposure_usd (0 = disabled)
+      - Per-symbol exposure cap via env MAX_PER_SYMBOL_USD (0 = disabled)
+      - Price/Qty rounding to paper tick/step sizes
     """
 
-    def __init__(self, session_factory: Optional[SessionFactory] = None, workspace_id: int = 1) -> None:
+    def __init__(
+        self,
+        session_factory: Optional[SessionFactory] = None,
+        workspace_id: int = 1,
+        position_tracker: Optional[PositionTrackerProto] = None,  # NEW
+    ) -> None:
         self._lock = asyncio.Lock()
         self._positions: Dict[str, MemPosition] = {}
-        self._session_factory = session_factory  # e.g., from app.models.base import SessionLocal
+        self._session_factory = session_factory
         self._wsid = workspace_id
+        self._pnl = PnlService()
+        self._tracker = position_tracker  # NEW
+
+        # Config
+        try:
+            self._max_per_symbol_usd = Decimal(str(os.getenv("MAX_PER_SYMBOL_USD", "0") or "0"))
+        except Exception:
+            self._max_per_symbol_usd = Decimal("0")
+
+        # Seed memory from DB OPEN positions so paper survives restarts
+        if self._session_factory:
+            try:
+                self._hydrate_from_db()
+            except Exception:
+                pass
 
     # -------- StrategyEngine interface --------
 
     async def start_symbol(self, symbol: str) -> None:
-        # No prep needed in paper mode; keep placeholder for parity with live
-        return None
+        try:
+            await ensure_symbols_subscribed([symbol.upper()])
+        except Exception:
+            pass
 
     async def stop_symbol(self, symbol: str) -> None:
-        # No teardown needed in paper mode
         return None
 
     async def flatten_symbol(self, symbol: str) -> None:
-        """Close any open long at best available price and persist the trade."""
         sym = symbol.upper()
 
-        # quick check without holding the lock long
         async with self._lock:
             pos = self._positions.get(sym)
             if not pos or pos.qty <= Decimal("0"):
                 return
             close_qty = pos.qty
+            prev_avg = pos.avg_price  # snapshot for PnL calc
 
-        # get a fresh quote
-        q = await bt_service.get_quote(sym)
+        try:
+            await ensure_symbols_subscribed([sym])
+        except Exception:
+            pass
+
+        q = await self._get_quote_with_retries(sym)
+        if q is None:
+            _dbg(f"flatten rejected: no quote after retries for {sym}")
+            return
+
         bid = _dec(q.get("bid", 0.0))
         ask = _dec(q.get("ask", 0.0))
-        exit_px = ask or bid or pos.avg_price or Decimal("0")
+        mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else (bid if bid > 0 else ask)
+        # Prefer natural exit side; fallback smartly
+        exit_px = ask if ask > 0 else (bid if bid > 0 else (mid if mid > 0 else prev_avg))
+        exit_px = _round_price(sym, exit_px)
+        close_qty = _round_qty(sym, close_qty)
 
-        # persist SELL order/ fill / position
+        if exit_px <= 0 or close_qty <= 0:
+            _dbg(f"flatten rejected: px={exit_px} qty={close_qty}")
+            return
+
         await self._fill_and_persist(
             symbol=sym,
             side="SELL",
             fill_price=exit_px,
             qty=close_qty,
             strategy_tag="flatten",
+            prev_avg_for_pnl=prev_avg,
         )
 
-        # mirror in-memory state (under lock)
         async with self._lock:
-            # realized already accounted in _fill_and_persist via in-memory call there
             mp = self._positions.setdefault(sym, MemPosition(symbol=sym))
             mp.qty = Decimal("0")
             mp.avg_price = Decimal("0")
             mp.ts_ms = _now_ms()
 
     async def cancel_orders(self, symbol: str) -> None:
-        # No ad-hoc order queue in this paper engine
         return None
 
     async def place_maker(
@@ -116,42 +218,84 @@ class PaperExecutor:
         tag: str = "mm",
     ) -> Optional[str]:
         """
-        Instant fill simulation:
-          - BUY fills at current best bid if present, otherwise at provided price.
-          - SELL fills at current best ask if present, otherwise at provided price.
-        Returns a pseudo client_order_id.
+        BUY: bid → ask → mid → provided price (rounded).
+        SELL: ask → bid → mid → provided price (rounded).
+        Returns client_order_id or None (if rejected by guards).
         """
         sym = symbol.upper()
         s_up = side.upper().strip()
-        qty_dec = _dec(qty)
+        qty_raw = _dec(qty)
+        qty_dec = _round_qty(sym, qty_raw)
         if qty_dec <= 0:
+            _dbg(f"reject: qty <= 0 after rounding (req={qty_raw}, step={_qty_quantum(sym)})")
             return None
 
-        # fetch current quote once
-        q = await bt_service.get_quote(sym)
+        try:
+            await ensure_symbols_subscribed([sym])
+        except Exception:
+            pass
+
+        q = await self._get_quote_with_retries(sym)
+        if q is None:
+            _dbg(f"reject: no quote after retries for {sym}")
+            return None
+
         bid = _dec(q.get("bid", 0.0))
         ask = _dec(q.get("ask", 0.0))
+        mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else (bid if bid > 0 else ask)
 
-        # choose fill price conservatively
-        fill_price = _dec(price)
-        if s_up == "BUY" and bid > 0:
-            fill_price = bid
-        elif s_up == "SELL" and ask > 0:
-            fill_price = ask
+        provided = _dec(price)
+        if s_up == "BUY":
+            candidate = bid if bid > 0 else (ask if ask > 0 else (mid if mid > 0 else provided))
+        else:  # SELL
+            candidate = ask if ask > 0 else (bid if bid > 0 else (mid if mid > 0 else provided))
 
-        # persist + update memory
+        fill_price = _round_price(sym, candidate)
+        if fill_price <= 0:
+            _dbg(f"reject: no price available (bid={bid}, ask={ask}, mid={mid}, provided={provided})")
+            return None
+
+        # ---------- Global exposure guard (BUY only) ----------
+        if s_up == "BUY":
+            try:
+                max_expo = Decimal(str(settings.max_exposure_usd or 0))
+            except Exception:
+                max_expo = Decimal("0")
+            if max_expo > 0:
+                cur = await self._total_exposure_usd()
+                addl = qty_dec * fill_price
+                if (cur + addl) > max_expo:
+                    _dbg(f"reject: global exposure {cur+addl:.8f} > limit {max_expo}")
+                    return None
+
+        # ---------- Per-symbol exposure guard (BUY only) ----------
+        if s_up == "BUY" and self._max_per_symbol_usd > 0:
+            cur_sym = await self._symbol_exposure_usd(sym)
+            addl = qty_dec * fill_price
+            if (cur_sym + addl) > self._max_per_symbol_usd:
+                _dbg(f"reject: {sym} exposure {cur_sym+addl:.8f} > limit {self._max_per_symbol_usd}")
+                return None
+
+        # Snapshot avg for PnL calc if we are going to SELL (closing)
+        prev_avg_for_pnl = None
+        if s_up == "SELL":
+            async with self._lock:
+                prev = self._positions.get(sym)
+                if prev:
+                    prev_avg_for_pnl = prev.avg_price
+
         coid = await self._fill_and_persist(
             symbol=sym,
             side=s_up,
             fill_price=fill_price,
             qty=qty_dec,
             strategy_tag=tag,
+            prev_avg_for_pnl=prev_avg_for_pnl,
         )
         return coid
 
-    async def get_position(self, symbol: str) -> dict:
+    async def get_position(self, symbol: str) -> Dict[str, Any]:
         sym = symbol.upper()
-        # snapshot under lock
         async with self._lock:
             pos = self._positions.get(sym) or MemPosition(symbol=sym)
             snap_qty = pos.qty
@@ -159,7 +303,6 @@ class PaperExecutor:
             snap_real = pos.realized_pnl
             snap_ts = pos.ts_ms
 
-        # compute uPnL outside the lock
         q = await bt_service.get_quote(sym)
         bid = _dec(q.get("bid", 0.0))
         ask = _dec(q.get("ask", 0.0))
@@ -177,6 +320,82 @@ class PaperExecutor:
 
     # -------- Internal helpers (DB + in-memory) --------
 
+    def _hydrate_from_db(self) -> None:
+        """Load OPEN long positions from DB into in-memory map (paper mode)."""
+        session: Session = self._session_factory()  # type: ignore[call-arg]
+        try:
+            rows = (
+                session.query(Position)
+                .filter(
+                    Position.workspace_id == self._wsid,
+                    Position.is_open == True,             # noqa: E712
+                    Position.status == PositionStatus.OPEN,
+                    Position.side == PositionSide.BUY,    # paper engine is long-only
+                )
+                .all()
+            )
+            now_ms = _now_ms()
+            for row in rows:
+                sym = str(row.symbol).upper()
+                qty = _dec(row.qty)
+                if qty <= 0:
+                    continue
+                avg = _dec(row.entry_price)
+                real = _dec(row.realized_pnl or 0)
+                self._positions[sym] = MemPosition(
+                    symbol=sym,
+                    qty=qty,
+                    avg_price=avg,
+                    realized_pnl=real,
+                    ts_ms=now_ms,
+                )
+        finally:
+            session.close()
+
+    async def _get_quote_with_retries(
+        self, symbol: str, attempts: int = 5, delay_ms: int = 60
+    ) -> Optional[Dict[str, Any]]:
+        sym = symbol.upper()
+        for i in range(max(1, attempts)):
+            q = await bt_service.get_quote(sym)
+            bid = _dec(q.get("bid", 0.0))
+            ask = _dec(q.get("ask", 0.0))
+            if bid > 0 or ask > 0:
+                return q
+            if i < attempts - 1:
+                await asyncio.sleep(delay_ms / 1000)
+        return None
+
+    async def _total_exposure_usd(self) -> Decimal:
+        async with self._lock:
+            items = list(self._positions.items())
+        total = Decimal("0")
+        for sym, mp in items:
+            if mp.qty == 0:
+                continue
+            q = await bt_service.get_quote(sym)
+            bid = _dec(q.get("bid", 0.0))
+            ask = _dec(q.get("ask", 0.0))
+            mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else (bid if bid > 0 else ask)
+            px = mid if mid > 0 else (mp.avg_price if mp.avg_price > 0 else Decimal("0"))
+            if px > 0:
+                total += abs(mp.qty) * px
+        return total
+
+    async def _symbol_exposure_usd(self, symbol: str) -> Decimal:
+        async with self._lock:
+            mp = self._positions.get(symbol)
+        if not mp or mp.qty == 0:
+            return Decimal("0")
+        q = await bt_service.get_quote(symbol)
+        bid = _dec(q.get("bid", 0.0))
+        ask = _dec(q.get("ask", 0.0))
+        mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else (bid if bid > 0 else ask)
+        px = mid if mid > 0 else (mp.avg_price if mp.avg_price > 0 else Decimal("0"))
+        if px <= 0:
+            return Decimal("0")
+        return abs(mp.qty) * px
+
     async def _fill_and_persist(
         self,
         symbol: str,
@@ -184,32 +403,45 @@ class PaperExecutor:
         fill_price: Decimal,
         qty: Decimal,
         strategy_tag: str,
+        prev_avg_for_pnl: Optional[Decimal] = None,
     ) -> str:
-        """
-        Creates a FILLED order + a single fill row and updates the Position
-        (both in DB and in-memory). Returns client_order_id.
-        """
         ts_ms = _now_ms()
         client_order_id = f"paper-{symbol}-{ts_ms}"
 
-        # Update in-memory first (under lock) to keep behavior identical to your original engine
+        # Snapshot previous avg/qty for accurate realized PnL (before memory update)
+        async with self._lock:
+            prev = self._positions.get(symbol) or MemPosition(symbol=symbol)
+            prev_qty = prev.qty
+            prev_avg = prev.avg_price
+
         await self._apply_memory_fill(symbol, side, fill_price, qty, ts_ms)
 
-        # Persist if we have a session factory
+        # Notify the PositionTracker (durable state) if present
+        try:
+            if self._tracker is not None:
+                self._tracker.on_fill(
+                    symbol=symbol,
+                    side=side,
+                    qty=qty,
+                    price=fill_price,
+                    ts_ms=ts_ms,
+                    strategy_tag=strategy_tag,
+                )
+        except Exception:
+            # tracker issues must not break paper fills
+            pass
+
         if self._session_factory:
-            from sqlalchemy.orm import Session  # local import to avoid hard dep at import time
-            session: Session
-            session = self._session_factory()
+            session: Session = self._session_factory()
             try:
-                # 1) Order (already filled)
                 order = Order(
                     workspace_id=self._wsid,
                     symbol=symbol,
                     side=OrderSide.BUY if side == "BUY" else OrderSide.SELL,
-                    type=OrderType.MARKET,  # market-like fill in paper
+                    type=OrderType.MARKET,
                     tif=TimeInForce.IOC,
                     qty=qty,
-                    price=None if side == "BUY" else None,  # not meaningful for MARKET
+                    price=None,
                     filled_qty=qty,
                     avg_fill_price=fill_price,
                     status=OrderStatus.FILLED,
@@ -218,9 +450,8 @@ class PaperExecutor:
                     client_order_id=client_order_id,
                 )
                 session.add(order)
-                session.flush()  # get order.id
+                session.flush()
 
-                # 2) Fill
                 fill = Fill(
                     workspace_id=self._wsid,
                     order_id=order.id,
@@ -237,12 +468,36 @@ class PaperExecutor:
                     exchange_order_id=None,
                     trade_id=str(ts_ms),
                     strategy_tag=strategy_tag,
-                    executed_at=None,  # defaults to now()
+                    executed_at=None,
                 )
                 session.add(fill)
 
-                # 3) Position upsert/update
                 self._upsert_position_row(session, symbol)
+
+                # ---- PnL ledger for realized PnL on SELL ----
+                if side == "SELL" and prev_qty > 0:
+                    close_qty = min(qty, prev_qty)
+                    if close_qty > 0:
+                        pnl_usd = (fill_price - (prev_avg_for_pnl or prev_avg)) * close_qty
+                        base, quote = _split_symbol(symbol)
+                        ex = getattr(settings, "active_provider", None) or "PAPER"
+                        acc = "paper"
+                        self._pnl.log_trade_realized(
+                            session,
+                            ts=datetime.utcnow(),
+                            exchange=str(ex),
+                            account_id=acc,
+                            symbol=symbol,
+                            base_asset=base,
+                            quote_asset=quote,
+                            realized_asset=pnl_usd,
+                            realized_usd=pnl_usd,
+                            price_usd=None,
+                            ref_order_id=str(order.id),
+                            ref_trade_id=str(ts_ms),
+                            meta={"mode": "paper", "client_order_id": client_order_id},
+                            emit_sse=True,
+                        )
 
                 session.commit()
             except Exception:
@@ -262,8 +517,7 @@ class PaperExecutor:
                 new_qty = mp.qty + qty
                 if new_qty > 0:
                     mp.avg_price = (
-                        (mp.avg_price * mp.qty + price * qty) / new_qty
-                        if mp.qty > 0 else price
+                        (mp.avg_price * mp.qty + price * qty) / new_qty if mp.qty > 0 else price
                     )
                     mp.qty = new_qty
                 mp.ts_ms = ts_ms
@@ -280,14 +534,9 @@ class PaperExecutor:
                         mp.ts_ms = ts_ms
                 # ignore opening shorts in paper engine
 
-    def _upsert_position_row(self, session, symbol: str) -> None:
-        """
-        Sync the DB Position row with the in-memory snapshot (simple write-through).
-        We keep ONE row per (workspace_id, symbol, side=BUY) while open; on zero qty we mark CLOSED.
-        """
+    def _upsert_position_row(self, session: Session, symbol: str) -> None:
         mp = self._positions.get(symbol) or MemPosition(symbol=symbol)
 
-        # Try fetch an open row
         pos_row: Optional[Position] = (
             session.query(Position)
             .filter(
@@ -301,7 +550,6 @@ class PaperExecutor:
         )
 
         if mp.qty > 0:
-            # Upsert open position
             if pos_row is None:
                 pos_row = Position(
                     workspace_id=self._wsid,
@@ -323,13 +571,12 @@ class PaperExecutor:
                 pos_row.realized_pnl = mp.realized_pnl
                 pos_row.is_open = True
                 pos_row.status = PositionStatus.OPEN
-            # allow DB to set updated_at automatically
+                pos_row.closed_at = None
         else:
-            # No quantity -> close any open row
             if pos_row is not None:
                 pos_row.is_open = False
                 pos_row.status = PositionStatus.CLOSED
-                pos_row.closed_at = None  # let DB default set if you prefer; else set func.now()
+                pos_row.closed_at = datetime.utcnow()
                 pos_row.qty = Decimal("0")
                 pos_row.entry_price = Decimal("0")
-
+                pos_row.unrealized_pnl = Decimal("0")

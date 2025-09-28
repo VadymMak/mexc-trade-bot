@@ -1,26 +1,31 @@
-# app/models/orders.py
 from __future__ import annotations
 from enum import Enum
+
 from sqlalchemy import (
     Column, Integer, String, DateTime, Numeric, Boolean, Index,
     UniqueConstraint, Enum as SAEnum, func, text
 )
 from sqlalchemy.orm import declarative_mixin
+
 from app.models.base import Base
+
 
 # ─────────────── Enums ───────────────
 class OrderSide(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
 
+
 class OrderType(str, Enum):
     MARKET = "MARKET"
     LIMIT = "LIMIT"
+
 
 class TimeInForce(str, Enum):
     GTC = "GTC"
     IOC = "IOC"
     FOK = "FOK"
+
 
 class OrderStatus(str, Enum):
     NEW = "NEW"
@@ -30,15 +35,18 @@ class OrderStatus(str, Enum):
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
 
+
 # ─────────────── Mixins ───────────────
 @declarative_mixin
 class TimestampsMixin:
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+
 @declarative_mixin
 class RevisionMixin:
     revision = Column(Integer, server_default=text("1"), nullable=False)
+
 
 # ─────────────── Orders ───────────────
 class Order(Base, TimestampsMixin, RevisionMixin):

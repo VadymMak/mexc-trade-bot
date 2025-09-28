@@ -1,9 +1,10 @@
+// src/hooks/useSSEQuotes.ts
 import { useEffect, useMemo, useCallback } from "react";
-import { openSSE } from "@/lib/sse";
+import { openMarketStream } from "@/lib/sse";
 import { useMarket } from "@/store/market";
 import type { Quote, Level } from "@/types/api";
 
-/** Ext quote we keep in the store */
+/** Ext quote kept in the store */
 type ExtQuote = Quote & {
   ts: number; // ms
   bidQty?: number;
@@ -12,6 +13,7 @@ type ExtQuote = Quote & {
   spread_bps?: number;
   bids?: Level[];
   asks?: Level[];
+  imbalance?: number;
 };
 
 type IncomingLevel =
@@ -30,13 +32,15 @@ type IncomingQuote = {
   ask_qty?: number;
   mid?: number;
   spread_bps?: number;
+  imbalance?: number;
   bids?: IncomingLevel[];
   asks?: IncomingLevel[];
 };
 
 type QuotesEnvelopeDirect = { quotes?: IncomingQuote[]; type?: string };
 type QuotesEnvelopeNested = { data?: { quotes?: IncomingQuote[] }; type?: string };
-type QuotesEnvelope = QuotesEnvelopeDirect | QuotesEnvelopeNested;
+type DepthEnvelopeDirect  = { depth?: IncomingQuote[];  type?: string };
+type DepthEnvelopeNested  = { data?: { depth?: IncomingQuote[] };  type?: string };
 
 function isObject(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null;
@@ -55,11 +59,21 @@ function extractQuotes(payload: unknown): IncomingQuote[] {
   return [];
 }
 
+function extractDepth(payload: unknown): IncomingQuote[] {
+  if (isIncomingQuoteArray(payload)) return payload;
+  if (!isObject(payload)) return [];
+  const direct = (payload as DepthEnvelopeDirect).depth;
+  if (isIncomingQuoteArray(direct)) return direct;
+  const nested = (payload as DepthEnvelopeNested).data?.depth;
+  if (isIncomingQuoteArray(nested)) return nested;
+  return [];
+}
+
 function toLevelTuple(x: IncomingLevel | undefined): Level | null {
   if (!x) return null;
   if (Array.isArray(x)) {
     const [p, q] = x;
-    return typeof p === "number" && typeof q === "number" ? ([p, q] as const) : null;
+    return typeof p === "number" && typeof q === "number" ? [p, q] : null;
   }
   const p = x.price;
   const q =
@@ -68,17 +82,26 @@ function toLevelTuple(x: IncomingLevel | undefined): Level | null {
       : typeof x.quantity === "number"
       ? x.quantity
       : undefined;
-  return typeof p === "number" && typeof q === "number" ? ([p, q] as const) : null;
+  return typeof p === "number" && typeof q === "number" ? [p, q] : null;
 }
 
-function normalizeQuotes(payload: unknown, dbgTag: string): ExtQuote[] {
-  const rawArr = extractQuotes(payload);
+const toSym = (s: string | undefined) => (s ? s.trim().toUpperCase() : "");
+
+/** Normalize quotes or depth-like payload to ExtQuote[] */
+function normalizeToQuotes(
+  payload: unknown,
+  dbgTag: string,
+  mode: "quotes" | "depth"
+): ExtQuote[] {
+  const rawArr = mode === "quotes" ? extractQuotes(payload) : extractDepth(payload);
   if (!rawArr.length) return [];
 
+  const now = Date.now();
   const out: ExtQuote[] = [];
 
   for (const q of rawArr) {
-    if (!q?.symbol) continue;
+    const sym = toSym(q?.symbol);
+    if (!sym) continue;
 
     const bid = typeof q.bid === "number" && q.bid > 0 ? q.bid : 0;
     const ask = typeof q.ask === "number" && q.ask > 0 ? q.ask : 0;
@@ -88,22 +111,21 @@ function normalizeQuotes(payload: unknown, dbgTag: string): ExtQuote[] {
       (Array.isArray(q.asks) && q.asks.length > 0);
     const hasL1 = bid > 0 || ask > 0;
 
-    if (!hasL1 && !hasL2) {
+    if (mode === "quotes" && !hasL1 && !hasL2) {
       if (import.meta.env.DEV) {
         console.debug(
-          `[SSE/drop] ${dbgTag} ${q.symbol} empty frame (bid=0 & ask=0, no L2, ts=${q.ts ?? q.ts_ms ?? "?"})`
+          `[SSE/drop] ${dbgTag} ${sym} empty frame (bid=0 & ask=0, no L2, ts=${q.ts ?? q.ts_ms ?? "?"})`
         );
       }
       continue;
     }
 
-    const tsRaw =
+    const ts =
       typeof q.ts === "number"
         ? q.ts
         : typeof q.ts_ms === "number"
         ? q.ts_ms
-        : NaN;
-    const ts = Number.isFinite(tsRaw) && tsRaw > 0 ? tsRaw : Date.now();
+        : now;
 
     const mid =
       typeof q.mid === "number"
@@ -119,30 +141,19 @@ function normalizeQuotes(payload: unknown, dbgTag: string): ExtQuote[] {
         ? ((ask - bid) / mid) * 10_000
         : 0;
 
-    const bidQty =
-      typeof q.bidQty === "number"
-        ? q.bidQty
-        : typeof q.bid_qty === "number"
-        ? q.bid_qty
-        : undefined;
+    const bidQty = q.bidQty ?? q.bid_qty;
+    const askQty = q.askQty ?? q.ask_qty;
 
-    const askQty =
-      typeof q.askQty === "number"
-        ? q.askQty
-        : typeof q.ask_qty === "number"
-        ? q.ask_qty
-        : undefined;
-
-    const bids: Level[] | undefined = Array.isArray(q.bids)
+    const bids = Array.isArray(q.bids)
       ? q.bids.map(toLevelTuple).filter((lv): lv is Level => lv !== null)
       : undefined;
 
-    const asks: Level[] | undefined = Array.isArray(q.asks)
+    const asks = Array.isArray(q.asks)
       ? q.asks.map(toLevelTuple).filter((lv): lv is Level => lv !== null)
       : undefined;
 
     out.push({
-      symbol: q.symbol,
+      symbol: sym,
       bid,
       ask,
       ts,
@@ -152,62 +163,66 @@ function normalizeQuotes(payload: unknown, dbgTag: string): ExtQuote[] {
       askQty,
       bids,
       asks,
+      ...(typeof q.imbalance === "number" ? { imbalance: q.imbalance } : {}),
     });
   }
 
   return out;
 }
 
+/** Allowed SSE event names */
+type SSEEventName = "hello" | "snapshot" | "quotes" | "depth" | "ping" | "message";
+
+/** Map arbitrary string to our known SSEEventName (default to 'message'). */
+function asEventName(v?: string): SSEEventName {
+  if (v === "hello" || v === "snapshot" || v === "quotes" || v === "depth" || v === "ping" || v === "message") {
+    return v;
+  }
+  return "message";
+}
+
 export function useSSEQuotes(symbols: string[]) {
   const applySnapshot = useMarket((s) => s.applySnapshot);
-  const applyQuotes = useMarket((s) => s.applyQuotes);
+  const applyQuotes   = useMarket((s) => s.applyQuotes);
 
-  // Normalize & stabilize symbol list
   const joined = useMemo(() => {
-    const set = new Set(
-      symbols
-        .map((s) => s.trim().toUpperCase())
-        .filter(Boolean)
-    );
+    const set = new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean));
     return Array.from(set).sort().join(",");
   }, [symbols]);
 
-  const intervalEnv =
-    (import.meta.env.VITE_SSE_INTERVAL_MS as string | undefined) ?? "";
-  const intervalMs = Number.isFinite(Number.parseInt(intervalEnv, 10))
-    ? Number.parseInt(intervalEnv, 10)
-    : 500;
-
-  const base =
-    ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "").trim() ||
-    "http://localhost:8000";
+  const intervalEnv = (import.meta.env.VITE_SSE_INTERVAL_MS as string | undefined) ?? "";
+  const parsed = Number.parseInt(intervalEnv, 10);
+  const intervalMs = Number.isFinite(parsed) ? parsed : 500;
 
   const handleMessage = useCallback(
-    (e: MessageEvent<string>) => {
+    (e: MessageEvent<string> & { event?: string }) => {
       try {
+        if (!e.data) return; // some browsers send empty "ping" messages as events
         const payload: unknown = JSON.parse(e.data);
-        const payloadType =
-          isObject(payload) && typeof (payload as QuotesEnvelope).type === "string"
-            ? (payload as QuotesEnvelope).type
+
+        // prefer explicit SSE event name; fall back to payload.type; finally 'message'
+        const typeFromPayload =
+          isObject(payload) && typeof (payload as { type?: string }).type === "string"
+            ? (payload as { type?: string }).type
             : undefined;
 
-        const eventName = e.type !== "message" ? e.type : payloadType;
-        const dbgTag = eventName ?? "message";
+        const eventName: SSEEventName = asEventName(e.event ?? typeFromPayload);
 
-        if (eventName === "snapshot") {
-          const quotes = normalizeQuotes(payload, dbgTag);
+        if (eventName === "hello") {
+          // no-op; just confirms the stream is alive
+          return;
+        } else if (eventName === "snapshot") {
+          const quotes = normalizeToQuotes(payload, "snapshot", "quotes");
           if (quotes.length) applySnapshot(quotes);
-          return;
-        }
-
-        if (eventName === "quotes" || eventName === "message" || eventName === undefined) {
-          const quotes = normalizeQuotes(payload, dbgTag);
+        } else if (eventName === "quotes" || eventName === "message") {
+          const quotes = normalizeToQuotes(payload, "quotes", "quotes");
           if (quotes.length) applyQuotes(quotes);
-          return;
+        } else if (eventName === "depth") {
+          const quotes = normalizeToQuotes(payload, "depth", "depth");
+          if (quotes.length) applyQuotes(quotes);
         }
-        // ignore pings/others
-      } catch {
-        // ignore malformed frames
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn("[SSE] malformed frame", err);
       }
     },
     [applySnapshot, applyQuotes]
@@ -219,22 +234,12 @@ export function useSSEQuotes(symbols: string[]) {
       return;
     }
 
-    const u = new URL("/api/market/stream", base);
-    u.searchParams.set("symbols", joined);
-    u.searchParams.set("interval_ms", String(intervalMs));
-
-    if (import.meta.env.DEV) console.debug("[SSE] connect", u.toString());
-
-    const dispose = openSSE(u.toString(), handleMessage, [
-      "snapshot",
-      "quotes",
-      "ping",
-      "message",
-    ]);
+    if (import.meta.env.DEV) console.debug("[SSE] connect symbols=", joined);
+    const dispose = openMarketStream(joined.split(","), intervalMs, handleMessage);
 
     return () => {
       if (import.meta.env.DEV) console.debug("[SSE] close");
       dispose();
     };
-  }, [joined, intervalMs, base, handleMessage]);
+  }, [joined, intervalMs, handleMessage]);
 }
