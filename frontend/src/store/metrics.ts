@@ -1,5 +1,8 @@
+// src/store/metrics.ts
 import { create } from "zustand";
-import type { StrategyMetricsJSON } from "@/types/api";
+import type { StrategyMetricsJSON } from "@/types";
+
+type ExitsCounters = { TP?: number; SL?: number; TIMEOUT?: number };
 
 type MetricsState = {
   snapshot: StrategyMetricsJSON | null;
@@ -22,8 +25,8 @@ type MetricsState = {
 };
 
 // ───────────────── helpers ─────────────────
-const normKey = (s: string) => s.trim().toUpperCase();
-const fnum = (v: unknown) =>
+const normKey = (s: string): string => s.trim().toUpperCase();
+const fnum = (v: unknown): number =>
   typeof v === "number" && Number.isFinite(v) ? v : 0;
 
 function normalizeSnapshot(raw: StrategyMetricsJSON): StrategyMetricsJSON {
@@ -34,7 +37,7 @@ function normalizeSnapshot(raw: StrategyMetricsJSON): StrategyMetricsJSON {
   }
 
   // exits nested map
-  const exits: Record<string, { TP?: number; SL?: number; TIMEOUT?: number }> = {};
+  const exits: Record<string, ExitsCounters> = {};
   for (const [k, obj] of Object.entries(raw.exits ?? {})) {
     const K = normKey(k);
     const TP = fnum((obj ?? {}).TP);
@@ -103,7 +106,7 @@ export const useMetrics = create<MetricsState>((set, get) => ({
 
   clear: () => set({ snapshot: null, _sig: undefined }),
 
-  // selectors
+  // selectors (numbers only; always defined)
   entriesOf: (sym) => get().snapshot?.entries?.[normKey(sym)] ?? 0,
   exitsTPOf: (sym) => get().snapshot?.exits?.[normKey(sym)]?.TP ?? 0,
   exitsSLOf: (sym) => get().snapshot?.exits?.[normKey(sym)]?.SL ?? 0,
@@ -111,7 +114,7 @@ export const useMetrics = create<MetricsState>((set, get) => ({
   openFlagOf: (sym) => get().snapshot?.open_positions?.[normKey(sym)] ?? 0,
   realizedOf: (sym) => get().snapshot?.realized_pnl?.[normKey(sym)] ?? 0,
 
-  // compatibility
+  // compatibility bundle
   exitsOf: (sym) => {
     const e = get().snapshot?.exits?.[normKey(sym)] ?? {};
     return { TP: e.TP ?? 0, SL: e.SL ?? 0, TIMEOUT: e.TIMEOUT ?? 0 };

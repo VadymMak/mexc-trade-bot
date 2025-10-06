@@ -37,6 +37,9 @@ def _mount_subrouters(root: APIRouter) -> None:
     from app.routers.pnl import router as pnl_router
     from app.routers.portfolio import router as portfolio_router
 
+    # New: Scanner (Gate/MEXC spread & liquidity finder)
+    from app.routers.scanner import router as scanner_router
+
     root.include_router(market_router)
     root.include_router(strategy_router)
     root.include_router(execution_router)
@@ -45,6 +48,7 @@ def _mount_subrouters(root: APIRouter) -> None:
     root.include_router(config_router)      # /api/config/...
     root.include_router(pnl_router)         # /api/pnl/...
     root.include_router(portfolio_router)   # /api/portfolio/...
+    root.include_router(scanner_router)     # /api/scanner/...
 
     # Stream router (SSE). Import last, and guard against duplicates.
     try:

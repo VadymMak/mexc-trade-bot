@@ -3,7 +3,8 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import cx from "classnames";
 
 import { usePositions, type UsePositionsResult } from "@/hooks/usePositions";
-import { usePositionsStore, type Position } from "@/store/positions";
+import { usePositionsStore } from "@/store/positions";
+import { type Position } from "@/types/index";
 import { useToast } from "@/hooks/useToast";
 import FlattenButton from "@/components/controls/FlattenButton";
 import { useMarket } from "@/store/market";
@@ -73,11 +74,10 @@ export default function PositionsTable({
     symbols,
     intervalMs,
     immediate: true,
-    // important: avoid “stuck loading” on reload due to hidden visibility state
+    // avoid “stuck loading” on reload when the tab restores in hidden state
     pauseWhenHidden: false,
   });
 
-  // Open the symbol card on click (idempotent)
   const ensureSymbols = useSymbols((s) => s.ensureSymbols);
   const openCard = useCallback(
     (symbol: string) => {
@@ -112,7 +112,7 @@ export default function PositionsTable({
 
   // ---------- stable row order ----------
   const symbolsNorm = useMemo(
-    () => (symbols && symbols.length ? symbols.map((s) => norm(s)) : []),
+    () => (symbols?.length ? symbols.map((s) => norm(s)) : []),
     [symbols]
   );
 
@@ -145,22 +145,21 @@ export default function PositionsTable({
 
   // ---------- totals (active only) ----------
   const totalUPnL = useMemo(() => {
-    void quotesTick;
+    void quotesTick; // recompute on new quotes
     return rows.reduce((t, p) => t + computeUPnL(p, markOf(p.symbol)), 0);
   }, [rows, markOf, quotesTick]);
 
   const totalRPnL = useMemo(
     () =>
       rows.reduce(
-        (t, p) =>
-          t + (Number.isFinite(p.realized_pnl ?? NaN) ? (p.realized_pnl as number) : 0),
+        (t, p) => t + (Number.isFinite(p.realized_pnl ?? NaN) ? (p.realized_pnl as number) : 0),
         0
       ),
     [rows]
   );
 
   const totalExposure = useMemo(() => {
-    void quotesTick;
+    void quotesTick; // recompute on new quotes
     let t = 0;
     for (const p of rows) {
       const mark = markOf(p.symbol);
@@ -219,10 +218,10 @@ export default function PositionsTable({
     [rows, refresh, push, upsert]
   );
 
-  // ---------- modal trigger state ----------
+  // ---------- modal ----------
   const [detailSymbol, setDetailSymbol] = useState<string | null>(null);
-  const openDetails = (sym: string) => setDetailSymbol(sym);
-  const closeDetails = () => setDetailSymbol(null);
+  const openDetails = useCallback((sym: string) => setDetailSymbol(sym), []);
+  const closeDetails = useCallback(() => setDetailSymbol(null), []);
 
   // ---------- layout presets ----------
   const outerCls = cx(
@@ -236,78 +235,71 @@ export default function PositionsTable({
   const footerPad =
     variant === "sidebar" ? "px-3 py-2 border-t border-neutral-800/70" : "mt-3";
 
-  // helper to render body rows
-  const renderBodyRows = () =>
-    rows.length === 0 ? (
-      <tr>
-        <td colSpan={8} className="px-3 py-8 text-center text-neutral-500">
-          {loading ? "Loading positions…" : "No open positions"}
-        </td>
-      </tr>
-    ) : (
-      rows.map((p) => {
-        const sym = norm(p.symbol);
-        const mark = markOf(sym);
-        const u = computeUPnL(p, mark);
-        const r = typeof p.realized_pnl === "number" ? p.realized_pnl : 0;
-        const val = computeValueUSD(p, mark);
-        const disableFlatten = busy.has(sym) || Math.abs(p.qty) === 0;
+  // ✅ memoize body rows to avoid re-creating function every render
+  const bodyRows = useMemo(() => {
+    if (rows.length === 0) {
+      return (
+        <tr>
+          <td colSpan={8} className="px-3 py-8 text-center text-neutral-500">
+            {loading ? "Loading positions…" : "No open positions"}
+          </td>
+        </tr>
+      );
+    }
 
-        return (
-          <tr key={sym} className="border-t border-neutral-800/70">
-            <td className="px-3 py-2 font-medium">
+    return rows.map((p) => {
+      const sym = norm(p.symbol);
+      const mark = markOf(sym);
+      const u = computeUPnL(p, mark);
+      const r = typeof p.realized_pnl === "number" ? p.realized_pnl : 0;
+      const val = computeValueUSD(p, mark);
+      const disableFlatten = busy.has(sym) || Math.abs(p.qty) === 0;
+
+      return (
+        <tr key={sym} className="border-t border-neutral-800/70">
+          <td className="px-3 py-2 font-medium">
+            <button
+              type="button"
+              onClick={() => openCard(sym)}
+              className="underline decoration-dotted underline-offset-2 hover:text-neutral-50 hover:decoration-solid focus:outline-none focus:ring-1 focus:ring-neutral-600 rounded-sm cursor-pointer"
+              title="Open card for this symbol"
+            >
+              {sym}
+            </button>
+          </td>
+          <td className="px-3 py-2 text-right">{fmtNum(p.qty)}</td>
+          <td className="px-3 py-2 text-right">{fmtNum(p.avg_price ?? NaN, 6)}</td>
+          <td className="px-3 py-2 text-right">{fmtNum(mark ?? NaN, 6)}</td>
+          <td className="px-3 py-2 text-right">{fmtUsdAbs(val)}</td>
+          <td className={cx("px-3 py-2 text-right", u >= 0 ? "text-emerald-400" : "text-red-400")}>
+            {fmtUsdSigned(u)}
+          </td>
+          <td className={cx("px-3 py-2 text-right", r >= 0 ? "text-emerald-400" : "text-red-400")}>
+            {fmtUsdSigned(r)}
+          </td>
+          <td className="px-3 py-2 text-right">
+            <div className="inline-flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => openCard(sym)}
-                className="underline decoration-dotted underline-offset-2 hover:text-neutral-50 hover:decoration-solid focus:outline-none focus:ring-1 focus:ring-neutral-600 rounded-sm cursor-pointer"
-                title="Open card for this symbol"
+                onClick={() => openDetails(sym)}
+                className="px-2 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-[11px] text-neutral-200"
+                title="View PnL details"
               >
-                {sym}
+                Details
               </button>
-            </td>
-            <td className="px-3 py-2 text-right">{fmtNum(p.qty)}</td>
-            <td className="px-3 py-2 text-right">{fmtNum(p.avg_price ?? NaN, 6)}</td>
-            <td className="px-3 py-2 text-right">{fmtNum(mark ?? NaN, 6)}</td>
-            <td className="px-3 py-2 text-right">{fmtUsdAbs(val)}</td>
-            <td
-              className={cx(
-                "px-3 py-2 text-right",
-                u >= 0 ? "text-emerald-400" : "text-red-400"
-              )}
-            >
-              {fmtUsdSigned(u)}
-            </td>
-            <td
-              className={cx(
-                "px-3 py-2 text-right",
-                r >= 0 ? "text-emerald-400" : "text-red-400"
-              )}
-            >
-              {fmtUsdSigned(r)}
-            </td>
-            <td className="px-3 py-2 text-right">
-              <div className="inline-flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => openDetails(sym)}
-                  className="px-2 py-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 text-[11px] text-neutral-200"
-                  title="View PnL details"
-                >
-                  Details
-                </button>
-                <FlattenButton
-                  label={busy.has(sym) ? "Flatten…" : "Flatten"}
-                  symbol={sym}
-                  disabled={disableFlatten}
-                  onConfirm={onFlatten}
-                  size="sm"
-                />
-              </div>
-            </td>
-          </tr>
-        );
-      })
-    );
+              <FlattenButton
+                label={busy.has(sym) ? "Flatten…" : "Flatten"}
+                symbol={sym}
+                disabled={disableFlatten}
+                onConfirm={onFlatten}
+                size="sm"
+              />
+            </div>
+          </td>
+        </tr>
+      );
+    });
+  }, [rows, loading, markOf, busy, openCard, onFlatten, openDetails]);
 
   return (
     <>
@@ -342,7 +334,6 @@ export default function PositionsTable({
 
         {/* Table */}
         {variant === "sidebar" ? (
-          // Single table with sticky header inside same scroll container
           <div
             className="px-3 overflow-y-auto border border-neutral-800 rounded-md"
             style={{ height: BODY_PX + HEADER_PX, minHeight: BODY_PX + HEADER_PX }}
@@ -360,7 +351,7 @@ export default function PositionsTable({
                   <th className="px-3 py-2 text-right font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody>{renderBodyRows()}</tbody>
+              <tbody>{bodyRows}</tbody>
             </table>
           </div>
         ) : (
@@ -378,7 +369,7 @@ export default function PositionsTable({
                   <th className="px-3 py-2 text-right font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody>{renderBodyRows()}</tbody>
+              <tbody>{bodyRows}</tbody>
             </table>
           </div>
         )}

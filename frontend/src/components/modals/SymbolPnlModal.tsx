@@ -30,7 +30,11 @@ function fmtNum(n: unknown, dp = 6): string {
 function fmtISO(ts: unknown): string {
   if (typeof ts === "string" && ts) return ts;
   if (typeof ts === "number" && Number.isFinite(ts)) {
-    try { return new Date(ts).toISOString(); } catch { /* noop */ }
+    try {
+      // if it's ms since epoch, Date will handle it; if it's seconds, scale up
+      const ms = ts > 3_000_000_000 ? ts : ts * 1000;
+      return new Date(ms).toISOString();
+    } catch { /* noop */ }
   }
   return "—";
 }
@@ -44,7 +48,6 @@ const readNum = (
   for (const k of keys) {
     const v = obj[k];
     if (typeof v === "number" && Number.isFinite(v)) return v;
-    // some backends send numeric strings; be lenient but safe
     if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) {
       const n = Number(v);
       if (Number.isFinite(n)) return n;
@@ -118,11 +121,11 @@ export default function SymbolPnlModal({
       if (raw && raw.length) {
         const withSortKey = raw.map((e) => {
           const tStr = readStr(e, ["time", "ts", "timestamp", "created_at", "event_time"]);
-          const tNum = readNum(e, ["time", "ts"]); // if numeric
+          const tNum = readNum(e, ["time", "ts"]);
           const sk = typeof tNum === "number"
-            ? tNum
+            ? (tNum > 3_000_000_000 ? tNum : tNum * 1000)
             : (tStr ? Date.parse(tStr) : NaN);
-        return { e, sk };
+          return { e, sk };
         });
         withSortKey.sort((a, b) => {
           const an = Number.isFinite(a.sk) ? a.sk : 0;
@@ -162,7 +165,8 @@ export default function SymbolPnlModal({
     [components]
   );
   const fees = useMemo(
-    () => readNum(components, ["fees", "fees_usd", "commission", "commission_usd"]),
+    // prefer already-normalized USD fee first
+    () => readNum(components, ["fees_usd", "fees", "commission_usd", "commission"]),
     [components]
   );
   const netTotal = useMemo(() => {
@@ -324,7 +328,8 @@ export default function SymbolPnlModal({
                       const side = readStr(e, ["side", "direction", "action", "taker_side", "maker_side"]);
                       const qty  = readNum(e, ["qty", "quantity", "size", "amount", "filled_qty", "base_qty", "exec_qty"]);
                       const price = readNum(e, ["price", "avg_price", "fill_price", "mark", "exec_price"]);
-                      const fee   = readNum(e, ["fee", "fees", "fee_usd", "commission", "commission_usd"]);
+                      // prefer pre-normalized USD fee
+                      const fee   = readNum(e, ["fee_usd", "fee", "commission_usd", "commission"]);
                       const pnl   = readNum(e, [
                         "pnl", "pnl_delta", "delta", "rpnl_delta", "realized_delta",
                         "realized", "realized_usd", "upnl_delta"

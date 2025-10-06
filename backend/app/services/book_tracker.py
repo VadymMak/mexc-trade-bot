@@ -4,13 +4,19 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from contextlib import suppress  # ✅ always available
+import random
+from contextlib import suppress
 from typing import Any, Dict, List, Optional, Sequence, Tuple, AsyncGenerator, Set
 
-import httpx  # ✅ move to top for static analyzers
+import httpx
 
 from app.config.settings import settings
 
+# ---- constants (guarded import) ---------------------------------
+try:
+    from app.config.constants import ABSORPTION_X_BPS as DEFAULT_ABS_BPS  # type: ignore
+except Exception:
+    DEFAULT_ABS_BPS = 5.0  # safe default: ±5 bps
 
 # ----- provider helpers -----
 def _provider() -> str:
@@ -47,22 +53,18 @@ def _is_gate() -> bool:
 
 
 def _rest_base_url() -> str:
-    if _is_binance():
-        return getattr(settings, "binance_rest_base", None) or os.getenv(
-            "BINANCE_REST_BASE", "https://testnet.binance.vision"
-        )
-    if _is_gate():
-        demo = _mode() in {"demo", "paper", "test", "testnet"}
-        if demo:
-            return getattr(settings, "gate_testnet_rest_base", None) or os.getenv(
-                "GATE_TESTNET_REST_BASE", "https://api-testnet.gateapi.io/api/v4"
-            )
-        else:
-            return getattr(settings, "gate_rest_base", None) or os.getenv(
-                "GATE_REST_BASE", "https://api.gateio.ws/api/v4"
-            )
-    rb = getattr(settings, "rest_base_url", None) or os.getenv("REST_BASE_URL") or ""
-    return rb or "https://api.mexc.com"
+    """
+    Unified, provider/mode-aware REST base.
+    Uses settings.rest_base_url_resolved so we don't rely on ad-hoc env combos.
+    """
+    try:
+        base = getattr(settings, "rest_base_url_resolved", None)
+        if base:
+            return str(base)
+    except Exception:
+        pass
+    # ultimate fallback
+    return "https://api.mexc.com"
 
 
 # ----- Gate symbol mapping -----
@@ -70,7 +72,7 @@ def _to_gate_pair(sym: str) -> str:
     s = (sym or "").upper().strip()
     if "_" in s:
         return s
-    for q in ("USDT", "USD", "BTC", "ETH"):
+    for q in ("USDT", "USD", "FDUSD", "BUSD", "BTC", "ETH"):
         if s.endswith(q):
             base = s[: -len(q)]
             return f"{base}_{q}"
@@ -223,15 +225,28 @@ def _with_derived(q: Dict[str, Any]) -> Dict[str, Any]:
     ask = float(q.get("ask") or 0.0)
     bid_qty = float(q.get("bidQty") or q.get("bid_qty") or 0.0)
     ask_qty = float(q.get("askQty") or q.get("ask_qty") or 0.0)
+    bids_l2 = q.get("bids") or []
+    asks_l2 = q.get("asks") or []
+
+    # Fallback sizes from L2 best if ticker sizes are missing
+    if (not bid_qty or bid_qty <= 0.0) and bids_l2:
+        with suppress(Exception):
+            bid_qty = float(bids_l2[0][1])
+    if (not ask_qty or ask_qty <= 0.0) and asks_l2:
+        with suppress(Exception):
+            ask_qty = float(asks_l2[0][1])
+
     ts_raw = q.get("ts_ms") or q.get("ts") or 0
     try:
         ts_i = int(ts_raw)
     except Exception:
         ts_i = 0
     ts_ms = ts_i if ts_i > 0 and (bid > 0.0 or ask > 0.0) else (int(time.time() * 1000) if (bid > 0.0 or ask > 0.0) else 0)
+
     mid = (bid + ask) * 0.5 if (bid > 0.0 and ask > 0.0) else (bid or ask or 0.0)
     spread = (ask - bid) if (ask > 0.0 and bid > 0.0) else 0.0
     spread_bps = (spread / mid * 1e4) if mid > 0 else 0.0
+
     out: Dict[str, Any] = {
         "symbol": sym,
         "bid": bid,
@@ -243,16 +258,55 @@ def _with_derived(q: Dict[str, Any]) -> Dict[str, Any]:
         "spread": spread,
         "spread_bps": spread_bps,
     }
-    if "bids" in q:
-        out["bids"] = q["bids"]
-    if "asks" in q:
-        out["asks"] = q["asks"]
+    if bids_l2:
+        out["bids"] = bids_l2
+    if asks_l2:
+        out["asks"] = asks_l2
+
+    # Imbalance
     try:
         bq = float(out.get("bidQty", 0.0))
         aq = float(out.get("askQty", 0.0))
         out["imbalance"] = (bq / (bq + aq)) if (bq > 0.0 or aq > 0.0) else 0.5
     except Exception:
         out["imbalance"] = 0.5
+
+    # Absorption over ±X bps band (USD)
+    try:
+        x_bps = float(getattr(settings, "absorption_x_bps", DEFAULT_ABS_BPS) or DEFAULT_ABS_BPS)
+    except Exception:
+        x_bps = float(DEFAULT_ABS_BPS)
+    if mid > 0 and (bids_l2 or asks_l2) and x_bps > 0:
+        band = x_bps / 1e4
+        bid_floor = mid * (1.0 - band)
+        ask_cap = mid * (1.0 + band)
+
+        def _sum_usd(levels, side: str) -> float:
+            total = 0.0
+            if side == "bid":
+                for p, q in levels:
+                    with suppress(Exception):
+                        pf, qf = float(p), float(q)
+                        if pf > 0 and qf > 0 and pf >= bid_floor:
+                            total += pf * qf
+                        elif pf < bid_floor:
+                            break
+            else:
+                for p, q in levels:
+                    with suppress(Exception):
+                        pf, qf = float(p), float(q)
+                        if pf > 0 and qf > 0 and pf <= ask_cap:
+                            total += pf * qf
+                        elif pf > ask_cap:
+                            break
+            return total
+
+        out["absorption_bid_usd"] = _sum_usd(bids_l2, "bid") if bids_l2 else 0.0
+        out["absorption_ask_usd"] = _sum_usd(asks_l2, "ask") if asks_l2 else 0.0
+    else:
+        out["absorption_bid_usd"] = 0.0
+        out["absorption_ask_usd"] = 0.0
+
     return out
 
 
@@ -304,10 +358,8 @@ async def stream_quote_batches(symbols: Sequence[str], interval_ms: int = 500) -
 
     # Ensure ingestion (WS or REST)
     if want:
-        try:
+        with suppress(Exception):
             await ensure_symbols_subscribed(want)
-        except Exception:
-            pass  # best-effort
 
     queue: asyncio.Queue[Dict[str, Any]] = await book_tracker.subscribe()
     try:
@@ -329,10 +381,13 @@ async def stream_quote_batches(symbols: Sequence[str], interval_ms: int = 500) -
                     continue
                 latest[sym] = evt  # keep most recent per symbol
 
-        period = max(0.05, min(interval_ms / 1000.0, 60.0))
+        # период + небольшой джиттер, чтобы подписчики не синхронизировались
+        period = max(0.05, min(interval_ms / 1000.0, 60.0)) + random.uniform(0.0, 0.02)
 
         rest_base = _rest_base_url()
-        async with httpx.AsyncClient(base_url=rest_base, headers={"Accept": "application/json"}, timeout=5.0) as depth_client:
+        async with httpx.AsyncClient(
+            base_url=rest_base, headers={"Accept": "application/json"}, timeout=8.0
+        ) as depth_client:
             while True:
                 await drain_once(period)
 
@@ -352,7 +407,7 @@ async def stream_quote_batches(symbols: Sequence[str], interval_ms: int = 500) -
                 # Attach L2 from cache if present
                 need_l2 = [q["symbol"] for q in batch if not q.get("bids") or not q.get("asks")]
                 if need_l2:
-                    try:
+                    with suppress(Exception):
                         raws = await book_tracker.get_quotes(need_l2)  # type: ignore[attr-defined]
                         by_sym = {(r.get("symbol") or "").upper(): r for r in raws}
                         for q in batch:
@@ -363,13 +418,11 @@ async def stream_quote_batches(symbols: Sequence[str], interval_ms: int = 500) -
                                 q["bids"] = raw["bids"]
                             if raw.get("asks") and not q.get("asks"):
                                 q["asks"] = raw["asks"]
-                    except Exception:
-                        pass
 
                 # Fill remaining L2 via REST (best effort)
                 still_missing = [q["symbol"] for q in batch if not q.get("bids") or not q.get("asks")]
                 if still_missing:
-                    try:
+                    with suppress(Exception):
                         tasks = [asyncio.create_task(_fetch_depth_generic(depth_client, s, limit=10)) for s in still_missing]
                         results = await asyncio.gather(*tasks, return_exceptions=True)
                         for res in results:
@@ -384,8 +437,6 @@ async def stream_quote_batches(symbols: Sequence[str], interval_ms: int = 500) -
                                         q["bids"] = res["bids"]
                                     if res.get("asks"):
                                         q["asks"] = res["asks"]
-                    except Exception:
-                        pass
 
                 if batch:
                     yield batch
@@ -522,7 +573,7 @@ async def _rest_poller_loop() -> None:
     depth_min_period_s = 0.8
     last_depth_at: Dict[str, float] = {}
     try:
-        async with httpx.AsyncClient(base_url=base, headers={"Accept": "application/json"}) as client:
+        async with httpx.AsyncClient(base_url=base, headers={"Accept": "application/json"}, timeout=8.0) as client:
             while True:
                 syms = list(_SUBSCRIBED)
                 if not syms:
@@ -573,7 +624,7 @@ async def _depth_refresher_loop() -> None:
     min_period_s = 0.9
     last_at: Dict[str, float] = {}
     try:
-        async with httpx.AsyncClient(base_url=base, headers={"Accept": "application/json"}) as client:
+        async with httpx.AsyncClient(base_url=base, headers={"Accept": "application/json"}, timeout=8.0) as client:
             while True:
                 syms = list(_DEPTH_SUBSCRIBED)
                 if not syms:
@@ -601,7 +652,7 @@ async def _depth_refresher_loop() -> None:
 async def _rest_seed_symbols(symbols: Sequence[str]) -> None:
     base = _rest_base_url()
     try:
-        async with httpx.AsyncClient(base_url=base, headers={"Accept": "application/json"}) as client:
+        async with httpx.AsyncClient(base_url=base, headers={"Accept": "application/json"}, timeout=8.0) as client:
             t_tasks = [asyncio.create_task(_fetch_ticker_generic(client, s)) for s in symbols]
             ticks = await asyncio.gather(*t_tasks, return_exceptions=True)
             now_ms = int(time.time() * 1000)

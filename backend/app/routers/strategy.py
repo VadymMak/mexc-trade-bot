@@ -134,7 +134,7 @@ async def start_symbols(
         except Exception:
             pass
         await _engine.start_symbols(syms)
-        return {"ok": True, "started": syms}
+        return {"ok": True, "started": syms, "running": syms}
 
     return await _idempotent_execute(
         op_name="strategy.start_symbols",
@@ -163,7 +163,9 @@ async def stop_symbols(
             except Exception:
                 pass
         await _engine.stop_symbols(syms, flatten=bool(flatten))
-        return {"ok": True, "stopped": syms, "flatten": bool(flatten)}
+        # фронт ожидает `flattened: string[]`
+        flattened = syms if bool(flatten) else []
+        return {"ok": True, "stopped": syms, "flattened": flattened}
 
     return await _idempotent_execute(
         op_name="strategy.stop_symbols",
@@ -179,8 +181,19 @@ async def stop_all(
     x_idempotency_key: Optional[str] = Header(default=None, alias="X-Idempotency-Key"),
 ) -> dict:
     async def _do() -> Dict[str, Any]:
+        # при флаттене подстрахуемся подпиской на все известные символы (best-effort)
+        if flatten:
+            try:
+                quotes = await bt_service.get_all_quotes()
+                syms = [q["symbol"] for q in quotes if q.get("symbol")]
+                if syms:
+                    await ensure_symbols_subscribed(syms)
+            except Exception:
+                pass
+
         await _engine.stop_all(flatten=bool(flatten))
-        return {"ok": True, "stopped_all": True, "flatten": bool(flatten)}
+        # для совместимости с фронтом вернём ожидаемую форму
+        return {"ok": True, "stopped": [], "flattened": []}
 
     return await _idempotent_execute(
         op_name="strategy.stop_all",

@@ -1,10 +1,14 @@
 # app/execution/live_executor.py
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Literal, Tuple
-from datetime import datetime
+from typing import Any, Dict, Optional, Literal, Tuple, Protocol, List
+from datetime import datetime, timezone
 from decimal import Decimal
 
+from sqlalchemy.orm import Session
+
+from app.config.settings import settings
+from app.pnl.service import PnlService
 from app.services.exchange_private import (
     get_private_client,
     OrderRequest,
@@ -12,14 +16,12 @@ from app.services.exchange_private import (
     ExchangePrivate,
 )
 
-# Optional DB access for realized PnL calc
-from sqlalchemy.orm import Session
-from typing import Protocol
+# Для mark-price в get_position
+from app.services import book_tracker as bt_service
+from app.services.book_tracker import ensure_symbols_subscribed
 
+# МОДЕЛИ БД (исправление ошибки "Position is not defined")
 from app.models.positions import Position, PositionSide, PositionStatus
-from app.config.settings import settings
-from app.pnl.service import PnlService
-
 
 Side = Literal["BUY", "SELL"]
 OrderType = Literal["LIMIT", "MARKET"]
@@ -27,8 +29,7 @@ TimeInForce = Literal["GTC", "IOC", "FOK"]
 
 
 class SessionFactory(Protocol):
-    def __call__(self) -> Session:
-        ...
+    def __call__(self) -> Session: ...
 
 
 def _split_symbol(symbol: str) -> Tuple[str, str]:
@@ -46,13 +47,23 @@ def _dec(x: Any) -> Decimal:
         return Decimal("0")
 
 
+def _is_usd_quote(quote: str) -> bool:
+    return quote in {"USDT", "USDC", "FDUSD", "BUSD"}
+
+
+def _now_utc_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class LiveExecutor:
     """
-    Thin live executor that delegates to the unified ExchangePrivate client.
-    Adds optional PnL logging (TRADE_REALIZED and FEE) when a DB session factory
-    is provided so we can read current OPEN position to compute realized PnL.
+    Live-исполнитель поверх унифицированного ExchangePrivate клиента.
 
-    This keeps exchange-specific signing/quirks inside app/services/*_private.py.
+    - Реализует интерфейс PaperExecutor для StrategyEngine:
+      start_symbol / stop_symbol / flatten_symbol / cancel_orders / place_maker / get_position
+    - place_maker: по умолчанию MARKET (надёжное исполнение).
+      Можно отключить через settings.live_use_market_for_maker = False — тогда LIMIT по заданной цене.
+    - Записывает TRADE_REALIZED и FEE в PnL-леджер (если передан session_factory).
     """
 
     def __init__(
@@ -65,6 +76,14 @@ class LiveExecutor:
         self._session_factory = session_factory
         self._wsid = workspace_id
 
+        # Поведение «maker»: по умолчанию — MARKET ради гарантированного исполнения.
+        try:
+            self._use_market_for_maker: bool = bool(
+                getattr(settings, "live_use_market_for_maker", True)
+            )
+        except Exception:
+            self._use_market_for_maker = True
+
     # ------------------- lifecycle -------------------
 
     async def aclose(self) -> None:
@@ -73,7 +92,201 @@ class LiveExecutor:
         except Exception:
             pass
 
-    # ------------------- trading ops -------------------
+    # ------------------- StrategyEngine-compatible ops -------------------
+
+    async def start_symbol(self, symbol: str) -> None:
+        """Подписка на котировки — best-effort (полезно для mark-price)."""
+        try:
+            await ensure_symbols_subscribed([symbol.upper()])
+        except Exception:
+            pass
+
+    async def stop_symbol(self, symbol: str) -> None:
+        """Для spot обычно NOP (отмена ордеров делает cancel_orders)."""
+        return None
+
+    async def cancel_orders(self, symbol: str) -> None:
+        """Отмена всех открытых ордеров по символу."""
+        try:
+            oo = await self._client.get_open_orders(symbol.upper())
+            if isinstance(oo, list):
+                for o in oo:
+                    try:
+                        await self._client.cancel_order(
+                            symbol=symbol.upper(),
+                            client_order_id=str(
+                                o.get("client_order_id") or o.get("clientOid") or ""
+                            ),
+                            exchange_order_id=str(
+                                o.get("order_id") or o.get("orderId") or ""
+                            ),
+                        )
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+    async def flatten_symbol(self, symbol: str) -> None:
+        """Закрыть текущую лонг-позицию MARKET SELL (надёжно)."""
+        sym = symbol.upper()
+        try:
+            pos = await self._find_live_position(sym)
+            qty = _dec(pos.get("qty")) if pos else Decimal("0")
+            if qty <= 0:
+                return
+            req = OrderRequest(
+                symbol=sym,
+                side="SELL",
+                qty=float(qty),
+                type="MARKET",
+                tif="IOC",
+                price=None,
+                tag="flatten",
+            )
+            result: OrderResult = await self._client.place_order(req)
+            await self._try_log_pnl(sym, "SELL", result)
+        except Exception:
+            # Никогда не роняем стратегию на попытке flatten
+            pass
+
+    async def place_maker(
+        self,
+        symbol: str,
+        side: str,
+        price: float,
+        qty: float,
+        tag: str = "mm",
+    ) -> Optional[str]:
+        """
+        Live «maker»-операция для StrategyEngine.
+
+        По умолчанию — MARKET (надёжное исполнение).
+        Если settings.live_use_market_for_maker=False, шлём LIMIT по заданной цене (GTC).
+        Возвращает client_order_id при успешном размещении.
+        """
+        sym = symbol.upper()
+        s_up = side.upper().strip()
+        qf = float(qty)
+        if qf <= 0:
+            return None
+
+        try:
+            await ensure_symbols_subscribed([sym])
+        except Exception:
+            pass
+
+        if self._use_market_for_maker:
+            req = OrderRequest(
+                symbol=sym,
+                side=s_up,  # BUY/SELL
+                qty=qf,
+                type="MARKET",
+                tif="IOC",
+                price=None,
+                tag=tag,
+            )
+        else:
+            # Осторожный LIMIT: без postOnly (зависит от провайдера), GTC.
+            req = OrderRequest(
+                symbol=sym,
+                side=s_up,
+                qty=qf,
+                type="LIMIT",
+                tif="GTC",
+                price=float(price) if price is not None else None,
+                tag=tag,
+            )
+
+        try:
+            result: OrderResult = await self._client.place_order(req)
+            # PnL: если сразу исполнилось — залогируем
+            try:
+                await self._try_log_pnl(sym, s_up, result)
+            except Exception:
+                pass
+            return str(result.client_order_id or "") if getattr(result, "ok", False) else None
+        except Exception:
+            return None
+
+    async def get_position(self, symbol: str) -> Dict[str, Any]:
+        """
+        Нормализованный снимок позиции для UI:
+        {symbol, qty, avg_price, unrealized_pnl, realized_pnl, ts_ms}
+        """
+        sym = symbol.upper()
+        try:
+            pos = await self._find_live_position(sym)
+        except Exception:
+            pos = None
+
+        qty = _dec(pos.get("qty")) if pos else Decimal("0")
+        avg = _dec(pos.get("avg_price")) if pos else Decimal("0")
+        realized = _dec(pos.get("realized_pnl")) if pos else Decimal("0")
+
+        # mark-price (mid) для upnl
+        try:
+            q = await bt_service.get_quote(sym)
+            bid = _dec(q.get("bid", 0.0))
+            ask = _dec(q.get("ask", 0.0))
+            mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else (bid if bid > 0 else ask)
+        except Exception:
+            mid = Decimal("0")
+
+        upnl = (mid - avg) * qty if (qty > 0 and mid > 0) else Decimal("0")
+        return {
+            "symbol": sym,
+            "qty": float(qty),
+            "avg_price": float(avg),
+            "unrealized_pnl": float(upnl),
+            "realized_pnl": float(realized),
+            "ts_ms": int(datetime.utcnow().timestamp() * 1000),
+        }
+
+    # ------------------- internal helpers -------------------
+
+    async def _find_live_position(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Унифицированный способ получить текущий спот-«лонг»:
+        - сперва пробуем fetch_positions()
+        - если там пусто, пробуем собрать из балансов (qty по базовому активу)
+        """
+        sym = symbol.upper()
+        base, _quote = _split_symbol(sym)
+
+        # 1) Нативные позиции (если провайдер их возвращает)
+        try:
+            poss = await self._client.fetch_positions()
+            # Ожидаем поля: symbol, qty, avg_price, realized_pnl
+            for p in poss or []:
+                ps = getattr(p, "symbol", None) or getattr(p, "ticker", None) or str(getattr(p, "s", sym))
+                if str(ps).upper() == sym:
+                    return {
+                        "symbol": sym,
+                        "qty": getattr(p, "qty", 0.0),
+                        "avg_price": getattr(p, "avg_price", 0.0),
+                        "realized_pnl": getattr(p, "realized_pnl", 0.0),
+                    }
+        except Exception:
+            pass
+
+        # 2) Фоллбек от балансов: qty = free+locked базового актива
+        try:
+            bals = await self._client.fetch_balances()
+            total_base = Decimal("0")
+            for b in bals or []:
+                asset = str(getattr(b, "asset", "") or getattr(b, "currency", "") or "").upper()
+                if asset == base:
+                    free_ = _dec(getattr(b, "free", 0))
+                    locked_ = _dec(getattr(b, "locked", 0))
+                    total_base += (free_ + locked_)
+            if total_base > 0:
+                return {"symbol": sym, "qty": float(total_base), "avg_price": 0.0, "realized_pnl": 0.0}
+        except Exception:
+            pass
+
+        return None
+
+    # ------------------- generic trading API -------------------
 
     async def place_order(
         self,
@@ -85,18 +298,10 @@ class LiveExecutor:
         price: Optional[float] = None,
         time_in_force: TimeInForce = "GTC",
         client_order_id: Optional[str] = None,
-        reduce_only: Optional[bool] = None,  # kept for API compatibility; ignored on spot
+        reduce_only: Optional[bool] = None,  # для совместимости; на spot игнорируется
         tag: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Place an order through the active provider.
-        Returns a normalized payload (dict) based on OrderResult.
-
-        If a session_factory was provided and the order executes (filled_qty>0),
-        we will:
-         - On SELL against an OPEN long position: write TRADE_REALIZED to ledger.
-         - If fee info is present in provider payload: write FEE to ledger.
-        """
+        """Прямое размещение ордера (используется роутерами /api/exec/place)."""
         req = OrderRequest(
             symbol=symbol.upper(),
             side=side,
@@ -104,15 +309,14 @@ class LiveExecutor:
             price=float(price) if (price is not None) else None,
             type=type,
             tif=time_in_force,
-            tag=tag or client_order_id,  # reuse user-supplied id as tag if present
+            tag=tag or client_order_id,
         )
         result: OrderResult = await self._client.place_order(req)
 
-        # Best-effort PnL writes (don't break trading if anything is missing)
+        # PnL (best-effort)
         try:
             await self._try_log_pnl(symbol, side, result)
         except Exception:
-            # never block trading on accounting
             pass
 
         return {
@@ -132,9 +336,6 @@ class LiveExecutor:
         order_id: Optional[str] = None,
         orig_client_order_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Cancel an order by exchange id or client id.
-        """
         ok = await self._client.cancel_order(
             symbol=symbol.upper(),
             client_order_id=orig_client_order_id,
@@ -143,16 +344,10 @@ class LiveExecutor:
         return {"ok": ok}
 
     async def get_open_orders(self, *, symbol: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Fetch open orders; optionally filter by symbol.
-        """
         data = await self._client.get_open_orders(symbol.upper() if symbol else None)
         return {"data": data}
 
     async def get_account_info(self) -> Dict[str, Any]:
-        """
-        Minimal account snapshot: balances + derived spot positions.
-        """
         bals = await self._client.fetch_balances()
         poss = await self._client.fetch_positions()
         return {
@@ -161,16 +356,13 @@ class LiveExecutor:
         }
 
     async def close_all_positions(self, *, use_market: bool = True) -> Dict[str, Any]:
-        """
-        Convenience: flatten all positions (spot: sell all non-quote balances).
-        """
         return await self._client.close_all_positions(use_market=use_market)
 
     # ------------------- PnL helpers -------------------
 
     async def _try_log_pnl(self, symbol: str, side: Side, result: Any) -> None:
         """
-        If we have a DB session and a fill occurred, write TRADE_REALIZED and FEE rows.
+        Если есть DB-сессия и была сделка — пишем TRADE_REALIZED и FEE.
         """
         if not self._session_factory:
             return
@@ -184,9 +376,16 @@ class LiveExecutor:
         if avg_fill_price <= 0:
             return
 
+        # executed_at → naive UTC
+        executed_at = getattr(result, "executed_at", None)
+        if isinstance(executed_at, datetime):
+            executed_at = executed_at.astimezone(timezone.utc).replace(tzinfo=None)
+        else:
+            executed_at = _now_utc_naive()
+
         session: Session = self._session_factory()
         try:
-            # Only handle SELL against an open long position (spot long-only assumption)
+            # Только SELL против открытого лонга
             if side == "SELL":
                 pos: Optional[Position] = (
                     session.query(Position)
@@ -208,27 +407,43 @@ class LiveExecutor:
                         ex = getattr(settings, "active_provider", None) or "LIVE"
                         acc = getattr(settings, "account_id", None) or "spot"
 
-                        # Write TRADE_REALIZED
+                        meta = {
+                            "meta_ver": 1,
+                            "mode": "live",
+                            "side": "SELL",
+                            "qty": float(close_qty),
+                            "price": float(avg_fill_price),
+                            "fee": float(getattr(result, "fee", 0.0) or 0.0),
+                            "fee_asset": str(getattr(result, "fee_asset", "USDT") or "USDT"),
+                            "client_order_id": getattr(result, "client_order_id", None),
+                            "exchange_order_id": getattr(result, "exchange_order_id", None),
+                            "trade_id": str(getattr(result, "trade_id", "") or ""),
+                            "strategy_tag": getattr(result, "tag", None),
+                        }
+
                         self._pnl.log_trade_realized(
                             session,
-                            ts=datetime.utcnow(),
+                            ts=executed_at,
                             exchange=str(ex),
                             account_id=str(acc),
                             symbol=symbol.upper(),
                             base_asset=base,
                             quote_asset=quote,
-                            realized_asset=pnl_usd,  # quote-denominated delta is fine
-                            realized_usd=pnl_usd,    # explicit USD(eq)
-                            price_usd=None,
-                            ref_order_id=str(getattr(result, "exchange_order_id", "") or getattr(result, "client_order_id", "")),
+                            realized_asset=pnl_usd,
+                            realized_usd=pnl_usd,
+                            price_usd=(Decimal("1") if _is_usd_quote(quote) else None),
+                            ref_order_id=str(
+                                getattr(result, "exchange_order_id", "")
+                                or getattr(result, "client_order_id", "")
+                            ),
                             ref_trade_id=str(getattr(result, "trade_id", "") or ""),
-                            meta={"mode": "live"},
+                            meta=meta,
                             emit_sse=True,
                         )
 
-            # Try to log a FEE row if present in raw (best-effort; quietly ignore if absent)
+            # Комиссия (best-effort)
             raw = getattr(result, "raw", None) or {}
-            self._try_log_fee_from_raw(session, symbol, raw)
+            self._try_log_fee_from_raw(session, symbol, raw, result, executed_at)
 
             session.commit()
         except Exception:
@@ -237,29 +452,37 @@ class LiveExecutor:
         finally:
             session.close()
 
-    def _try_log_fee_from_raw(self, session: Session, symbol: str, raw: Dict[str, Any]) -> None:
+    def _try_log_fee_from_raw(
+        self,
+        session: Session,
+        symbol: str,
+        raw: Dict[str, Any],
+        result: Any,
+        executed_at: datetime,
+    ) -> None:
         """
-        Try common fee shapes:
+        Частые формы комиссий:
           - {"fee": 0.001, "feeAsset": "USDT"}
           - {"fees": [{"asset":"USDT","amount":0.001}, ...]}
-          - {"fills":[{"commission":"0.001","commissionAsset":"USDT"}, ...]}  # Binance style
-        Logs negative USD(eq) amounts; stablecoins treated 1:1 USD.
+          - {"fills":[{"commission":"0.001","commissionAsset":"USDT"}, ...]}  # Binance-style
         """
         if not raw:
             return
 
-        entries: list[Tuple[Decimal, str]] = []
+        entries: List[Tuple[Decimal, str]] = []
 
-        # shape 1
         if "fee" in raw:
-            amt = _dec(raw.get("fee"))
-            asset = str(raw.get("feeAsset") or raw.get("fee_asset") or "USDT").upper()
-            if amt:
-                entries.append((amt, asset))
+            try:
+                amt = _dec(raw.get("fee"))
+                asset = str(raw.get("feeAsset") or raw.get("fee_asset") or "USDT").upper()
+                if amt:
+                    entries.append((amt, asset))
+            except Exception:
+                pass
 
-        # shape 2
-        if isinstance(raw.get("fees"), list):
-            for f in raw["fees"]:
+        fees_arr = raw.get("fees")
+        if isinstance(fees_arr, list):
+            for f in fees_arr:
                 try:
                     amt = _dec(f.get("amount"))
                     asset = str(f.get("asset") or "USDT").upper()
@@ -268,9 +491,9 @@ class LiveExecutor:
                 except Exception:
                     continue
 
-        # shape 3 (binance fills)
-        if isinstance(raw.get("fills"), list):
-            for f in raw["fills"]:
+        fills_arr = raw.get("fills")
+        if isinstance(fills_arr, list):
+            for f in fills_arr:
                 try:
                     amt = _dec(f.get("commission"))
                     asset = str(f.get("commissionAsset") or "USDT").upper()
@@ -287,21 +510,33 @@ class LiveExecutor:
         acc = getattr(settings, "account_id", None) or "spot"
 
         for amt, asset in entries:
-            # fees are negative PnL
-            fee_usd = -amt if asset in {"USDT", "USDC", "FDUSD", "BUSD"} else None
+            fee_usd = -amt if _is_usd_quote(asset) else None  # stable = 1:1
             self._pnl.log_fee(
                 session,
-                ts=datetime.utcnow(),
+                ts=executed_at,
                 exchange=str(ex),
                 account_id=str(acc),
                 symbol=symbol.upper(),
                 base_asset=base,
                 quote_asset=quote,
-                fee_asset_delta=-amt,     # sign-aware (negative)
-                fee_usd=fee_usd,          # if None, service will try to normalize (requires price_usd)
-                price_usd=None,           # you can pass a conversion here later from your quotes
-                ref_order_id=str(raw.get("orderId") or raw.get("order_id") or ""),
-                ref_trade_id=str(raw.get("tradeId") or raw.get("trade_id") or ""),
-                meta={"mode": "live"},
+                fee_asset=asset,
+                fee_asset_delta=-amt,   # отрицательное
+                fee_usd=fee_usd,
+                price_usd=None,        # можно прокинуть конвертацию позже
+                ref_order_id=str(
+                    getattr(result, "exchange_order_id", "")
+                    or getattr(result, "client_order_id", "")
+                ),
+                ref_trade_id=str(getattr(result, "trade_id", "") or ""),
+                meta={
+                    "meta_ver": 1,
+                    "mode": "live",
+                    "fee": float(amt),
+                    "fee_asset": asset,
+                    "client_order_id": getattr(result, "client_order_id", None),
+                    "exchange_order_id": getattr(result, "exchange_order_id", None),
+                    "trade_id": str(getattr(result, "trade_id", "") or ""),
+                    "strategy_tag": getattr(result, "tag", None),
+                },
                 emit_sse=True,
             )

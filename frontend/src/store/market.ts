@@ -1,6 +1,6 @@
 // src/store/market.ts
 import { create } from "zustand";
-import type { Quote, Position, Level } from "@/types/api";
+import type { Quote, Position, Level } from "@/types/api"; // or "@/types" if you prefer the flattened barrel
 import { normalizeSymbol } from "@/utils/format";
 
 /** Quote shape we keep in the store (extends backend Quote with optional fields) */
@@ -25,8 +25,7 @@ type MarketState = {
   quotes: QuotesMap;
   tape: Record<string, TapeItem[]>;
   positions: Record<string, Position>;
-
-  /** меняется при любом осмысленном обновлении котировок; используем как лёгкий триггер */
+  /** flips when quotes meaningfully change; lightweight trigger for selectors */
   quotesTick: number;
 
   clear: () => void;
@@ -48,21 +47,21 @@ const L2_TOP = 10;
 const SPREAD_BPS_MAX = 20_000;
 
 /* ───────── utils ───────── */
-const fnum = (v: unknown, dflt = 0) =>
+const fnum = (v: unknown, dflt = 0): number =>
   typeof v === "number" && Number.isFinite(v) ? v : Number(v ?? dflt);
 
-const posNum = (v: unknown) => {
+const posNum = (v: unknown): number => {
   const x = fnum(v, 0);
   return x > 0 ? x : 0;
 };
 
-const nonNeg = (v: unknown) => {
+const nonNeg = (v: unknown): number => {
   const x = fnum(v, 0);
   return x >= 0 ? x : 0;
 };
 
-// нормализация символа (общая утилита)
-const normSym = (s: unknown) => normalizeSymbol(String(s || ""));
+// normalize symbol with shared util
+const normSym = (s: unknown): string => normalizeSymbol(String(s || ""));
 
 const tsOrNow = (w: WithTs, now: number): number => {
   const t = w.ts ?? w.ts_ms ?? now;
@@ -80,28 +79,27 @@ function getNumField(obj: unknown, key: string): number | undefined {
 function sanitizePosition(p: Position): Position | undefined {
   const symbol = normSym(p.symbol);
   const qty = fnum(p.qty, 0);
-  const resolved_avg_price =
-    getNumField(p, "avg_price") ?? getNumField(p, "avg") ?? 0;
-  const resolved_unrealized =
-    getNumField(p, "unrealized_pnl") ?? getNumField(p, "upnl") ?? 0;
-  const resolved_realized =
-    getNumField(p, "realized_pnl") ?? getNumField(p, "rpnl") ?? 0;
-  const resolved_ts_ms = getNumField(p, "ts_ms") ?? getNumField(p, "ts");
-  const resolved_ts = getNumField(p, "ts") ?? resolved_ts_ms;
+  if (!symbol || qty === 0) return undefined;
 
-  if (qty === 0) return undefined;
+  const avg = getNumField(p, "avg_price") ?? getNumField(p, "avg") ?? 0;
+  const upnl = getNumField(p, "unrealized_pnl") ?? getNumField(p, "upnl") ?? 0;
+  const rpnl = getNumField(p, "realized_pnl") ?? getNumField(p, "rpnl") ?? 0;
+  const ts_ms = getNumField(p, "ts_ms") ?? getNumField(p, "ts");
+  const ts = getNumField(p, "ts") ?? ts_ms;
 
   const out: Position = {
+    ...p,
     symbol,
     qty,
-    avg_price: nonNeg(resolved_avg_price),
-    unrealized_pnl: fnum(resolved_unrealized, 0),
-    realized_pnl: fnum(resolved_realized, 0),
-    ts_ms: resolved_ts_ms,
-    avg: nonNeg(resolved_avg_price),
-    upnl: fnum(resolved_unrealized, 0),
-    rpnl: fnum(resolved_realized, 0),
-    ts: resolved_ts,
+    avg_price: nonNeg(avg),
+    unrealized_pnl: fnum(upnl, 0),
+    realized_pnl: fnum(rpnl, 0),
+    ts_ms,
+    // legacy FE aliases (optional but handy)
+    avg: nonNeg(avg),
+    upnl: fnum(upnl, 0),
+    rpnl: fnum(rpnl, 0),
+    ts,
   };
   return out;
 }
@@ -137,7 +135,7 @@ function normalizeQuote(input: StoreQuote): StoreQuote {
   if (!(bid > 0) && bidsL2.length) bid = bidsL2[0][0];
   if (!(ask > 0) && asksL2.length) ask = asksL2[0][0];
 
-  const mid =
+  const midCandidate =
     posNum(input.mid) > 0
       ? (input.mid as number)
       : bid > 0 && ask > 0
@@ -148,24 +146,20 @@ function normalizeQuote(input: StoreQuote): StoreQuote {
       ? ask
       : 0;
 
-  let spread_bps: number =
-    typeof input.spread_bps === "number" &&
-    Number.isFinite(input.spread_bps) &&
-    input.spread_bps >= 0
+  let spread_bps =
+    typeof input.spread_bps === "number" && Number.isFinite(input.spread_bps) && input.spread_bps >= 0
       ? input.spread_bps
-      : mid > 0 && bid > 0 && ask > 0
-      ? ((ask - bid) / mid) * 10_000
+      : midCandidate > 0 && bid > 0 && ask > 0
+      ? ((ask - bid) / midCandidate) * 10_000
       : 0;
   spread_bps = Math.max(0, Math.min(SPREAD_BPS_MAX, spread_bps));
 
   const bidQty = posNum(input.bidQty);
   const askQty = posNum(input.askQty);
 
-  const hasImb =
-    typeof input.imbalance === "number" && Number.isFinite(input.imbalance);
+  const hasImb = typeof input.imbalance === "number" && Number.isFinite(input.imbalance);
   const denom = bidQty + askQty;
-  const imbalance =
-    hasImb ? (input.imbalance as number) : denom > 0 ? bidQty / denom : undefined;
+  const imbalance = hasImb ? (input.imbalance as number) : denom > 0 ? bidQty / denom : undefined;
 
   const bids = bidsL2.length ? (bidsL2 as Level[]) : undefined;
   const asks = asksL2.length ? (asksL2 as Level[]) : undefined;
@@ -177,7 +171,7 @@ function normalizeQuote(input: StoreQuote): StoreQuote {
     ask,
     bidQty,
     askQty,
-    mid,
+    mid: midCandidate,
     spread_bps,
     bids,
     asks,
@@ -192,6 +186,22 @@ const isMeaningfulQuote = (q: StoreQuote): boolean => {
   const hasQty = (q.bidQty ?? 0) > 0 || (q.askQty ?? 0) > 0;
   return hasL1Both || hasMid || hasL2 || hasQty;
 };
+
+// shallow compare core quote fields to avoid noisy updates
+function changedQuoteCore(a?: StoreQuote, b?: StoreQuote): boolean {
+  if (!a || !b) return true;
+  return (
+    a.bid !== b.bid ||
+    a.ask !== b.ask ||
+    a.bidQty !== b.bidQty ||
+    a.askQty !== b.askQty ||
+    a.mid !== b.mid ||
+    a.spread_bps !== b.spread_bps ||
+    a.imbalance !== b.imbalance ||
+    a.bids !== b.bids || // note: reference compare; sanitizeLevels returns new array only when provided
+    a.asks !== b.asks
+  );
+}
 
 /* ───────── store ───────── */
 export const useMarket = create<MarketState>((set, get) => ({
@@ -233,10 +243,10 @@ export const useMarket = create<MarketState>((set, get) => ({
       return { positions: map };
     }),
 
-  // ⬇️ IMPORTANT: do NOT wipe state on empty snapshots; merge instead
+  // do NOT wipe on empty snapshots; merge instead
   applySnapshot: (qs) =>
     set((s) => {
-      if (!qs?.length) return {}; // keep existing quotes/tape to avoid flicker
+      if (!qs?.length) return {};
       const quotes: QuotesMap = { ...s.quotes };
       const tape: Record<string, TapeItem[]> = { ...s.tape };
       const now = Date.now();
@@ -249,7 +259,7 @@ export const useMarket = create<MarketState>((set, get) => ({
         const sym = q.symbol;
         const prev = quotes[sym];
 
-        // merge like applyQuotes, but also (re)seed tape if empty
+        // prefer new fields, fall back to prev when missing
         const merged: StoreQuote = {
           ...(prev || { symbol: sym }),
           ...q,
@@ -259,38 +269,26 @@ export const useMarket = create<MarketState>((set, get) => ({
           askQty: q.askQty && q.askQty > 0 ? q.askQty : prev?.askQty,
           mid: q.mid && q.mid > 0 ? q.mid : prev?.mid,
           spread_bps:
-            typeof q.spread_bps === "number" && q.spread_bps >= 0
-              ? q.spread_bps
-              : prev?.spread_bps,
+            typeof q.spread_bps === "number" && q.spread_bps >= 0 ? q.spread_bps : prev?.spread_bps,
           bids: q.bids?.length ? q.bids : prev?.bids,
           asks: q.asks?.length ? q.asks : prev?.asks,
           imbalance: typeof q.imbalance === "number" ? q.imbalance : prev?.imbalance,
         };
 
-        const changed =
-          !prev ||
-          merged.bid !== prev.bid ||
-          merged.ask !== prev.ask ||
-          merged.mid !== prev.mid ||
-          merged.spread_bps !== prev.spread_bps ||
-          merged.bidQty !== prev.bidQty ||
-          merged.askQty !== prev.askQty ||
-          merged.imbalance !== prev.imbalance ||
-          merged.bids !== prev.bids ||
-          merged.asks !== prev.asks;
-
+        const changed = changedQuoteCore(prev, merged);
         if (changed) {
           quotes[sym] = merged;
           changedAny = true;
         }
 
+        // tape (monotonic ts, append only on visual changes)
         let time = tsOrNow(q, now);
         const arr = tape[sym] ? [...tape[sym]] : [];
         const last = arr[arr.length - 1];
         if (last && time <= last.ts) time = last.ts + 1;
+
         const midVal = merged.mid ?? 0;
         const sbps = merged.spread_bps ?? 0;
-
         if (!last || last.mid !== midVal || last.spread_bps !== sbps) {
           arr.push({ ts: time, mid: midVal, spread_bps: sbps });
           if (arr.length > MAX_TAPE) arr.splice(0, arr.length - MAX_TAPE);
@@ -305,8 +303,8 @@ export const useMarket = create<MarketState>((set, get) => ({
   applyQuotes: (qs) =>
     set((s) => {
       if (!qs?.length) return {};
-      const quotes = { ...s.quotes };
-      const tape = { ...s.tape };
+      const quotes: QuotesMap = { ...s.quotes };
+      const tape: Record<string, TapeItem[]> = { ...s.tape };
       const now = Date.now();
       let changedAny = false;
 
@@ -326,31 +324,19 @@ export const useMarket = create<MarketState>((set, get) => ({
           askQty: qn.askQty && qn.askQty > 0 ? qn.askQty : prev?.askQty,
           mid: qn.mid && qn.mid > 0 ? qn.mid : prev?.mid,
           spread_bps:
-            typeof qn.spread_bps === "number" && qn.spread_bps >= 0
-              ? qn.spread_bps
-              : prev?.spread_bps,
+            typeof qn.spread_bps === "number" && qn.spread_bps >= 0 ? qn.spread_bps : prev?.spread_bps,
           bids: qn.bids?.length ? qn.bids : prev?.bids,
           asks: qn.asks?.length ? qn.asks : prev?.asks,
           imbalance: typeof qn.imbalance === "number" ? qn.imbalance : prev?.imbalance,
         };
 
-        const changed =
-          !prev ||
-          merged.bid !== prev.bid ||
-          merged.ask !== prev.ask ||
-          merged.mid !== prev.mid ||
-          merged.spread_bps !== prev.spread_bps ||
-          merged.bidQty !== prev.bidQty ||
-          merged.askQty !== prev.askQty ||
-          merged.imbalance !== prev.imbalance ||
-          merged.bids !== prev.bids ||
-          merged.asks !== prev.asks;
-
+        const changed = changedQuoteCore(prev, merged);
         if (changed) {
           quotes[sym] = merged;
           changedAny = true;
         }
 
+        // tape update
         let time = tsOrNow(qn, now);
         const arr = tape[sym] ? [...tape[sym]] : [];
         const last = arr[arr.length - 1];
@@ -360,12 +346,13 @@ export const useMarket = create<MarketState>((set, get) => ({
         const sbps = merged.spread_bps ?? 0;
         if (!last || last.mid !== midVal || last.spread_bps !== sbps) {
           arr.push({ ts: time, mid: midVal, spread_bps: sbps });
+          if (arr.length > MAX_TAPE) arr.splice(0, arr.length - MAX_TAPE);
+          tape[sym] = arr;
           changedAny = true;
         }
-        if (arr.length > MAX_TAPE) arr.splice(0, arr.length - MAX_TAPE);
-        tape[sym] = arr;
       }
-      return changedAny ? { quotes, tape, quotesTick: Date.now() } : { quotes, tape };
+
+      return changedAny ? { quotes, tape, quotesTick: Date.now() } : {};
     }),
 
   ingest: (qs) => get().applyQuotes(qs),

@@ -10,7 +10,7 @@ def _normalize_cors(v: Any) -> list[str]:
     Accepts:
       - "*"                          -> ["*"] (reflect any Origin)
       - "a,b,c"                      -> ["a","b","c"]
-      - '["a","b"]' or "[a,b]"      -> ["a","b"] (very naive JSON-ish split)
+      - '["a","b"]' or "[a,b]"      -> ["a","b"] (naive JSON-ish split)
       - list/tuple                   -> list[str]
       - None/""                      -> []
     Strips whitespace and drops empties.
@@ -29,13 +29,15 @@ def _normalize_cors(v: Any) -> list[str]:
         if s.startswith("[") and s.endswith("]"):
             s = s[1:-1]
         return [p.strip() for p in s.split(",") if p.strip()]
-    # Anything else → best-effort string
-    return [str(v).strip()] if str(v).strip() else []
+    # Fallback: best-effort string
+    s = str(v).strip()
+    return [s] if s else []
 
 
 def _csv_split(s: str | None) -> list[str]:
     if not s:
         return []
+    # allow spaces after commas
     return [x.strip() for x in s.split(",") if x.strip()]
 
 
@@ -44,7 +46,7 @@ class Settings(BaseSettings):
     Centralized runtime configuration.
     - Reads from .env (UTF-8) and environment variables
     - Ignores unknown keys (keeps config robust across branches)
-    - Provides handy properties for CSV fields
+    - Provides handy properties for CSV/CORS/proxy fields
     """
     # ---------- Pydantic / .env ----------
     model_config = SettingsConfigDict(
@@ -78,21 +80,17 @@ class Settings(BaseSettings):
     )
 
     # ========== Core / Provider & Mode (legacy keys still supported) ==========
-    # Back-compat: MODE (paper|live) остаётся, но приоритет у ACCOUNT_MODE / ACTIVE_MODE
-    # ACCOUNT_MODE: PAPER | LIVE | DEMO
     account_mode: str = Field(
         default=(os.getenv("ACCOUNT_MODE", os.getenv("MODE", "paper")) or "paper").lower(),
         validation_alias=AliasChoices("ACCOUNT_MODE", "account_mode", "MODE", "mode"),
         description="paper | live | demo",
     )
-    # EXCHANGE_PROVIDER: MEXC | BINANCE (по умолчанию MEXC); now also GATE
     exchange_provider: str = Field(
         default=(os.getenv("EXCHANGE_PROVIDER", "MEXC") or "MEXC").upper(),
         validation_alias=AliasChoices("EXCHANGE_PROVIDER", "exchange_provider"),
         description="MEXC | BINANCE | GATE",
     )
 
-    # Single-workspace for now (easy to expand later)
     workspace_id: int = Field(
         default=int(os.getenv("WORKSPACE_ID", "1")),
         validation_alias=AliasChoices("WORKSPACE_ID", "workspace_id"),
@@ -107,6 +105,12 @@ class Settings(BaseSettings):
     api_secret: str = Field(
         default=os.getenv("MEXC_API_SECRET", ""),
         validation_alias=AliasChoices("MEXC_API_SECRET", "mexc_api_secret"),
+    )
+    # NEW: explicit MEXC REST base used by market_scanner._mexc_rest_base()
+    mexc_rest_base: str = Field(
+        default=os.getenv("MEXC_REST_BASE", "https://api.mexc.com"),
+        validation_alias=AliasChoices("MEXC_REST_BASE", "mexc_rest_base"),
+        description="MEXC REST base (Spot v3)",
     )
 
     # ========== Binance (Demo/Live) ==========
@@ -161,19 +165,18 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("SYMBOLS", "symbols"),
     )
 
-    # Accept CORS from env under either key; we’ll normalize below.
+    # CORS envs (normalized via property)
     cors_origins_env: str | list[str] = Field(
         default=os.getenv("CORS_ORIGINS", os.getenv("cors_origins", "")),
         validation_alias=AliasChoices("CORS_ORIGINS", "cors_origins"),
     )
-
-    # Back-compat: if someone sets this older key, we’ll merge it in.
     cors_origins_csv: str = Field(
         default=os.getenv("CORS_ORIGINS_CSV", "http://localhost:5173,http://localhost:3000"),
         validation_alias=AliasChoices("CORS_ORIGINS_CSV", "cors_origins_csv"),
     )
 
     # ========== HTTP (REST / PS fallback) — legacy MEXC defaults ==========
+    # kept for backward compatibility; prefer mexc_rest_base
     rest_base_url: str = Field(
         default=os.getenv("REST_BASE_URL", "https://api.mexc.com/api/v3"),
         validation_alias=AliasChoices("REST_BASE_URL", "rest_base_url"),
@@ -241,11 +244,11 @@ class Settings(BaseSettings):
         description="Enable REST poller as a source",
     )
     enable_ps_poller: bool = Field(
-        default=os.getenv("ENABLE_PS_POLLER", "false").lower() in {"1", "true", "yes", "on"},
+        # default True so PS poller runs as fallback unless explicitly disabled
+        default=os.getenv("ENABLE_PS_POLLER", "true").lower() in {"1", "true", "yes", "on"},
         validation_alias=AliasChoices("ENABLE_PS_POLLER", "enable_ps_poller"),
         description="Enable pseudo-snapshot poller (fallback)",
     )
-
     enable_ui_state: bool = Field(
         default=os.getenv("ENABLE_UI_STATE", "false").lower() in {"1", "true", "yes", "on"},
         validation_alias=AliasChoices("ENABLE_UI_STATE", "enable_ui_state"),
@@ -348,6 +351,12 @@ class Settings(BaseSettings):
         return [s.upper() for s in _csv_split(self.symbols_csv)]
 
     @property
+    def live_use_market_for_maker(self) -> bool:
+        # Coerce to string before .lower()
+        raw = getattr(self, "LIVE_USE_MARKET_FOR_MAKER", os.getenv("LIVE_USE_MARKET_FOR_MAKER", "true"))
+        return str(raw).lower() in {"1", "true", "yes", "on"}
+
+    @property
     def cors_origins(self) -> List[str]:
         """
         Final, normalized list the rest of the app should use.
@@ -358,8 +367,21 @@ class Settings(BaseSettings):
         env_list = _normalize_cors(self.cors_origins_env)
         if env_list:
             return env_list
-        csv_list = _normalize_cors(self.cors_origins_csv)
-        return csv_list
+        return _normalize_cors(self.cors_origins_csv)
+
+    @property
+    def proxies(self) -> dict:
+        """
+        httpx/aiohttp proxy mapping derived from env.
+        Returns {} if not set.
+        """
+        proxies: dict = {}
+        if self.http_proxy_env:
+            proxies["http://"] = self.http_proxy_env
+        if selfhttps := self.https_proxy_env:
+            proxies["https://"] = selfhttps
+        # NO_PROXY is honored by underlying libs; we expose raw for callers if needed
+        return proxies
 
     # ---------- Active provider/mode resolution (new) ----------
     @property
@@ -378,7 +400,7 @@ class Settings(BaseSettings):
             base = "PAPER"
         return base
 
-    # Convenience flags (keep old ones for compatibility)
+    # Convenience flags
     @property
     def is_binance(self) -> bool:
         return self.active_provider == "BINANCE"
@@ -411,8 +433,8 @@ class Settings(BaseSettings):
             return self.gate_testnet_rest_base if self.is_demo else self.gate_rest_base
         if self.is_binance:
             return self.binance_rest_base
-        # default MEXC
-        return self.rest_base_url
+        # default MEXC (prefer explicit mexc_rest_base over legacy)
+        return self.mexc_rest_base or self.rest_base_url
 
     @property
     def ws_base_url_resolved(self) -> str:

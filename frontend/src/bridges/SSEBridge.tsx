@@ -22,21 +22,20 @@ type DepthEnvelope = {
   depth?: DepthFrame[];
 };
 
-/** Wire up SSE stream to the market store and auto-reconnect on changes. */
 export default function SSEBridge() {
   const items = useSymbols((s) => s.items);
   const revision = useProvider((s) => s.revision);
+  const wsEnabled = useProvider((s) => s.wsEnabled);
 
-  // Stable refs to store writers so the effect doesn’t re-run on their identity changes
+  // keep stable references to store writers
   const applySnapshotRef = useRef(useMarket.getState().applySnapshot);
   const applyQuotesRef = useRef(useMarket.getState().applyQuotes);
-  // keep refs fresh in case store hot-swaps them (unlikely, but cheap)
   useEffect(() => {
     applySnapshotRef.current = useMarket.getState().applySnapshot;
     applyQuotesRef.current = useMarket.getState().applyQuotes;
   });
 
-  // Stable CSV of unique, uppercased symbols
+  // CSV of unique, uppercased symbols
   const symbolsCSV = useMemo(() => {
     const seen = new Set<string>();
     const list: string[] = [];
@@ -53,8 +52,8 @@ export default function SSEBridge() {
   const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    // If no symbols → close and bail (keep existing quotes; avoid flicker)
-    if (!symbolsCSV) {
+    // If no symbols or WS disabled → close and bail (preserves current quotes; no flicker)
+    if (!symbolsCSV || !wsEnabled) {
       if (esRef.current) {
         esRef.current.close();
         esRef.current = null;
@@ -76,7 +75,7 @@ export default function SSEBridge() {
     const es = new EventSource(url);
     esRef.current = es;
 
-    // --- handlers (use refs to stable store writers)
+    // --- handlers
     const onSnapshot = (e: MessageEvent) => {
       try {
         const payload = JSON.parse(e.data) as QuoteFrame;
@@ -104,10 +103,7 @@ export default function SSEBridge() {
         const depthArr = Array.isArray(payload?.depth) ? payload.depth : [];
         if (!depthArr.length) return;
 
-        // Convert depth items into StoreQuote-like patches
-        const patches: Array<
-          Pick<StoreQuote, "symbol" | "bids" | "asks" | "ts_ms">
-        > = depthArr.map((d) => ({
+        const patches: Array<Pick<StoreQuote, "symbol" | "bids" | "asks" | "ts_ms">> = depthArr.map((d) => ({
           symbol: String(d.symbol ?? "").toUpperCase(),
           bids: Array.isArray(d.bids) ? d.bids : undefined,
           asks: Array.isArray(d.asks) ? d.asks : undefined,
@@ -120,6 +116,18 @@ export default function SSEBridge() {
       }
     };
 
+    // Optional: support default "message" events carrying a {type} field
+    const onMessage = (e: MessageEvent) => {
+      try {
+        const payload = JSON.parse(e.data) as QuoteFrame | DepthEnvelope;
+        if ((payload as QuoteFrame).type === "snapshot") return onSnapshot(e);
+        if ((payload as QuoteFrame).type === "quotes") return onQuotes(e);
+        if ((payload as DepthEnvelope).type === "depth") return onDepth(e);
+      } catch {
+        /* ignore parse errors */
+      }
+    };
+
     const onError = () => {
       // Let browser auto-reconnect; avoid setState loops here.
     };
@@ -127,17 +135,19 @@ export default function SSEBridge() {
     es.addEventListener("snapshot", onSnapshot);
     es.addEventListener("quotes", onQuotes);
     es.addEventListener("depth", onDepth);
+    es.addEventListener("message", onMessage); // generic fallback
     es.onerror = onError;
 
     return () => {
       es.removeEventListener("snapshot", onSnapshot);
       es.removeEventListener("quotes", onQuotes);
       es.removeEventListener("depth", onDepth);
+      es.removeEventListener("message", onMessage);
       es.onerror = null;
       es.close();
       esRef.current = null;
     };
-  }, [symbolsCSV, revision]); // ← only reconnect when watchlist or provider changes
+  }, [symbolsCSV, revision, wsEnabled]); // reconnect when watchlist/provider changes or WS toggles
 
   return null;
 }

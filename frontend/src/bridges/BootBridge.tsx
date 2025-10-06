@@ -1,7 +1,7 @@
 // src/bridges/BootBridge.tsx
 import { useEffect, useRef } from "react";
 import { useOrders } from "@/store/orders";
-import type { OrderItem, FillItem, Position } from "@/types/api";
+import type { OrderItem, FillItem, Position } from "@/types";
 
 type BootPayload = {
   ui_state?: { watchlist?: { symbols?: string[] } };
@@ -10,14 +10,15 @@ type BootPayload = {
   fills?: FillItem[];
 };
 
-// Keep as-is unless your backend path differs
+// Primary and fallback endpoints (keep if your backend differs)
 const BOOT_URL = "/api/ui/state";
+const FALLBACK_URL = "/api/ui/snapshot?include=orders,fills";
 
 function isOrderArray(a: unknown): a is OrderItem[] {
-  return Array.isArray(a) && a.every((x) => x && typeof x === "object" && "symbol" in x);
+  return Array.isArray(a) && a.every((x) => x && typeof x === "object" && "symbol" in (x as object));
 }
 function isFillArray(a: unknown): a is FillItem[] {
-  return Array.isArray(a) && a.every((x) => x && typeof x === "object" && "symbol" in x);
+  return Array.isArray(a) && a.every((x) => x && typeof x === "object" && "symbol" in (x as object));
 }
 
 export default function BootBridge() {
@@ -31,15 +32,23 @@ export default function BootBridge() {
 
     (async () => {
       try {
-        const res = await fetch(BOOT_URL, { signal: ac.signal });
-        if (!res.ok) throw new Error(`Boot fetch failed: ${res.status}`);
+        // 1) Try the canonical boot payload
+        let res = await fetch(BOOT_URL, { signal: ac.signal });
+        if (!res.ok) {
+          // 2) Graceful fallback to snapshot (orders + fills only)
+          if (res.status === 404 || res.status === 405) {
+            res = await fetch(FALLBACK_URL, { signal: ac.signal });
+          }
+          if (!res.ok) throw new Error(`Boot fetch failed: ${res.status}`);
+        }
 
-        const raw = (await res.json()) as unknown;
+        const raw: unknown = await res.json();
         const data: BootPayload = (raw && typeof raw === "object") ? (raw as BootPayload) : {};
 
         const ordersArr = isOrderArray(data.orders) ? data.orders : [];
         const fillsArr  = isFillArray(data.fills)   ? data.fills  : [];
 
+        // Hydrate orders store (dedup & sort happens inside)
         useOrders.getState().setFromSnapshot({ orders: ordersArr, fills: fillsArr });
 
         // Debug confirmation

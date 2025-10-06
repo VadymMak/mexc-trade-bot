@@ -154,18 +154,27 @@ def fetch_last_events(
 ) -> List[Dict[str, Any]]:
     """
     Return latest ledger events in [start_utc, end_utc) for UI detail panels.
-    Converts Decimal → float for JSON readiness.
+    Flattens common details from meta so the frontend can render columns without knowing schema.
+    Output keys (some may be missing if not derivable):
+      - time (ISO string), type, side, qty, price, fee_usd, pnl_delta (+ useful extras)
     """
     limit = max(1, min(500, int(limit)))
+
+    start_naive = start_utc.replace(tzinfo=None)
+    end_naive = end_utc.replace(tzinfo=None)
+
     q = (
         select(
             PnlLedger.ts,
             PnlLedger.event_type,
             PnlLedger.amount_usd,
+            PnlLedger.amount_asset,
+            PnlLedger.base_asset,
+            PnlLedger.quote_asset,
             PnlLedger.meta,
         )
-        .where(PnlLedger.ts >= start_utc.replace(tzinfo=None))
-        .where(PnlLedger.ts < end_utc.replace(tzinfo=None))
+        .where(PnlLedger.ts >= start_naive)
+        .where(PnlLedger.ts < end_naive)
         .order_by(PnlLedger.ts.desc())
         .limit(limit)
     )
@@ -173,13 +182,61 @@ def fetch_last_events(
 
     rows = db.execute(q).all()
     out: List[Dict[str, Any]] = []
-    for ts, event_type, amount_usd, meta in rows:
+
+    def _fnum(v: Any) -> Optional[float]:
+        try:
+            n = float(v)
+            if n != n or n in (float("inf"), float("-inf")):
+                return None
+            return n
+        except Exception:
+            return None
+
+    for ts, event_type, amount_usd, amount_asset, base_asset, quote_asset, meta in rows:
+        m = meta or {}
+
+        side = m.get("side") or m.get("direction") or m.get("action") or m.get("taker_side") or m.get("maker_side")
+        qty = (
+            _fnum(m.get("qty"))
+            or _fnum(m.get("quantity"))
+            or _fnum(m.get("size"))
+            or _fnum(m.get("amount"))
+            or _fnum(m.get("filled_qty"))
+            or _fnum(m.get("base_qty"))
+            or _fnum(m.get("exec_qty"))
+        )
+        price = (
+            _fnum(m.get("price"))
+            or _fnum(m.get("avg_price"))
+            or _fnum(m.get("fill_price"))
+            or _fnum(m.get("mark"))
+            or _fnum(m.get("exec_price"))
+        )
+        fee_usd = (
+            _fnum(m.get("fee_usd"))
+            or _fnum(m.get("commission_usd"))
+            or _fnum(m.get("commission"))
+            or _fnum(m.get("fee"))
+        )
+        if not fee_usd and event_type == "FEE":
+            fee_usd = _fnum(amount_usd)
+
         out.append(
             {
-                "ts": (ts if isinstance(ts, datetime) else None),
-                "event_type": event_type,
-                "amount_usd": float(amount_usd or 0),
-                "meta": meta or {},
+                "time": ensure_utc(ts).isoformat().replace("+00:00", "Z") if isinstance(ts, datetime) else None,
+                "ts": ts,
+                "type": event_type,
+                "symbol": scope.get("symbol") if isinstance(scope, dict) else None,
+                "base_asset": base_asset,
+                "quote_asset": quote_asset,
+                "side": side,
+                "qty": qty,
+                "price": price,
+                "fee_usd": fee_usd,
+                "pnl_delta": float(amount_usd or 0),
+                "realized_usd": float(amount_usd or 0),
+                "amount_asset": float(amount_asset or 0),
+                "meta": m,
             }
         )
     return out

@@ -13,14 +13,13 @@ import { useMetrics } from "@/store/metrics";
 import { useOrders } from "@/store/orders";
 
 import {
-  apiStartSymbols,
-  apiStopSymbols,
+  // ❌ убрано: apiStartSymbols, apiStopSymbols
   apiFlatten,
   apiPlaceOrder,
   apiGetExecPositions,
   apiGetUISnapshot,
 } from "@/api/api";
-import type { StrategyStartResponse, StrategyStopResponse } from "@/api/api";
+// ❌ убрано: StrategyStartResponse, StrategyStopResponse
 
 import DepthGlass from "@/components/charts/DepthGlass";
 import OrdersFills from "@/components/cards/OrdersFills";
@@ -353,8 +352,7 @@ function QuickTrade({
 /* ------------------------------ main card ------------------------------ */
 export default function SymbolCard({ symbol }: Props) {
   const toast = useToast();
-
-  const sym = symbol.toUpperCase(); // normalize for store lookups
+  const sym = symbol.toUpperCase();
 
   // symbols store
   const remove = useSymbols((s) => s.remove);
@@ -368,12 +366,12 @@ export default function SymbolCard({ symbol }: Props) {
   // orders store
   const setOrdersFromSnapshot = useOrders((s) => s.setFromSnapshot);
 
-  // market store — lookups by UPPERCASE key
+  // market store
   const qq = useMarket((s) => s.quotes[sym] as StoreQuote | undefined);
   const pos = useMarket((s) => s.positions[sym]);
   const tape = useMarket((s) => s.tape?.[sym] ?? EMPTY_TAPE);
 
-  // metrics store
+  // metrics
   const entries = useMetrics((s) => s.entriesOf(sym));
   const exitsTP = useMetrics((s) => s.exitsTPOf(sym));
   const exitsSL = useMetrics((s) => s.exitsSLOf(sym));
@@ -384,7 +382,7 @@ export default function SymbolCard({ symbol }: Props) {
   // methods
   const setPositions = useMarket((s) => s.setPositions);
 
-  /* --------------------- per-symbol "saga" queue --------------------- */
+  /* --------------------- per-symbol queue --------------------- */
   const chainRef = useRef<Promise<unknown>>(Promise.resolve());
 
   const refreshAfterAction = async () => {
@@ -400,11 +398,8 @@ export default function SymbolCard({ symbol }: Props) {
     });
   };
 
-  // Initial hydrate for the card
   useEffect(() => {
-    refreshAfterAction().catch(() => {
-      /* non-blocking */
-    });
+    refreshAfterAction().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sym]);
 
@@ -414,89 +409,60 @@ export default function SymbolCard({ symbol }: Props) {
       .finally(async () => {
         try {
           await refreshAfterAction();
-        } catch {
-          /* ignore refresh errors */
-        }
+        } catch {console.log("Error")}
       });
 
-    chainRef.current = next.catch(() => {
-      /* keep chain alive even if it errors */
-    });
-
+    chainRef.current = next.catch(() => {});
     return next as Promise<T>;
   };
 
+  // ✅ теперь используем только стор useStrategy
   const onStart = async () => {
     try {
-      await enqueue(async () => {
-        const resp: StrategyStartResponse = await apiStartSymbols([sym]);
-        await start([sym]);
-        if (resp?.message) toast.info(resp.message);
-      });
+      await enqueue(async () => start([sym]));
+      toast.success(`${sym} started`);
     } catch (err) {
       toast.error(getErrorMessage(err) || "Start failed", "Start failed");
-      return;
     }
-    toast.success(`${sym} started`);
   };
 
   const onStop = async () => {
     try {
-      await enqueue(async () => {
-        const resp: StrategyStopResponse = await apiStopSymbols([sym], false);
-        await stop([sym], false);
-        if (resp?.message) toast.info(resp.message);
-      });
+      await enqueue(async () => stop([sym], false));
+      toast.info(`${sym} stopped (no flatten)`);
     } catch (err) {
       toast.error(getErrorMessage(err) || "Stop failed", "Stop failed");
-      return;
     }
-    toast.info(`${sym} stopped (no flatten)`);
   };
 
   const onFlatten = async () => {
     try {
       await enqueue(async () => {
-        await apiFlatten(sym);
+        await apiFlatten(sym);   // закрываем позицию на сервере
+        await stop([sym], true); // и фиксируем состояние UI
       });
+      toast.info(`${sym} flattened`);
     } catch (err) {
       toast.error(getErrorMessage(err) || "Flatten failed", "Flatten failed");
-      return;
     }
-    toast.info(`${sym} flattened`);
   };
 
-  /* ----- settings trigger (opens global modal) ----- */
   const openSettings = () => {
-    window.dispatchEvent(
-      new CustomEvent("open-strategy-settings", {
-        detail: { symbol: sym },
-      })
-    );
+    window.dispatchEvent(new CustomEvent("open-strategy-settings", { detail: { symbol: sym } }));
   };
 
-  /* ---------------------- pick price ---------------------- */
   const [selectedPrice, setSelectedPrice] = useState<number | null>(null);
 
   return (
     <div
       className={cx(
         "relative flex flex-col rounded-2xl border border-zinc-800/50 bg-zinc-900/40 shadow-lg",
-        // Single fixed height keeps grid stable. Width is responsive.
         "h-[860px]",
-        // Clip sticky header/footer corners
         "overflow-hidden"
       )}
     >
-      {/* Header (sticky inside the card) */}
-      <div
-        className="
-          sticky top-0 z-10
-          bg-zinc-900/80 supports-[backdrop-filter]:bg-zinc-900/60 backdrop-blur
-          border-b border-zinc-800/60
-          px-4 pt-4 pb-2 flex items-center gap-3
-        "
-      >
+      {/* Header */}
+      <div className="sticky top-0 z-10 bg-zinc-900/80 supports-[backdrop-filter]:bg-zinc-900/60 backdrop-blur border-b border-zinc-800/60 px-4 pt-4 pb-2 flex items-center gap-3">
         <div className="text-lg font-semibold tracking-wide">{sym}</div>
         <StatusBadge running={running} />
         <div className="ml-auto flex items-center gap-2">
@@ -530,6 +496,7 @@ export default function SymbolCard({ symbol }: Props) {
               ▶ Start
             </button>
           )}
+
           <button
             onClick={onFlatten}
             className="h-8 px-3 text-sm rounded-lg bg-zinc-700 text-zinc-200/90 hover:bg-zinc-600 disabled:opacity-60"
@@ -550,12 +517,10 @@ export default function SymbolCard({ symbol }: Props) {
         </div>
       </div>
 
-      {/* Scrollable body */}
+      {/* Body */}
       <div className="flex-1 overflow-auto px-4 pb-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 min-h-full">
-          {/* LEFT column */}
           <div className="flex flex-col gap-3 min-h-0">
-            {/* DepthGlass area is locked by parent to avoid reflow */}
             <div className="flex-1 min-h-[340px] max-h-[480px] overflow-hidden rounded-xl border border-zinc-700/60">
               <DepthGlass
                 bid={qq?.bid}
@@ -570,13 +535,18 @@ export default function SymbolCard({ symbol }: Props) {
             </div>
           </div>
 
-          {/* RIGHT column */}
           <div className="flex flex-col gap-3 min-h-0">
             <QuickTrade
               symbol={sym}
               bid={qq?.bid}
               ask={qq?.ask}
-              enqueue={enqueue}
+              enqueue={async (op) => {
+                const ref = (SymbolCard as unknown as { chain?: Promise<unknown> });
+                if (!ref.chain) ref.chain = Promise.resolve();
+                ref.chain = ref.chain.then(op).catch(() => {});
+                await ref.chain;
+                return undefined as unknown as never;
+              }}
               selectedPrice={selectedPrice ?? undefined}
               onClearSelected={() => setSelectedPrice(null)}
             />
@@ -594,22 +564,14 @@ export default function SymbolCard({ symbol }: Props) {
             />
           </div>
 
-          {/* Orders / Fills */}
           <div className="md:col-span-2 rounded-xl border border-zinc-700/60 p-2">
             <OrdersFills symbol={sym} limit={10} />
           </div>
         </div>
       </div>
 
-      {/* Footer metrics (sticky inside the card) */}
-      <div
-        className="
-          sticky bottom-0 z-10
-          border-t border-zinc-800/60
-          bg-zinc-900/80 supports-[backdrop-filter]:bg-zinc-900/60 backdrop-blur
-          px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-sm
-        "
-      >
+      {/* Footer metrics */}
+      <div className="sticky bottom-0 z-10 border-t border-zinc-800/60 bg-zinc-900/80 supports-[backdrop-filter]:bg-zinc-900/60 backdrop-blur px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
         <div className="rounded-lg bg-zinc-900/60 p-2">
           <div className="text-xs text-zinc-500">Entries</div>
           <div className="font-mono tabular-nums">{entries}</div>

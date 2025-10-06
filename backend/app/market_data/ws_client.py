@@ -190,11 +190,7 @@ def _resolve_channels(channels: Optional[List[str]]) -> List[str]:
             out.append(ch)
         else:
             mapped = WS_CHANNELS.get(ch)  # try as key
-            if mapped:
-                out.append(mapped)
-            else:
-                # last resort: accept raw
-                out.append(ch)
+            out.append(mapped if mapped else ch)
     return out
 
 
@@ -213,7 +209,11 @@ class MEXCWebSocketClient:
         # ✅ subscribe to BOOK_TICKER + DEPTH by default; and normalize if keys passed
         self.channels = _resolve_channels(channels)
         self.rate_suffix = rate_suffix
-        self.ws_url = getattr(settings, "ws_url_public", None) or WS_PUBLIC_ENDPOINT
+        self.ws_url = (
+            getattr(settings, "ws_base_url_resolved", None)
+            or getattr(settings, "ws_url_public", None)
+            or WS_PUBLIC_ENDPOINT
+        )
 
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
         self._connected = False
@@ -369,9 +369,24 @@ class MEXCWebSocketClient:
     async def _subscribe_all(self) -> None:
         assert self._ws and self._connected
         topics: list[str] = []
+
+        # how many L2 levels per side for partial depth (from settings)
+        levels = int(getattr(settings, "ws_orderbook_snapshot_levels", 10))
+
         for sym in self.symbols:
             for ch in self.channels:
-                topics.append(f"{ch}{self.rate_suffix}@{sym}")
+                ch_l = ch.lower()
+                # ✅ bookTicker / deals / aggre.depth — с частотой (rate_suffix)
+                if (".bookticker." in ch_l) or (".aggre.depth." in ch_l) or (".deals." in ch_l):
+                    topics.append(f"{ch}{self.rate_suffix}@{sym}")
+                # ✅ limit.depth — БЕЗ частоты; формат @SYMBOL@<levels>
+                elif ".limit.depth." in ch_l:
+                    topics.append(f"{ch}@{sym}@{levels}")
+                else:
+                    # по умолчанию ведём себя как у bookTicker
+                    topics.append(f"{ch}{self.rate_suffix}@{sym}")
+
+            # доп. диагностические варианты только для bookTicker
             if self._dbg_json_parity:
                 topics.append(f"spot@public.aggre.bookTicker.v3.api{self.rate_suffix}@{sym}")
             if self._dbg_pb_variants:

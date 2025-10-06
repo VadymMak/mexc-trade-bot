@@ -6,6 +6,14 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple, AsyncIterator
 
+# settings for default absorption window
+try:
+    from app.config.settings import settings
+    _DEFAULT_ABS_BPS = float(getattr(settings, "absorption_x_bps", 5.0) or 5.0)
+except Exception:
+    _DEFAULT_ABS_BPS = 5.0
+
+
 # ───────────────────────────── helpers ─────────────────────────────
 
 def now_ms() -> int:
@@ -52,7 +60,7 @@ class L2Book:
 class SymbolState:
     top: TopOfBook = field(default_factory=TopOfBook)
     l2: Optional[L2Book] = None
-    depth_enabled: bool = False  # хотим ли держать L10 для символа
+    depth_enabled: bool = True  # keep for API compatibility; we no longer gate updates on it
 
 
 # ───────────────────────────── tracker ─────────────────────────────
@@ -115,8 +123,7 @@ class BookTracker:
             for q in self._subscribers:
                 try:
                     if q.full():
-                        # drop oldest to keep latency low
-                        _ = q.get_nowait()
+                        _ = q.get_nowait()  # drop oldest to keep latency low
                     q.put_nowait(payload)
                 except Exception:
                     dead.append(q)
@@ -129,8 +136,8 @@ class BookTracker:
         sym = symbol.upper()
         async with self._lock:
             st = self._states.setdefault(sym, SymbolState())
-            st.depth_enabled = enabled
-            if enabled and st.l2 is None:
+            st.depth_enabled = bool(enabled)
+            if st.l2 is None and enabled:
                 st.l2 = L2Book()
 
     async def update_book_ticker(
@@ -189,10 +196,9 @@ class BookTracker:
 
         async with self._lock:
             st = self._states.setdefault(sym, SymbolState())
-            if not st.depth_enabled:
-                return
             if st.l2 is None:
                 st.l2 = L2Book()
+            # we no longer gate on st.depth_enabled — always accept updates
             st.l2.bids = nbids
             st.l2.asks = nasks
             st.l2.ts_ms = int(t)
@@ -220,22 +226,24 @@ class BookTracker:
 
     # ───────────────── reads ─────────────────
 
-    async def get_quote(self, symbol: str, absorption_x_bps: float = 10.0) -> Dict[str, Any]:
+    async def get_quote(self, symbol: str, absorption_x_bps: Optional[float] = None) -> Dict[str, Any]:
         sym = symbol.upper()
+        xbps = float(_DEFAULT_ABS_BPS if absorption_x_bps is None else absorption_x_bps)
         async with self._lock:
             st = self._states.get(sym)
             if not st:
                 return self._empty_snapshot(sym)
-            return self._snapshot_locked(sym, st, absorption_x_bps)
+            return self._snapshot_locked(sym, st, xbps)
 
     async def get_quotes(
         self,
         symbols: Optional[Sequence[str]] = None,
-        absorption_x_bps: float = 10.0,
+        absorption_x_bps: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
         """
         Возвращает список котировок/метрик для указанного набора символов (или для всех известных).
         """
+        xbps = float(_DEFAULT_ABS_BPS if absorption_x_bps is None else absorption_x_bps)
         syms: List[str]
         if symbols:
             syms = [s.upper() for s in symbols]
@@ -249,7 +257,7 @@ class BookTracker:
                 if not st:
                     out.append(self._empty_snapshot(sym))
                     continue
-                out.append(self._snapshot_locked(sym, st, absorption_x_bps))
+                out.append(self._snapshot_locked(sym, st, xbps))
         return out
 
     # Совместимость с роутером /api/market/quotes
@@ -262,7 +270,7 @@ class BookTracker:
 
     # ───────────────── metrics & snapshots ─────────────────
 
-    def _snapshot_locked(self, sym: str, st: SymbolState, absorption_x_bps: float = 10.0) -> Dict[str, Any]:
+    def _snapshot_locked(self, sym: str, st: SymbolState, absorption_x_bps: float = _DEFAULT_ABS_BPS) -> Dict[str, Any]:
         top = st.top
         metrics = self._compute_metrics_locked(st, absorption_x_bps=absorption_x_bps)
         return {
@@ -293,7 +301,7 @@ class BookTracker:
             "ts_ms": 0,
         }
 
-    def _compute_metrics_locked(self, st: SymbolState, absorption_x_bps: float = 10.0) -> Dict[str, Any]:
+    def _compute_metrics_locked(self, st: SymbolState, absorption_x_bps: float = _DEFAULT_ABS_BPS) -> Dict[str, Any]:
         """
         Расчёт метрик для стратегии:
         - mid, spread, spread_bps
@@ -319,7 +327,7 @@ class BookTracker:
 
         # absorption оценим на основе L10, если доступно
         abs_bid_usd, abs_ask_usd = 0.0, 0.0
-        if st.l2 and st.depth_enabled and mid > 0 and absorption_x_bps > 0:
+        if st.l2 and mid > 0 and absorption_x_bps > 0:
             abs_bid_usd = self._absorption_notional_bid(st.l2.bids, mid, absorption_x_bps)
             abs_ask_usd = self._absorption_notional_ask(st.l2.asks, mid, absorption_x_bps)
 
@@ -390,12 +398,9 @@ async def on_partial_depth(symbol: str, bids: Sequence[Tuple[float, float]], ask
 def snapshot_all_quotes() -> Dict[str, Any]:
     """
     Быстрый снимок для REST: dict {symbol -> snapshot}
+    (Не используется в текущем коде; оставлено для совместимости.)
     """
-    # NB: здесь неблокирующий доступ, так как _snapshot_locked требует state.
-    # Используем публичный метод get_all() асинхронно извне (см. роутер).
-    # Эта обёртка оставлена для совместимости с предыдущим вариантом.
-    # В актуальном коде роутер должен вызывать: await book_tracker.get_all()
-    return {}  # оставлено пустым намеренно (см. комментарий выше)
+    return {}
 
 async def subscribe_quotes() -> AsyncIterator[Dict[str, Any]]:
     """
@@ -403,3 +408,13 @@ async def subscribe_quotes() -> AsyncIterator[Dict[str, Any]]:
     """
     async for evt in book_tracker.subscribe_stream():
         yield evt
+
+
+# ───────────────────────────── external reset (provider switching) ─────────────────────────────
+
+def reset() -> None:
+    """
+    Полная очистка локального состояния трекера.
+    """
+    # lock-free best effort; используется только в lifecycle/hooks
+    book_tracker._states.clear()  # type: ignore[attr-defined]

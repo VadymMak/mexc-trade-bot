@@ -1,13 +1,6 @@
 // src/store/orders.ts
 import { create } from "zustand";
-import type {
-  OrderItem as ApiOrderItem,
-  FillItem as ApiFillItem,
-} from "@/types/api";
-
-/** Public types re-export */
-export type OrderItem = ApiOrderItem;
-export type FillItem = ApiFillItem;
+import type { OrderItem, FillItem } from "@/types";
 
 const HISTORY_CAP = 500; // per-symbol storage cap
 const normSymbol = (s?: string) => String(s ?? "").trim().toUpperCase();
@@ -16,9 +9,9 @@ const normSymbol = (s?: string) => String(s ?? "").trim().toUpperCase();
 const EMPTY_ORDERS: OrderItem[] = [];
 const EMPTY_FILLS:  FillItem[]  = [];
 
-// backend may occasionally send string times - support them without `any`
-type OrderExtra = OrderItem & { submitted_at?: string };
-type FillExtra = FillItem & { executed_at?: string };
+// backend may occasionally send string times - support them w/o `any`
+type OrderExtra = OrderItem & { submitted_at?: string; created_at?: string; updated_at?: string };
+type FillExtra  = FillItem  & { executed_at?: string; created_at?: string; updated_at?: string };
 
 const parseMaybeDate = (iso?: string): number => {
   if (!iso) return 0;
@@ -27,10 +20,18 @@ const parseMaybeDate = (iso?: string): number => {
 };
 
 const orderTs = (o: OrderExtra): number =>
-  typeof o.ts_ms === "number" ? o.ts_ms : parseMaybeDate(o.submitted_at);
+  typeof o.ts_ms === "number"
+    ? o.ts_ms
+    : parseMaybeDate(o.submitted_at) ||
+      parseMaybeDate(o.updated_at) ||
+      parseMaybeDate(o.created_at);
 
 const fillTs = (f: FillExtra): number =>
-  typeof f.ts_ms === "number" ? f.ts_ms : parseMaybeDate(f.executed_at);
+  typeof f.ts_ms === "number"
+    ? f.ts_ms
+    : parseMaybeDate(f.executed_at) ||
+      parseMaybeDate(f.updated_at) ||
+      parseMaybeDate(f.created_at);
 
 /** Dedup by `id`, keep the item with the latest timestamp */
 function dedupeByIdLatest<T extends { id: string | number }>(
@@ -65,10 +66,7 @@ type OrdersState = {
   clear: () => void;
 
   /** Merge from UI snapshot (dedupes by id, keeps latest by time) */
-  setFromSnapshot: (payload: {
-    orders?: OrderItem[];
-    fills?: FillItem[];
-  }) => void;
+  setFromSnapshot: (payload: { orders?: OrderItem[]; fills?: FillItem[] }) => void;
 
   /** Optional: incremental upserts (for future streaming) */
   upsertOrders: (rows: OrderItem[]) => void;
@@ -104,9 +102,7 @@ export const useOrders = create<OrdersState>()((set, get) => ({
         }
         for (const sym of Object.keys(grouped)) {
           const cur = nextOrders[sym] ?? EMPTY_ORDERS;
-          const merged = dedupeByIdLatest(cur, grouped[sym], (x) =>
-            orderTs(x as OrderExtra)
-          )
+          const merged = dedupeByIdLatest(cur, grouped[sym], (x) => orderTs(x as OrderExtra))
             .sort((a, b) => orderTs(b as OrderExtra) - orderTs(a as OrderExtra))
             .slice(0, HISTORY_CAP);
           nextOrders[sym] = merged;
@@ -122,9 +118,7 @@ export const useOrders = create<OrdersState>()((set, get) => ({
         }
         for (const sym of Object.keys(grouped)) {
           const cur = nextFills[sym] ?? EMPTY_FILLS;
-          const merged = dedupeByIdLatest(cur, grouped[sym], (x) =>
-            fillTs(x as FillExtra)
-          )
+          const merged = dedupeByIdLatest(cur, grouped[sym], (x) => fillTs(x as FillExtra))
             .sort((a, b) => fillTs(b as FillExtra) - fillTs(a as FillExtra))
             .slice(0, HISTORY_CAP);
           nextFills[sym] = merged;
@@ -146,9 +140,7 @@ export const useOrders = create<OrdersState>()((set, get) => ({
       const next = { ...state.orders };
       for (const sym of Object.keys(grouped)) {
         const cur = next[sym] ?? EMPTY_ORDERS;
-        next[sym] = dedupeByIdLatest(cur, grouped[sym], (x) =>
-          orderTs(x as OrderExtra)
-        )
+        next[sym] = dedupeByIdLatest(cur, grouped[sym], (x) => orderTs(x as OrderExtra))
           .sort((a, b) => orderTs(b as OrderExtra) - orderTs(a as OrderExtra))
           .slice(0, HISTORY_CAP);
       }
@@ -167,9 +159,7 @@ export const useOrders = create<OrdersState>()((set, get) => ({
       const next = { ...state.fills };
       for (const sym of Object.keys(grouped)) {
         const cur = next[sym] ?? EMPTY_FILLS;
-        next[sym] = dedupeByIdLatest(cur, grouped[sym], (x) =>
-          fillTs(x as FillExtra)
-        )
+        next[sym] = dedupeByIdLatest(cur, grouped[sym], (x) => fillTs(x as FillExtra))
           .sort((a, b) => fillTs(b as FillExtra) - fillTs(a as FillExtra))
           .slice(0, HISTORY_CAP);
       }

@@ -1,3 +1,4 @@
+// src/pages/Dashboard.tsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import TopBar from "@/components/layout/TopBar";
 import SymbolCard from "@/components/cards/SymbolCard";
@@ -10,7 +11,7 @@ import {
   apiGetMetrics,
   apiGetExecPositions,
   apiGetUISnapshot,
-  apiOpenSession,
+  getWatchlist,            // <-- use canonical watchlist reader
 } from "@/api/api";
 import { useInterval } from "@/hooks/useInterval";
 import { useOrders } from "@/store/orders";
@@ -19,21 +20,6 @@ import type { UISnapshot } from "@/types/api";
 
 import PositionSummary from "@/components/cards/PositionSummary";
 import PositionsTable from "@/components/cards/PositionsTable";
-
-type UIStateMaybe = { watchlist?: unknown; data?: { watchlist?: unknown } };
-type UISnapshotWithUI = UISnapshot & { ui_state?: UIStateMaybe };
-
-function toUpperSymbolList(x: unknown): string[] {
-  if (!Array.isArray(x)) return [];
-  const out: string[] = [];
-  for (const v of x) {
-    if (typeof v === "string") {
-      const s = v.trim().toUpperCase();
-      if (s) out.push(s);
-    }
-  }
-  return out;
-}
 
 export default function Dashboard() {
   // 1) wait for symbols rehydrate
@@ -85,7 +71,6 @@ export default function Dashboard() {
 
   // 5) flags
   const inflightRef = useRef(false);
-  const abortRef = useRef<AbortController | null>(null);
   const ensuredOnceRef = useRef(false);
 
   // 6) refresh bundle
@@ -93,10 +78,6 @@ export default function Dashboard() {
     if (!hydrated || !hasSymbols) return;
     if (inflightRef.current) return;
     inflightRef.current = true;
-
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
 
     try {
       const [metricsRes, positionsRes, uiSnapRes] = await Promise.allSettled([
@@ -120,7 +101,7 @@ export default function Dashboard() {
       }
 
       if (uiSnapRes.status === "fulfilled") {
-        const snap = uiSnapRes.value as UISnapshot;
+        const snap: UISnapshot = uiSnapRes.value;
         setOrdersSnapshot({ orders: snap.orders ?? [], fills: snap.fills ?? [] });
       }
     } finally {
@@ -132,22 +113,25 @@ export default function Dashboard() {
     ensureSymbols, setOrdersSnapshot,
   ]);
 
-  // 7) try to restore watchlist once
+  // 7) try to restore watchlist once (canonical endpoint with fallbacks)
   useEffect(() => {
     if (!hydrated) return;
     let cancelled = false;
     (async () => {
       try {
-        const raw = (await apiGetUISnapshot()) as UISnapshotWithUI;
-        if (cancelled || !raw) return;
-        const wl1 = toUpperSymbolList(raw.ui_state?.watchlist);
-        const wl2 = toUpperSymbolList(raw.ui_state?.data?.watchlist);
-        const wl = wl1.length ? wl1 : wl2;
-        if (wl.length && !hasSymbols) ensureSymbols(wl);
-      } catch { /* non-fatal */ }
+        if (hasSymbols) return; // nothing to restore
+        const wl = await getWatchlist();
+        if (cancelled) return;
+        if (Array.isArray(wl.items) && wl.items.length) {
+          const syms = wl.items.map((x) => x.symbol).filter(Boolean);
+          if (syms.length) ensureSymbols(syms);
+        }
+      } catch {
+        /* non-fatal */
+      }
     })();
     return () => { cancelled = true; };
-  }, [hydrated, ensureSymbols, hasSymbols]);
+  }, [hydrated, hasSymbols, ensureSymbols]);
 
   // 8) boot on watchlist change
   useEffect(() => {
@@ -157,17 +141,15 @@ export default function Dashboard() {
       try {
         ensuredOnceRef.current = false;
         clearMarket();
-        await apiOpenSession(false);
         if (!cancelled) {
-          await bootApp();
-          await refreshAll();
+          await bootApp();     // already opens session & seeds orders/fills
+          await refreshAll();  // then refresh metrics/positions/orders
         }
-      } catch {/* handled in useBoot */}
+      } catch {
+        /* handled in useBoot */
+      }
     })();
-    return () => {
-      cancelled = true;
-      abortRef.current?.abort();
-    };
+    return () => { cancelled = true; };
   }, [hydrated, hasSymbols, symbolsKey, clearMarket, bootApp, refreshAll]);
 
   // 9) polling

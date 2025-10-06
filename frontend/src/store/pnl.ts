@@ -5,11 +5,37 @@ import { create } from "zustand";
 
 export type Period = "today" | "wtd" | "mtd" | "custom";
 
+/** Rows inside the summary response */
+export type SummaryRowExchange = {
+  exchange: string;
+  /** total PnL (USD) for this exchange (or exchange+account) */
+  total_usd: number;
+  /** optional account dimension if backend includes it */
+  account_id?: string | null;
+  /** forward-compat extras */
+  [k: string]: unknown;
+};
+
+export type SummaryRowSymbol = {
+  symbol: string;
+  total_usd: number;
+  exchange?: string | null;
+  account_id?: string | null;
+  [k: string]: unknown;
+};
+
 export type SummaryResponse = {
   period: Period | string;
   total_usd: number;
-  by_exchange: Record<string, unknown>[];
-  by_symbol: Record<string, unknown>[];
+  by_exchange: SummaryRowExchange[];
+  by_symbol: SummaryRowSymbol[];
+};
+
+/** Details for a specific symbol within a period */
+export type SymbolDetailEvent = {
+  ts_ms?: number;
+  type?: string;
+  [k: string]: unknown;
 };
 
 export type SymbolDetailResponse = {
@@ -17,8 +43,10 @@ export type SymbolDetailResponse = {
   exchange: string;
   account_id: string;
   total_usd: number;
+  /** sub-components (e.g., realized, fees, funding, etc.). values are usually numbers */
   components: Record<string, unknown>;
-  last_events: Record<string, unknown>[];
+  /** recent events that contributed to PnL */
+  last_events: SymbolDetailEvent[];
 };
 
 type SummaryParams = {
@@ -75,13 +103,103 @@ const makeSymbolURL = (p: SymbolParams): string => {
 
 // Build a stable cache key per symbol+period+tz+account/exchange
 const symbolCacheKey = (p: SymbolParams): string =>
-  [
-    p.symbol.toUpperCase(),
-    p.period,
-    p.tz,
-    p.exchange || "",
-    p.accountId || "",
-  ].join("|");
+  [p.symbol.toUpperCase(), p.period, p.tz, p.exchange || "", p.accountId || ""].join("|");
+
+// Strict number parser
+const fnum = (v: unknown, fallback = 0): number => {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  return fallback;
+};
+
+// Normalizers (keep shape flexible but ensure required fields are typed)
+const normalizeSummary = (raw: unknown): SummaryResponse => {
+  const rec = (raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}) as Record<
+    string,
+    unknown
+  >;
+
+  const period = typeof rec.period === "string" ? rec.period : "today";
+  const total_usd = fnum(rec.total_usd, 0);
+
+  const by_exchange: SummaryRowExchange[] = Array.isArray(rec.by_exchange)
+    ? (rec.by_exchange as unknown[]).map((row): SummaryRowExchange => {
+        const r = (row && typeof row === "object" ? (row as Record<string, unknown>) : {}) as Record<
+          string,
+          unknown
+        >;
+        return {
+          exchange: typeof r.exchange === "string" ? r.exchange : "",
+          total_usd: fnum(r.total_usd, 0),
+          account_id:
+            typeof r.account_id === "string"
+              ? r.account_id
+              : r.account_id === null
+              ? null
+              : undefined,
+          ...r,
+        };
+      })
+    : [];
+
+  const by_symbol: SummaryRowSymbol[] = Array.isArray(rec.by_symbol)
+    ? (rec.by_symbol as unknown[]).map((row): SummaryRowSymbol => {
+        const r = (row && typeof row === "object" ? (row as Record<string, unknown>) : {}) as Record<
+          string,
+          unknown
+        >;
+        return {
+          symbol: typeof r.symbol === "string" ? r.symbol : "",
+          total_usd: fnum(r.total_usd, 0),
+          exchange: typeof r.exchange === "string" ? r.exchange : undefined,
+          account_id:
+            typeof r.account_id === "string"
+              ? r.account_id
+              : r.account_id === null
+              ? null
+              : undefined,
+          ...r,
+        };
+      })
+    : [];
+
+  return { period, total_usd, by_exchange, by_symbol };
+};
+
+const normalizeDetail = (raw: unknown): SymbolDetailResponse => {
+  const r = (raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}) as Record<
+    string,
+    unknown
+  >;
+
+  const symbol = typeof r.symbol === "string" ? r.symbol : "";
+  const exchange = typeof r.exchange === "string" ? r.exchange : "";
+  const account_id = typeof r.account_id === "string" ? r.account_id : "";
+  const total_usd = fnum(r.total_usd, 0);
+
+  const components: Record<string, unknown> =
+    r.components && typeof r.components === "object" ? (r.components as Record<string, unknown>) : {};
+
+  const last_events: SymbolDetailEvent[] = Array.isArray(r.last_events)
+    ? (r.last_events as unknown[]).map((e): SymbolDetailEvent => {
+        const ev =
+          e && typeof e === "object" ? (e as Record<string, unknown>) : ({} as Record<string, unknown>);
+        const ts_ms =
+          typeof ev.ts_ms === "number" && Number.isFinite(ev.ts_ms)
+            ? ev.ts_ms
+            : typeof ev.ts === "number" && Number.isFinite(ev.ts)
+            ? ev.ts
+            : undefined;
+        const type = typeof ev.type === "string" ? ev.type : undefined;
+        return { ts_ms, type, ...ev };
+      })
+    : [];
+
+  return { symbol, exchange, account_id, total_usd, components, last_events };
+};
 
 /* ─────────────────────────── Store ─────────────────────────── */
 
@@ -155,7 +273,8 @@ export const usePnlStore = create<PnlState>((set, get) => ({
         const text = await res.text();
         throw new Error(`GET /api/pnl/summary failed: ${res.status} ${text}`);
       }
-      const data: SummaryResponse = await res.json();
+      const raw = (await res.json()) as unknown;
+      const data = normalizeSummary(raw);
       set({ summary: data });
     } catch (e) {
       set({
@@ -167,7 +286,7 @@ export const usePnlStore = create<PnlState>((set, get) => ({
   },
 
   /* fetch per-symbol detail (cached) */
-  fetchSymbolDetail: async (symbol: string, opts) => {
+  fetchSymbolDetail: async (symbol, opts) => {
     const { params, detailByKey, detailTtlMs } = get();
     const key = symbolCacheKey({ ...params, symbol });
 
@@ -195,7 +314,8 @@ export const usePnlStore = create<PnlState>((set, get) => ({
         const text = await res.text();
         throw new Error(`GET /api/pnl/symbol/${symbol} failed: ${res.status} ${text}`);
       }
-      const data: SymbolDetailResponse = await res.json();
+      const raw = (await res.json()) as unknown;
+      const data = normalizeDetail(raw);
       const entry: DetailCacheEntry = { data, loading: false, error: null, ts: now };
       set((s) => ({
         detailByKey: { ...s.detailByKey, [key]: entry },
@@ -217,7 +337,7 @@ export const usePnlStore = create<PnlState>((set, get) => ({
 
   /* utils */
   invalidateSummary: () => set({ summary: null }),
-  invalidateSymbolDetail: (symbol: string) =>
+  invalidateSymbolDetail: (symbol) =>
     set((s) => {
       const { params } = s;
       const key = symbolCacheKey({ ...params, symbol });

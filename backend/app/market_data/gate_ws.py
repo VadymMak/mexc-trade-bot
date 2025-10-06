@@ -1,3 +1,4 @@
+# app/market_data/gate_ws.py
 from __future__ import annotations
 
 import asyncio
@@ -12,10 +13,16 @@ import websockets
 from app.config.settings import settings
 from app.services.book_tracker import on_book_ticker, on_partial_depth
 
+# Best-effort: enable depth on the real tracker when available
+try:
+    from app.market_data.book_tracker import book_tracker as _BOOK_TRACKER  # has enable_depth()
+except Exception:  # fallback: no-op if module/attr missing
+    _BOOK_TRACKER = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 
-# ------------------------------ helpers ------------------------------
+# ───────────────────────── helpers ─────────────────────────
 
 def _is_demo_mode() -> bool:
     try:
@@ -27,11 +34,18 @@ def _is_demo_mode() -> bool:
 
 def _ws_base_url() -> str:
     """
-    Gate official WS bases:
-      - live:    wss://api.gateio.ws/ws/v4/
-      - testnet: wss://api-public.sandbox.gateio.ws/ws/v4/
-    Use settings overrides if provided.
+    Resolve Gate WS base with provider/mode awareness.
+    Prefers Settings.ws_base_url_resolved (new), then legacy fields, then constants.
     """
+    # 1) Preferred: provider/mode–aware endpoint
+    try:
+        resolved = getattr(settings, "ws_base_url_resolved", None)
+        if resolved:
+            return resolved
+    except Exception:
+        pass
+
+    # 2) Legacy Gate-specific fields
     if _is_demo_mode():
         return getattr(settings, "gate_testnet_ws_base", None) or "wss://api-public.sandbox.gateio.ws/ws/v4/"
     return getattr(settings, "gate_ws_base", None) or "wss://api.gateio.ws/ws/v4/"
@@ -43,26 +57,20 @@ def _to_gate_pair(sym: str) -> str:
         return s
     for q in ("USDT", "USD", "BTC", "ETH"):
         if s.endswith(q):
-            base = s[: -len(q)]
-            return f"{base}_{q}"
+            return f"{s[:-len(q)]}_{q}"
     if len(s) > 4:
         return f"{s[:-4]}_{s[-4:]}"
     return s
 
 
-# ------------------------------ client ------------------------------
+# ───────────────────────── client ─────────────────────────
 
 class GateWebSocketClient:
     """
     Public Gate Spot WS client:
       • Subscribes to `spot.tickers` (L1) and `spot.order_book` (L2 snapshots).
       • Normalizes events and forwards them to book_tracker.
-      • Reconnects with exponential backoff; graceful stop().
-
-    NOTE:
-      • No auth here (public data only).
-      • For very high-rate L2 you can later add `spot.order_book_update` deltas;
-        this version keeps snapshots for simplicity.
+      • Reconnects with backoff; graceful stop().
     """
 
     def __init__(
@@ -95,29 +103,31 @@ class GateWebSocketClient:
         # backoff
         self._attempt = 0
 
-        # ping handling (we still let the library ping as well)
+        # pings
         self._ping_interval = float(ping_interval)
         self._ping_timeout = float(ping_timeout)
         self._hb_task: Optional[asyncio.Task] = None
 
-        # recv timeout (when exceeded we just ping and continue)
+        # recv timeout: after this we soft-ping and keep the connection
         self._recv_timeout = max(self._ping_interval + self._ping_timeout + 5.0, 45.0)
 
-    # ------------- public -------------
+    # ───────── public ─────────
 
     async def run(self) -> None:
-        """
-        Long-running connection loop. Call inside a task.
-        """
         if not self.symbols:
             logger.info("Gate WS: no symbols to subscribe; exiting.")
             return
 
+        # Ensure the real BookTracker will actually accept depth updates (no-op if unavailable)
+        if _BOOK_TRACKER is not None:
+            for s in self.symbols:
+                with suppress(Exception):
+                    await _BOOK_TRACKER.enable_depth(s, True)  # type: ignore[attr-defined]
+
         while not self._stop_evt.is_set():
             try:
                 await self._connect_and_stream()
-                # connection closed normally (stop was likely requested)
-                self._attempt = 0
+                self._attempt = 0  # clean close/reset
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -132,13 +142,10 @@ class GateWebSocketClient:
         await self._cleanup()
 
     async def stop(self) -> None:
-        """
-        Signal the run-loop to stop and close the socket.
-        """
         self._stop_evt.set()
         await self._cleanup()
 
-    # ------------- internals -------------
+    # ───────── internals ─────────
 
     async def _cleanup(self) -> None:
         if self._hb_task:
@@ -160,42 +167,37 @@ class GateWebSocketClient:
             ping_interval=self._ping_interval,   # library-level ping
             ping_timeout=self._ping_timeout,
             close_timeout=5,
-            max_size=2**22,  # ~4MB frames
+            max_size=2**22,                      # ~4MB frames
         ) as ws:
             self._conn = ws
 
-            # Subscribe once connected
             await self._subscribe(ws)
-
-            # Optional app-level heartbeat (send ping frames)
             self._hb_task = asyncio.create_task(self._heartbeat(ws))
 
-            # Main loop
             while not self._stop_evt.is_set():
                 try:
                     msg = await asyncio.wait_for(ws.recv(), timeout=self._recv_timeout)
                 except asyncio.TimeoutError:
-                    # Quiet period: keep connection alive with a ping and continue (no reconnect)
-                    logger.debug("Gate WS recv timeout — sending ping and continuing")
+                    # quiet period → soft keepalive ping; do not reconnect
                     with suppress(Exception):
                         await ws.ping()
                     continue
 
                 if not msg:
                     continue
+
                 try:
                     data = json.loads(msg)
                 except Exception:
                     continue
 
-                # Ignore explicit ping/pong event payloads
+                # Filter trivial control events
                 if isinstance(data, dict) and data.get("event") in {"ping", "pong"}:
                     continue
 
                 await self._handle_message(data)
 
     async def _heartbeat(self, ws: websockets.WebSocketClientProtocol) -> None:
-        # Gate handles ping/pong automatically, but a soft keepalive is fine
         try:
             while not self._stop_evt.is_set():
                 await asyncio.sleep(self._ping_interval)
@@ -206,13 +208,12 @@ class GateWebSocketClient:
 
     async def _subscribe(self, ws: websockets.WebSocketClientProtocol) -> None:
         """
-        Gate v4 WS expects messages:
-          spot.tickers     : {"time": <sec>, "channel":"spot.tickers", "event":"subscribe", "payload":[<pair>...]}
-          spot.order_book  : {"time": <sec>, "channel":"spot.order_book","event":"subscribe","payload":[<pair>, "<limit>", "100ms"]}
+        Gate v4 WS:
+          • spot.tickers    : payload = [<pair>, <pair>, ...]
+          • spot.order_book : payload = [<pair>, "<limit>", "100ms"]
         """
         pairs = [_to_gate_pair(s) for s in self.symbols]
 
-        # L1 tickers — batch payload
         if self.want_tickers and pairs:
             sub = {
                 "time": int(time.time()),
@@ -223,7 +224,6 @@ class GateWebSocketClient:
             with suppress(Exception):
                 await ws.send(json.dumps(sub))
 
-        # L2 order_book — one message per pair
         if self.want_order_book and pairs:
             for p in pairs:
                 sub = {
@@ -238,7 +238,7 @@ class GateWebSocketClient:
     async def _handle_message(self, data: Any) -> None:
         """
         Expected shapes:
-          {"time":..., "channel":"spot.tickers",    "event":"update", "result": {...} OR [ {...}, ... ]}
+          {"time":..., "channel":"spot.tickers",    "event":"update", "result": {...} | [ {...}, ... ]}
           {"time":..., "channel":"spot.order_book", "event":"update", "result": {...}}
         """
         if not isinstance(data, dict):
@@ -248,6 +248,7 @@ class GateWebSocketClient:
         event = data.get("event")
         result = data.get("result") or data.get("payload") or data.get("data")
 
+        # ignore acks etc.
         if event not in {"update", "subscribe"}:
             return
 
@@ -256,7 +257,7 @@ class GateWebSocketClient:
         elif channel == "spot.order_book":
             await self._handle_order_book_result(result)
 
-    # ----- handlers -----
+    # ───────── handlers ─────────
 
     async def _handle_ticker_result(self, result: Any) -> None:
         items: List[Dict[str, Any]] = []
@@ -264,7 +265,6 @@ class GateWebSocketClient:
             items = [result]
         elif isinstance(result, list):
             items = [x for x in result if isinstance(x, dict)]
-
         if not items:
             return
 
@@ -278,14 +278,14 @@ class GateWebSocketClient:
             bid = _to_float(it.get("highest_bid") or it.get("b") or 0.0)
             ask = _to_float(it.get("lowest_ask") or it.get("a") or 0.0)
 
-            # Gate L1 sizes are often not provided → 0.0 (depth will fill)
+            # L1 often has no sizes; depth handler will populate them later
             with suppress(Exception):
                 await on_book_ticker(sym, bid, 0.0, ask, 0.0, ts_ms=now_ms)
 
     async def _handle_order_book_result(self, result: Any) -> None:
-        if isinstance(result, list):
-            # occasionally comes as a list of one
-            result = result[0] if result and isinstance(result[0], dict) else None
+        # Occasionally comes as a single-item list
+        if isinstance(result, list) and result and isinstance(result[0], dict):
+            result = result[0]
 
         if not isinstance(result, dict):
             return
@@ -298,7 +298,8 @@ class GateWebSocketClient:
         bids_raw = result.get("bids") or []
         asks_raw = result.get("asks") or []
 
-        bids, asks = _parse_levels(bids_raw), _parse_levels(asks_raw)
+        bids = _parse_levels(bids_raw)
+        asks = _parse_levels(asks_raw)
         if not bids and not asks:
             return
 
@@ -307,7 +308,7 @@ class GateWebSocketClient:
             await on_partial_depth(sym, bids[: self.depth_limit], asks[: self.depth_limit], ts_ms=ts_ms)
 
 
-# ------------------------------ utils ------------------------------
+# ───────────────────────── utils ─────────────────────────
 
 def _to_float(x: Any) -> float:
     try:

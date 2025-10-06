@@ -1,145 +1,151 @@
-// ---- Общие типы котировок ----
-export type Level = readonly [number, number]; // [price, qty] для L2 (tuple readonly)
+/* ─────────────────────────────── Quotes / L2 ─────────────────────────────── */
 
-export type Quote = {
-  symbol: string;
-  bid: number;
-  ask: number;
-  mid: number;
-  spread_bps: number;
+export type Level = readonly [price: number, qty: number];
 
-  /** Время: поддерживаем оба варианта, FE нормализует ts_ms → ts */
-  ts?: number;
-  ts_ms?: number;
-
-  /** Необязательные L1 объёмы (если бэкенд их присылает) */
+export interface Quote {
+  symbol: string;          // "BTCUSDT"
+  bid: number;             // best bid (0 if missing)
+  ask: number;             // best ask (0 if missing)
+  mid: number;             // (bid+ask)/2 when both >0, else fallback
+  spread_bps: number;      // (ask-bid)/mid * 10_000
+  ts?: number;             // epoch ms (frontend may normalize ts_ms → ts)
+  ts_ms?: number;          // epoch ms
   bidQty?: number;
   askQty?: number;
-
-  /** Необязательные L2 уровни (readonly для согласованности по всему FE) */
   bids?: ReadonlyArray<Level>;
   asks?: ReadonlyArray<Level>;
+  imbalance?: number;      // 0..1
+}
 
-  /** Доп. метрики по желанию бэкенда/UI */
-  imbalance?: number;
-};
+/* ─────────────────────────────── Positions ─────────────────────────────── */
 
-// ---- Позиции ----
-export type Position = {
+export interface Position {
+  /** Canonical identity & size */
   symbol: string;
   qty: number;
 
-  /** Бэкенд-стиль */
+  /** Canonical backend fields (preferred) */
   avg_price?: number;
-  unrealized_pnl?: number;
   realized_pnl?: number;
+  unrealized_pnl?: number;
+
+  /** Legacy UI aliases (kept optional for compatibility) */
+  avg?: number;
+  rpnl?: number;
+  upnl?: number;
+
+  /** Misc/compat */
+  account_id?: string;
+  exchange?: string;
   ts_ms?: number;
 
-  /** FE-алиасы (для совместимости с существующими панелями) */
-  avg?: number;
-  upnl?: number;
-  rpnl?: number;
-  ts?: number;
-};
+  /** Forward-compat */
+  [k: string]: unknown;
+}
 
-// ---- Метрики стратегии ----
-export type StrategyMetricsJSON = {
+/* ───────────────────────────── Strategy Metrics ─────────────────────────── */
+
+export interface StrategyMetricsJSON {
   entries: Record<string, number>;
   exits: Record<string, { TP?: number; SL?: number; TIMEOUT?: number }>;
   open_positions: Record<string, number>;
   realized_pnl: Record<string, number>;
-};
+}
 
-// ---- Типы для Orders / Fills ----
-export type OrderItem = {
+/* ───────────────────────────── Orders / Fills ───────────────────────────── */
+
+export type Side = "BUY" | "SELL";
+export type Liquidity = "MAKER" | "TAKER";
+export type OrderStatus =
+  | "NEW"
+  | "PARTIALLY_FILLED"
+  | "FILLED"
+  | "CANCELED"
+  | "REJECTED"
+  | "EXPIRED"
+  | string; // forward-compat
+
+export interface OrderItem {
   id: string | number;
   symbol: string;
-  side: "BUY" | "SELL";
+  side: Side;
   qty: number;
-  /** LIMIT: число; MARKET: null/undefined */
-  price: number | null | undefined;
-  status: string; // NEW | PARTIALLY_FILLED | FILLED | CANCELED | ...
+  price: number | null | undefined;   // LIMIT: number; MARKET: null/undefined
+  status: OrderStatus;
   tag?: string | null;
-  /** мс-таймстамп, если есть (например, из submitted_at/last_event_at); может отсутствовать */
   ts_ms?: number;
-
-  // опциональные поля
   is_active?: boolean;
   filled_qty?: number;
   avg_fill_price?: number | null;
   client_order_id?: string | null;
   exchange_order_id?: string | null;
-};
+}
 
-export type FillItem = {
+export interface FillItem {
   id: string | number;
-  /** может не прийти в некоторых БД (тогда null/undefined) */
   order_id?: string | number | null;
   symbol: string;
-  side: "BUY" | "SELL";
+  side: Side;
   qty: number;
   price: number;
   fee?: number;
-
-  /** мс-таймстамп исполнения; предпочтительнее single-число для сортировки на FE */
   ts_ms?: number;
-
-  // опциональные поля
   trade_id?: string | null;
   client_order_id?: string | null;
   exchange_order_id?: string | null;
   is_maker?: boolean;
-  liquidity?: "MAKER" | "TAKER";
-};
+  liquidity?: Liquidity;
+}
 
-// ---- UI/Strategy State (из /api/ui/snapshot) ----
-export type UIState = {
-  /** Канонический список, если бэкенд кладёт прямо сюда */
+/* ─────────────────────────────── UI / Strategy ──────────────────────────── */
+
+export interface UIState {
   watchlist?: string[];
-
-  /** Часто бэкенд вкладывает внутрь data */
-  data?: {
-    watchlist?: string[];
-    [k: string]: unknown;
-  };
-
+  data?: { watchlist?: string[]; [k: string]: unknown };
   layout?: unknown;
   ui_prefs?: unknown;
   revision?: number;
-  updated_at?: string; // ISO string
-};
+  updated_at?: string; // ISO8601
+}
 
-export type StrategyState = {
+export interface StrategyState {
   per_symbol?: Record<string, unknown>;
   revision?: number;
-  updated_at?: string; // ISO string
-};
+  updated_at?: string; // ISO8601
+}
 
-// ---- UI Snapshot ----
-export type UISnapshot = {
+export interface UISnapshot {
   ui_state?: UIState;
   strategy_state?: StrategyState;
-
-  /** Опциональные секции, если запрошены include=positions,orders,fills */
   positions?: Position[];
   orders?: OrderItem[];
   fills?: FillItem[];
-};
+}
 
-// ---- SSE stream payloads ----
-export type StreamSnapshot = {
+/* ─────────────────────────────── SSE payloads ───────────────────────────── */
+
+export interface StreamSnapshot {
   type: "snapshot";
-  quotes: Quote[]; // initial full list
-};
+  quotes: Quote[];
+}
 
-export type StreamQuotes = {
+export interface StreamQuotes {
   type: "quotes";
-  quotes: Quote[]; // periodic updates
-};
+  quotes: Quote[];
+}
 
-export type StreamPing = {
+export interface StreamPing {
   type: "ping";
   ts: number;
-};
+}
 
 export type StreamMessage = StreamSnapshot | StreamQuotes | StreamPing;
+
+/* Legacy table row for some UIs */
+export interface TickerRow {
+  symbol: string;
+  bid?: number;
+  ask?: number;
+  bid_qty?: number;
+  ask_qty?: number;
+}

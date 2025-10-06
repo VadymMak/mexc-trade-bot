@@ -1,44 +1,43 @@
+// src/store/symbols.ts
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { normalizeSymbol } from "../utils/format";  // NEW import
+import { normalizeSymbol, isValidSymbol, parseSymbolsInput } from "@/utils/format";
 
 /** Элемент в списке карточек */
 export type SymbolItem = {
   symbol: string;   // "ETHUSDT"
-  running: boolean; // флаг для UI (только UI-индикатор, не автозапуск!)
+  running: boolean; // флаг для UI (индикатор, не автозапуск)
 };
 
 export type SymbolsState = {
-  /** Стабильный массив; ссылку меняем только при реальном изменении */
   items: SymbolItem[];
 
-  // действия над одним символом
+  // single
   add: (raw: string) => void;
   remove: (symbol: string) => void;
   start: (symbol: string) => void;
   stop: (symbol: string) => void;
 
-  // групповые действия
+  // group
   addSymbols: (symbols: string[]) => void;
   ensureSymbols: (symbols: string[]) => void;
   startAll: () => void;
   stopAll: () => void;
-  flattenAll: () => void; // заглушка — фактический флэттен делает useStrategy
+  flattenAll: () => void;
 
-  // NEW: атомарно заменить весь список (используется на boot из backend)
+  // replace all (minimal-diff)
   replace: (items: SymbolItem[]) => void;
 
-  // (опционально, бывает удобно)
   clear?: () => void;
 };
 
-// helper: deduplicate + normalize
-const dedupeNormalized = (list: string[]) => {
+/* -------------------- helpers -------------------- */
+const dedupeNormalizedValid = (list: string[]): string[] => {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const s of list) {
     const v = normalizeSymbol(s);
-    if (v && !seen.has(v)) {
+    if (v && isValidSymbol(v) && !seen.has(v)) {
       seen.add(v);
       out.push(v);
     }
@@ -46,6 +45,17 @@ const dedupeNormalized = (list: string[]) => {
   return out;
 };
 
+const arraysShallowEqual = (a: SymbolItem[], b: SymbolItem[]): boolean => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.symbol !== y.symbol || x.running !== y.running) return false;
+  }
+  return true;
+};
+
+/* -------------------- store -------------------- */
 export const useSymbols = create<SymbolsState>()(
   persist(
     (set, get) => ({
@@ -53,7 +63,7 @@ export const useSymbols = create<SymbolsState>()(
 
       add: (raw) => {
         const sym = normalizeSymbol(raw);
-        if (!sym) return;
+        if (!sym || !isValidSymbol(sym)) return;
         const { items } = get();
         if (items.some((x) => x.symbol === sym)) return;
         set({ items: [...items, { symbol: sym, running: false }] });
@@ -63,12 +73,13 @@ export const useSymbols = create<SymbolsState>()(
         const sym = normalizeSymbol(symbol);
         const { items } = get();
         const next = items.filter((x) => x.symbol !== sym);
-        if (next.length === items.length) return; // no change
+        if (next.length === items.length) return;
         set({ items: next });
       },
 
       start: (symbol) => {
         const sym = normalizeSymbol(symbol);
+        if (!isValidSymbol(sym)) return;
         const { items } = get();
         let changed = false;
         const next = items.map((x) => {
@@ -76,12 +87,12 @@ export const useSymbols = create<SymbolsState>()(
           changed = true;
           return { ...x, running: true };
         });
-        if (!changed) return;
-        set({ items: next });
+        if (changed) set({ items: next });
       },
 
       stop: (symbol) => {
         const sym = normalizeSymbol(symbol);
+        if (!isValidSymbol(sym)) return;
         const { items } = get();
         let changed = false;
         const next = items.map((x) => {
@@ -89,34 +100,35 @@ export const useSymbols = create<SymbolsState>()(
           changed = true;
           return { ...x, running: false };
         });
-        if (!changed) return;
-        set({ items: next });
+        if (changed) set({ items: next });
       },
 
       addSymbols: (symbols) => {
-        const toAdd = dedupeNormalized(symbols);
+        const parsed = parseSymbolsInput(symbols.join(" "));
+        const toAdd = dedupeNormalizedValid(parsed.good);
         if (!toAdd.length) return;
+
         const { items } = get();
         const existing = new Set(items.map((x) => x.symbol));
         const append: SymbolItem[] = [];
         for (const sym of toAdd) {
           if (!existing.has(sym)) append.push({ symbol: sym, running: false });
         }
-        if (!append.length) return;
-        set({ items: [...items, ...append] });
+        if (append.length) set({ items: [...items, ...append] });
       },
 
       ensureSymbols: (symbols) => {
-        const toEnsure = dedupeNormalized(symbols);
+        const parsed = parseSymbolsInput(symbols.join(" "));
+        const toEnsure = dedupeNormalizedValid(parsed.good);
         if (!toEnsure.length) return;
+
         const { items } = get();
         const existing = new Set(items.map((x) => x.symbol));
         const append: SymbolItem[] = [];
         for (const sym of toEnsure) {
           if (!existing.has(sym)) append.push({ symbol: sym, running: false });
         }
-        if (!append.length) return;
-        set({ items: [...items, ...append] });
+        if (append.length) set({ items: [...items, ...append] });
       },
 
       startAll: () => {
@@ -127,8 +139,7 @@ export const useSymbols = create<SymbolsState>()(
           changed = true;
           return { ...x, running: true };
         });
-        if (!changed) return;
-        set({ items: next });
+        if (changed) set({ items: next });
       },
 
       stopAll: () => {
@@ -139,49 +150,86 @@ export const useSymbols = create<SymbolsState>()(
           changed = true;
           return { ...x, running: false };
         });
-        if (!changed) return;
-        set({ items: next });
+        if (changed) set({ items: next });
       },
 
-      // здесь не меняем items (UI), только резервируем действие
-      flattenAll: () => {},
+      flattenAll: () => {
+        // handled in strategy/api layer; kept for interface symmetry
+      },
 
-      // NEW: полная замена списка (с нормализацией и дедупликацией)
-      replace: (items) => {
-        const seen = new Set<string>();
-        const next: SymbolItem[] = [];
-        for (const it of items ?? []) {
-          const sym = normalizeSymbol(it.symbol ?? "");
-          if (!sym || seen.has(sym)) continue;
-          seen.add(sym);
-          next.push({ symbol: sym, running: !!it.running });
+      // Minimal-diff replace that preserves existing order where possible
+      replace: (incoming) => {
+        // 1) sanitize incoming
+        const incSeen = new Set<string>();
+        const incMap = new Map<string, boolean>();
+        const incOrder: string[] = [];
+        for (const it of incoming ?? []) {
+          const sym = normalizeSymbol(it?.symbol ?? "");
+          if (!sym || !isValidSymbol(sym) || incSeen.has(sym)) continue;
+          incSeen.add(sym);
+          incOrder.push(sym);
+          incMap.set(sym, !!it?.running);
         }
-        set({ items: next });
+
+        const { items: cur } = get();
+        // 2) keep existing order for retained symbols
+        const kept: SymbolItem[] = [];
+        const added: SymbolItem[] = [];
+        const keptSet = new Set<string>();
+
+        for (const it of cur) {
+          const sym = it.symbol;
+          if (incMap.has(sym)) {
+            kept.push({
+              symbol: sym,
+              running: incMap.get(sym)!,
+            });
+            keptSet.add(sym);
+          }
+          // symbols not in incoming are dropped
+        }
+
+        // 3) append genuinely new symbols in incoming order
+        for (const sym of incOrder) {
+          if (!keptSet.has(sym)) {
+            added.push({ symbol: sym, running: incMap.get(sym)! });
+          }
+        }
+
+        const next = [...kept, ...added];
+
+        // 4) only set when truly changed to avoid SSE reconnects
+        if (!arraysShallowEqual(cur, next)) {
+          set({ items: next });
+        }
       },
 
-      // optional helper
       clear: () => set({ items: [] }),
     }),
     {
       name: "symbols-store-v1",
       storage: createJSONStorage(() => localStorage),
-      // сохраняем только items (никаких функций)
       partialize: (state) => ({ items: state.items }),
-      version: 1,
+      version: 2,
       migrate: (persisted) => {
-        // на будущее: миграции, если менялась форма items
-        return persisted as unknown as { items: SymbolItem[] };
+        const old = (persisted as unknown as { items?: SymbolItem[] })?.items ?? [];
+        const seen = new Set<string>();
+        const items: SymbolItem[] = [];
+        for (const it of old) {
+          const sym = normalizeSymbol(it?.symbol ?? "");
+          if (!sym || !isValidSymbol(sym) || seen.has(sym)) continue;
+          seen.add(sym);
+          items.push({ symbol: sym, running: !!it?.running });
+        }
+        return { items };
       },
     }
   )
 );
 
-/** Удобные селекторы */
 export const useSymbolItems = () => useSymbols((s) => s.items);
 export const useSymbolRunning = (symbol: string) =>
-  useSymbols(
-    (s) => s.items.find((x) => x.symbol === normalizeSymbol(symbol))?.running ?? false
-  );
+  useSymbols((s) => s.items.find((x) => x.symbol === normalizeSymbol(symbol))?.running ?? false);
 export const useSymbolActions = () =>
   useSymbols((s) => ({
     add: s.add,

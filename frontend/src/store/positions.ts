@@ -1,22 +1,9 @@
 // src/store/positions.ts
 import { create } from "zustand";
+import { useProvider } from "@/store/provider";
+import type { Position } from "@/types";
 
 /* ───────────────────────── Types ───────────────────────── */
-
-export type Position = {
-  /** Символ, например BTCUSDT */
-  symbol: string;
-  /** Кол-во базового актива (после flatten может быть 0) */
-  qty: number;
-  /** Средняя входная цена */
-  avg_price?: number;
-  /** Реализованный PnL в USDT (наш канонический ключ) */
-  realized_pnl?: number;
-  /** Доп. поля от бэкенда допустимы */
-  account_id?: string;
-  exchange?: string;
-  [k: string]: unknown;
-};
 
 type PositionsBySymbol = Record<string, Position>;
 
@@ -51,12 +38,13 @@ type PositionsState = {
   setPositions: (list: Position[]) => void;
   upsert: (p: Position) => void;
   remove: (symbol: string) => void;
+  reset: () => void;
 
   // Fetch
   loadAll: (symbols?: string[]) => Promise<void>;
   loadDailyRPnL: () => Promise<void>;
 
-  // Aggregations (только локальные вычисления)
+  // Aggregations (локальные вычисления)
   totalExposureUSD: (getMarkPrice: (symbol: string) => number | undefined) => number;
   totalUPnL: (getMarkPrice: (symbol: string) => number | undefined) => number;
   totalRPnL: () => number;
@@ -66,26 +54,42 @@ type PositionsState = {
 
 const norm = (s: string): string => (s || "").trim().toUpperCase();
 
-function pickNum<T extends object>(obj: T, key: keyof T): number | undefined {
-  const v = obj[key];
-  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+const parseNum = (v: unknown): number | undefined => {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return undefined;
+};
+
+function pickNum(obj: Record<string, unknown>, key: string): number | undefined {
+  return parseNum(obj?.[key]);
 }
 
+/** Normalize a position object to canonical keys and uppercase symbol. */
 function normalizePosition(p: Position): Position | null {
   const symbol = norm(p.symbol);
   if (!symbol) return null;
 
+  // qty обязателен → число, иначе 0
+  const qty = parseNum((p as Record<string, unknown>).qty) ?? 0;
+
+  // avg_price: поддерживаем возможные ключи с бэка (avg_price предпочтителен)
   const avg =
     pickNum(p as Record<string, unknown>, "avg_price") ??
     pickNum(p as Record<string, unknown>, "avg");
 
+  // realized_pnl: поддерживаем альтернативные ключи
   const rpnl =
     pickNum(p as Record<string, unknown>, "realized_pnl") ??
-    pickNum(p as Record<string, unknown>, "rpnl");
+    pickNum(p as Record<string, unknown>, "rpnl") ??
+    pickNum(p as Record<string, unknown>, "realized_usd");
 
   return {
     ...p,
     symbol,
+    qty,
     ...(avg !== undefined ? { avg_price: avg } : {}),
     ...(rpnl !== undefined ? { realized_pnl: rpnl } : {}),
   };
@@ -102,11 +106,12 @@ function toMap(list: Position[]): PositionsBySymbol {
 }
 
 function computeUPnL(p: Position, mark?: number): number {
-  if (!Number.isFinite(mark ?? NaN)) return 0;
-  if (!Number.isFinite(p.qty)) return 0;
+  const m = parseNum(mark);
+  if (m === undefined) return 0;
+  const qty = parseNum((p as Record<string, unknown>).qty) ?? 0;
   const avg = pickNum(p as Record<string, unknown>, "avg_price");
-  if (!Number.isFinite(avg ?? NaN)) return 0;
-  return ((mark as number) - (avg as number)) * p.qty;
+  if (avg === undefined) return 0;
+  return (m - avg) * qty;
 }
 
 const defaultPnlParams: PnlParams = {
@@ -115,6 +120,24 @@ const defaultPnlParams: PnlParams = {
   from: null,
   to: null,
 };
+
+function providerReady(): boolean {
+  const ps = useProvider.getState();
+  return !!ps.active && !!ps.mode; // можно добавить проверку wsEnabled/revision при желании
+}
+
+function dedupeSymbols(list: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of list) {
+    const v = norm(s);
+    if (v && !seen.has(v)) {
+      seen.add(v);
+      out.push(v);
+    }
+  }
+  return out;
+}
 
 /* ──────────────────────── Store ──────────────────────── */
 
@@ -161,8 +184,10 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
         const text = await res.text();
         throw new Error(`GET /api/pnl/summary failed: ${res.status} ${text}`);
       }
-      const data: { total_usd?: number } = await res.json();
-      set({ pnlSummary: typeof data?.total_usd === "number" ? data.total_usd : 0 });
+
+      const data: { total_usd?: number | string } = await res.json();
+      const total = parseNum(data?.total_usd) ?? 0;
+      set({ pnlSummary: total });
     } catch (err) {
       set({
         pnlError: err instanceof Error ? err.message : "Failed to load PnL summary",
@@ -190,13 +215,32 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
     set({ positionsBySymbol: next });
   },
 
+  reset: () => {
+    set({
+      positionsBySymbol: {},
+      loading: false,
+      error: null,
+      dailyRPnL: null,
+      loadingDaily: false,
+      errorDaily: null,
+      pnlSummary: null,
+      pnlLoading: false,
+      pnlError: null,
+      pnlParams: defaultPnlParams,
+    });
+  },
+
   loadAll: async (symbols?: string[]) => {
     try {
+      // 🔒 не бомбим API, если провайдер ещё не готов (устраняет 500 на старте)
+      if (!providerReady()) return;
+
       set({ loading: true, error: null });
+
       let qs = "";
       if (symbols && symbols.length > 0) {
         const params = new URLSearchParams();
-        for (const s of symbols) params.append("symbols", norm(s));
+        for (const s of dedupeSymbols(symbols)) params.append("symbols", s);
         qs = `?${params.toString()}`;
       }
 
@@ -204,13 +248,19 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
         method: "GET",
         headers: { Accept: "application/json" },
       });
+
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`GET /api/exec/positions failed: ${res.status} ${text}`);
+        // не бросаем исключение наверх — сохраняем сообщение и выходим
+        set({ error: `GET /api/exec/positions failed: ${res.status} ${text}` });
+        return;
       }
 
       const data: unknown = await res.json();
-      const list = Array.isArray(data) ? (data as Position[]) : [];
+      const list = Array.isArray(data)
+        ? (data.filter((x) => x && typeof x === "object") as Position[])
+        : [];
+
       set({ positionsBySymbol: toMap(list) });
     } catch (err) {
       set({
@@ -230,10 +280,11 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
       });
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(`GET /api/pnl/summary failed: ${res.status} ${text}`);
+        set({ errorDaily: `GET /api/pnl/summary failed: ${res.status} ${text}` });
+        return;
       }
-      const data: { total_usd: number } = await res.json();
-      set({ dailyRPnL: data.total_usd });
+      const data: { total_usd?: number | string } = await res.json();
+      set({ dailyRPnL: parseNum(data?.total_usd) ?? 0 });
     } catch (err) {
       set({
         errorDaily: err instanceof Error ? err.message : "Failed to load daily RPnL",
@@ -249,9 +300,9 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
     for (const sym of Object.keys(map)) {
       const p = map[sym];
       const mark = getMarkPrice(sym);
-      if (Number.isFinite(mark ?? NaN) && Number.isFinite(p.qty)) {
-        total += Math.abs(p.qty) * (mark as number);
-      }
+      const m = parseNum(mark);
+      const q = parseNum((p as Record<string, unknown>).qty) ?? 0;
+      if (m !== undefined) total += Math.abs(q) * m;
     }
     return total;
   },
@@ -266,18 +317,22 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
   },
 
   totalRPnL: () => {
-    // оставлено для обратной совместимости — считает из позиций
+    // обратная совместимость — суммируем из позиций
     const map = get().positionsBySymbol;
     let total = 0;
     for (const p of Object.values(map)) {
       const r =
         pickNum(p as Record<string, unknown>, "realized_pnl") ??
-        pickNum(p as Record<string, unknown>, "rpnl");
-      if (Number.isFinite(r ?? NaN)) total += r as number;
+        pickNum(p as Record<string, unknown>, "rpnl") ??
+        pickNum(p as Record<string, unknown>, "realized_usd");
+      if (r !== undefined) total += r;
     }
     return total;
   },
 }));
+
+/* Back-compat alias to match older imports like `usePositions` */
+export const usePositions = usePositionsStore;
 
 /* ───────────────────── Selectors ───────────────────── */
 
@@ -286,7 +341,7 @@ export const selectPositionsArray = (s: PositionsState): Position[] =>
 
 export const selectActivePositionsArray = (s: PositionsState): Position[] =>
   Object.values(s.positionsBySymbol).filter(
-    (p) => Number.isFinite(p.qty) && p.qty !== 0
+    (p) => Number.isFinite((p as Record<string, unknown>).qty as number) && (p as Record<string, unknown>).qty !== 0
   );
 
 export const selectBySymbol =

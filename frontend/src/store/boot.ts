@@ -1,6 +1,6 @@
 // src/store/boot.ts
 import { create } from "zustand";
-import { apiOpenSession, apiGetUISnapshot, apiWatchlistBulk } from "@/api/api";
+import { apiOpenSession, apiGetUISnapshot, getWatchlist } from "@/api/api";
 import { useProvider } from "./provider";
 import { useMarket } from "./market";
 import { useSymbols } from "./symbols";
@@ -15,7 +15,7 @@ interface BootState {
   resetBoot: () => void;
 }
 
-/* ---------- type guards for watchlist responses ---------- */
+/* ---------- safety type guards (на будущее, если бэк вернёт иной формат) ---------- */
 function isWatchlistItems(
   v: unknown
 ): v is { items: { symbol: string; running?: boolean }[] } {
@@ -29,15 +29,6 @@ function isWatchlistItems(
   );
 }
 
-function isWatchlistSymbols(v: unknown): v is { symbols: string[] } {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    Array.isArray((v as { symbols?: unknown }).symbols) &&
-    (v as { symbols: unknown[] }).symbols.every((x) => typeof x === "string")
-  );
-}
-
 export const useBoot = create<BootState>((set, get) => ({
   status: "idle",
   error: null,
@@ -45,51 +36,52 @@ export const useBoot = create<BootState>((set, get) => ({
   resetBoot: () => set({ status: "idle", error: null }),
 
   bootApp: async () => {
-    if (get().status === "loading") return;
+    // не перезапускаем, если уже идёт/завершён бут
+    const st = get().status;
+    if (st === "loading" || st === "ready") return;
+
     set({ status: "loading", error: null });
 
     try {
-      // 1) Sync provider/mode
+      // 1) провайдер/режим
       await useProvider.getState().load();
 
-      // 2) Open/resume UI session (no reset)
+      // 2) открыть/продолжить UI-сессию (без reset)
       await apiOpenSession(false);
 
-      // 3) Fetch initial snapshot (positions + orders/fills)
+      // 3) начальный снапшот (позиции + ордера/сделки)
       const snap = await apiGetUISnapshot(["positions", "orders", "fills"]);
       useMarket.getState().setPositions(snap?.positions ?? []);
-
       useOrders.getState().setFromSnapshot({
-        orders: Array.isArray(snap?.orders) ? snap!.orders : [],
-        fills: Array.isArray(snap?.fills) ? snap!.fills : [],
+        orders: Array.isArray(snap?.orders) ? snap.orders : [],
+        fills: Array.isArray(snap?.fills) ? snap.fills : [],
       });
 
-      // Debug
-      console.debug("[boot] seeded orders/fills", {
-        ETH_orders: useOrders.getState().ordersOf("ETHUSDT").length,
-        ETH_fills: useOrders.getState().fillsOf("ETHUSDT").length,
-        SOL_orders: useOrders.getState().ordersOf("SOLUSDT").length,
-        SOL_fills: useOrders.getState().fillsOf("SOLUSDT").length,
-      });
+      // 4) получить и засеять watchlist (ВАЖНО: GET, не POST!)
+      const wl = await getWatchlist();
+      const items = isWatchlistItems(wl)
+        ? wl.items
+        : Array.isArray((wl as unknown as { items?: unknown })?.items)
+        ? ((wl as unknown as { items: { symbol: string; running?: boolean }[] }).items)
+        : [];
 
-      // 4) Fetch and seed watchlist
-      const wl: unknown = await apiWatchlistBulk([]);
-
-      if (isWatchlistItems(wl)) {
-        // Map optional running -> required boolean
-        const items = wl.items.map((it) => ({
-          symbol: it.symbol,
-          running: Boolean(it.running),
-        }));
-        useSymbols.getState().replace(items);
-      } else if (isWatchlistSymbols(wl)) {
-        useSymbols.getState().ensureSymbols(wl.symbols);
-      }
+      useSymbols
+        .getState()
+        .replace(items.map((it) => ({ symbol: it.symbol, running: Boolean(it.running) })));
 
       set({ status: "ready", error: null });
+
+      // debug
+      const os = useOrders.getState();
+      console.debug("[boot] seeded orders/fills", {
+        ETH_orders: os.ordersOf("ETHUSDT").length,
+        ETH_fills: os.fillsOf("ETHUSDT").length,
+        SOL_orders: os.ordersOf("SOLUSDT").length,
+        SOL_fills: os.fillsOf("SOLUSDT").length,
+      });
     } catch (err) {
       set({ status: "error", error: err });
-      throw err;
+      // не rethrow — чтобы не зациклить внешние эффект-хэндлеры
     }
   },
 }));

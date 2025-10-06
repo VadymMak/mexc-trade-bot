@@ -1,13 +1,12 @@
 # app/routers/pnl.py
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -80,7 +79,8 @@ def get_pnl_symbol_detail(
         period=period,
         tz=tz,
     )
-    return SymbolDetailResponse(**asdict(d))
+    payload = asdict(d) if is_dataclass(d) else d  # ← handle dict or dataclass
+    return SymbolDetailResponse(**payload)
 
 
 # ─────────────────────────────── Internal (custom period) ──────────────────────
@@ -90,6 +90,4 @@ def __custom_summary_delegate(db: Session, svc: PnlService, start_utc: datetime,
     total_usd, by_exchange, by_symbol = repo.aggregate_summary(db, start_utc, end_utc, scope or None)
     return total_usd, by_exchange, by_symbol
 
-
-# Monkey-patch a private method on the service instance (keeps public surface small for now)
 setattr(PnlService, "_PnlService__custom_summary", staticmethod(__custom_summary_delegate))

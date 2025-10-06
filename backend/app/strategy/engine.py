@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, asdict, fields as dc_fields
-from typing import Dict, Optional, Protocol, List
+from typing import Dict, Optional, Protocol, List, Tuple
 
 from app.config.constants import (
     MIN_SPREAD_BPS,
@@ -77,6 +77,8 @@ class SymbolState:
     last_entry_ts: int = 0
     last_exit_ts: int = 0
     last_error: str = ""
+    # local cooldown reset on (re)start
+    cooldown_reset_at_ms: int = 0
 
 
 # ───────────────────────────── Strategy engine ─────────────────────────────
@@ -89,7 +91,7 @@ class StrategyEngine:
 
     # ───────── public operations ─────────
     async def start_symbols(self, symbols: List[str]) -> None:
-        """Start trading for the given symbols (respecting max_concurrent_symbols)."""
+        """Start (or restart) trading for the given symbols (respecting max_concurrent_symbols)."""
         syms = [s.upper() for s in symbols if s and s.strip()]
         if not syms:
             return
@@ -107,17 +109,26 @@ class StrategyEngine:
 
             for sym in to_start:
                 st = self._symbols.setdefault(sym, SymbolState())
-                if st.running and st.task and not st.task.done():
-                    continue
+
+                # Treat start as RESTART if already running
+                if st.task and not st.task.done():
+                    st.task.cancel()
+                    try:
+                        await asyncio.wait_for(st.task, timeout=1.5)
+                    except Exception:
+                        pass
+
                 st.running = True
+                st.last_error = ""
+                st.cooldown_reset_at_ms = int(time.time() * 1000)  # clear local cooldown
                 st.task = asyncio.create_task(self._symbol_loop(sym))
+
                 # Let the execution port warm any per-symbol state
                 try:
                     await self._exec.start_symbol(sym)
                 except Exception:
                     pass
 
-                # seed metrics safely
                 if _METRICS_OK:
                     try:
                         strategy_open_positions.labels(sym).set(0)
@@ -147,6 +158,12 @@ class StrategyEngine:
                     continue
                 st.running = False
 
+                # CHANGED: сначала отменяем лимитки, затем, при необходимости, флаттим
+                try:
+                    await self._exec.cancel_orders(sym)  # CHANGED
+                except Exception:
+                    pass
+
                 if flatten:
                     try:
                         await self._exec.flatten_symbol(sym)
@@ -173,15 +190,36 @@ class StrategyEngine:
                         await asyncio.wait_for(st.task, timeout=1.5)
                     except Exception:
                         pass
+
+                # CHANGED: если таск уже завершён — подчистим словарь
+                if not (st.task and not st.task.done()):
+                    self._symbols.pop(sym, None)
+
                 print(f"[STRAT] ⏹ stop {sym}")
 
     async def stop_all(self, flatten: bool = False) -> None:
         """Stop all active symbols."""
         await self.stop_symbols(list(self._symbols.keys()), flatten=flatten)
 
+    # ───────── internal helpers ─────────
+    async def _wait_warm_quotes(self, symbol: str, min_events: int = 3, timeout_ms: int = 2000) -> bool:
+        """Wait until we see several non-zero (bid, ask, mid) quotes so first decisions are valid."""
+        deadline = time.time() + (timeout_ms / 1000.0)
+        ok = 0
+        while time.time() < deadline:
+            q = await bt_service.get_quote(symbol)
+            bid = float(q.get("bid", 0.0))
+            ask = float(q.get("ask", 0.0))
+            mid = float(q.get("mid", 0.0))
+            if bid > 0.0 and ask > 0.0 and mid > 0.0:
+                ok += 1
+                if ok >= min_events:
+                    return True
+            await asyncio.sleep(0.08)
+        return False
+
     # ───────── per-symbol loop ─────────
     async def _symbol_loop(self, symbol: str) -> None:
-        p = self._params
         sym = symbol.upper()
         print(f"[STRAT:{sym}] loop started")
 
@@ -192,17 +230,46 @@ class StrategyEngine:
                 pass
 
         poll_ms = 120
+
+        # Seed position from executor (survives restarts)
         in_pos = False
         entry_px = 0.0
         entry_ts = 0.0
         qty_units = 0.0
-        last_exit_ts = 0.0  # local cooldown clock (ms)
+
+        # Warm-up quotes before first decision
+        await self._wait_warm_quotes(sym)
+
+        # If we already hold a long, reflect it in local state
+        try:
+            pos = await self._exec.get_position(sym)
+            qty_f = float(pos.get("qty", 0.0) or 0.0)
+            if qty_f > 0.0:
+                in_pos = True
+                qty_units = qty_f
+                entry_px = float(pos.get("avg_price", 0.0) or 0.0)
+                entry_ts = time.time()  # unknown exact ts, use now
+                if _METRICS_OK:
+                    try:
+                        strategy_open_positions.labels(sym).set(1)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        last_exit_ts_ms = 0.0  # cooldown clock (ms)
+        st = self._symbols.get(sym)
+        if st and st.cooldown_reset_at_ms:
+            last_exit_ts_ms = st.cooldown_reset_at_ms  # respect restart reset
 
         try:
             while True:
                 st = self._symbols.get(sym)
                 if not (st and st.running):
                     break
+
+                # always read latest params so PUT /params hot-applies
+                p = self._params
 
                 q = await bt_service.get_quote(sym)
                 bid = float(q.get("bid", 0.0))
@@ -221,7 +288,7 @@ class StrategyEngine:
 
                 if not in_pos:
                     # re-enter cooldown
-                    if (now * 1000 - last_exit_ts) < p.reenter_cooldown_ms:
+                    if (now * 1000 - last_exit_ts_ms) < p.reenter_cooldown_ms:
                         await asyncio.sleep(poll_ms / 1000)
                         continue
 
@@ -246,11 +313,11 @@ class StrategyEngine:
                         await asyncio.sleep(poll_ms / 1000)
                         continue
 
-                    # entry filters
+                    # entry filters (spot, long-only)
                     base_ok = (spread_bps >= p.min_spread_bps) and (p.imbalance_min <= imb <= p.imbalance_max)
                     depth_ok = True
                     if p.enable_depth_check:
-                        # we BUY → for later SELL, we want ask side to have capacity
+                        # We BUY now → later we will SELL, so require that ask side can fill entry size
                         depth_ok = (abs_ask_usd >= p.order_size_usd)
                     edge_ok = (spread_bps >= p.edge_floor_bps)
 
@@ -295,15 +362,15 @@ class StrategyEngine:
                         await self._exec.flatten_symbol(sym)
 
                         in_pos = False
-                        last_exit_ts = time.time() * 1000
-                        st.last_exit_ts = int(last_exit_ts)
+                        last_exit_ts_ms = time.time() * 1000
+                        st.last_exit_ts = int(last_exit_ts_ms)
 
                         if _METRICS_OK:
                             try:
                                 strategy_exits_total.labels(sym, reason).inc()
                                 strategy_open_positions.labels(sym).set(0)
-                                pos = await self._exec.get_position(sym)
-                                strategy_realized_pnl_total.labels(sym).set(float(pos.get("realized_pnl", 0.0)))
+                                pos2 = await self._exec.get_position(sym)
+                                strategy_realized_pnl_total.labels(sym).set(float(pos2.get("realized_pnl", 0.0)))
                                 strategy_trade_pnl_bps.labels(sym).observe(abs(float(pnl_bps)))
                                 strategy_trade_duration_seconds.labels(sym).observe(max(0.0, float(elapsed_s)))
                             except Exception:
@@ -356,4 +423,5 @@ class StrategyEngine:
                     setattr(self._params, k, v)
                 except Exception:
                     pass
+        # no cached snapshot used in loop, so hot-apply is immediate
         return asdict(self._params)

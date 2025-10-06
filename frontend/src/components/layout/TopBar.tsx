@@ -1,40 +1,105 @@
-import { useRef } from "react";
-import { useSymbols } from "@/store/symbols";
-import { useStrategy } from "@/store/strategy";
+import { useRef, useCallback, useEffect, useMemo, useState } from "react";
+import { NavLink } from "react-router-dom";
+import ProviderSwitch from "@/components/settings/ProviderSwitch";
 import { useToast } from "@/hooks/useToast";
 import { getErrorMessage } from "@/lib/errors";
-import ProviderSwitch from "@/components/settings/ProviderSwitch";
+import { useSymbols } from "@/store/symbols";
+import { useStrategy } from "@/store/strategy";
 import { useProvider } from "@/store/provider";
+import { parseSymbolsInput } from "@/utils/format";
+import { setWatchlist } from "@/api/api";
 
 export default function TopBar() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // symbols
   const items = useSymbols((s) => s.items);
-  const add = useSymbols((s) => s.add);
+  const addSymbols = useSymbols((s) => s.addSymbols);
 
   // strategy
   const busy = useStrategy((s) => s.busy);
   const start = useStrategy((s) => s.start);
   const stopAll = useStrategy((s) => s.stopAll);
 
-  // provider meta (for small status text)
+  // provider
+  const loadProvider = useProvider((s) => s.load);
   const provider = useProvider((s) => s.active);
   const mode = useProvider((s) => s.mode);
   const wsEnabled = useProvider((s) => s.wsEnabled);
+  const loadingProvider = useProvider((s) => s.loading);
+  const providerError = useProvider((s) => s.error);
 
   const toast = useToast();
 
-  const onAdd = () => {
-    const v = inputRef.current?.value ?? "";
-    const sym = v.trim().toUpperCase();
-    if (!sym) return;
-    add(sym);
-    toast.success(`${sym} added`);
-    if (inputRef.current) inputRef.current.value = "";
-  };
+  // --- hydration flag (so we don't sync empty pre-hydration state) ---
+  const [hydrated, setHydrated] = useState(
+    useSymbols.persist?.hasHydrated?.() ?? false
+  );
+  useEffect(() => {
+    const off = useSymbols.persist?.onFinishHydration?.(() => setHydrated(true));
+    return () => off?.();
+  }, []);
 
-  const startAll = async () => {
+  // hydrate provider config on mount
+  useEffect(() => {
+    loadProvider().catch(() => {
+      const msg = getErrorMessage(useProvider.getState().error);
+      if (msg) toast.error(msg, "Provider");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // --- keep backend watchlist in sync ---
+  const syncWatchlist = useCallback(async () => {
+    try {
+      const syms = useSymbols.getState().items.map((i) => i.symbol);
+      await setWatchlist(syms);
+    } catch (e) {
+      toast.error(getErrorMessage(e), "Watchlist");
+    }
+  }, [toast]);
+
+  // Sync after any item change (post-hydration). This covers adds/removes from anywhere in the UI.
+  const symbolsSig = useMemo(
+    () => items.map((i) => i.symbol).slice().sort().join(","),
+    [items]
+  );
+  useEffect(() => {
+    if (!hydrated) return;
+    void syncWatchlist();
+  }, [hydrated, symbolsSig, syncWatchlist]);
+
+  const onAdd = useCallback((): void => {
+    const raw = inputRef.current?.value ?? "";
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+
+    const { good, bad } = parseSymbolsInput(trimmed);
+
+    if (good.length > 0) {
+      addSymbols(good);
+      // sync will run via the items effect above; no need to await here
+      toast.success(
+        good.length === 1 ? `${good[0]} added` : `Added ${good.length} symbols`
+      );
+    }
+
+    if (bad.length > 0) {
+      const preview = bad.slice(0, 5).join(", ");
+      toast.error(
+        bad.length === 1
+          ? `Ignored invalid token: ${bad[0]}`
+          : `Ignored ${bad.length} invalid tokens${
+              bad.length > 5 ? ` (e.g. ${preview}…)` : `: ${preview}`
+            }`,
+        "Validation"
+      );
+    }
+
+    if (inputRef.current) inputRef.current.value = "";
+  }, [addSymbols, toast]);
+
+  const startAllHandler = async (): Promise<void> => {
     try {
       const syms = items.map((i) => i.symbol);
       if (!syms.length) return;
@@ -45,7 +110,7 @@ export default function TopBar() {
     }
   };
 
-  const stopAllApi = async () => {
+  const stopAllApi = async (): Promise<void> => {
     try {
       await stopAll(false);
       toast.info("Stopped all (no flatten)");
@@ -54,7 +119,7 @@ export default function TopBar() {
     }
   };
 
-  const flattenAllApi = async () => {
+  const flattenAllApi = async (): Promise<void> => {
     try {
       await stopAll(true);
       toast.info("Flattened & stopped all");
@@ -65,14 +130,66 @@ export default function TopBar() {
 
   const runningCount = items.filter((i) => i.running).length;
 
+  // Controls are enabled only when provider is ready & active
+  const providerReady = !!provider && !loadingProvider && !providerError;
+  const controlsDisabled = busy || !providerReady;
+
+  const providerChip = useMemo(() => {
+    if (!providerReady) {
+      return { text: "• OFFLINE", cls: "text-zinc-400" };
+    }
+    if (wsEnabled) {
+      return { text: "• WS", cls: "text-emerald-400" };
+    }
+    return { text: "• REST", cls: "text-amber-400" };
+  }, [providerReady, wsEnabled]);
+
   return (
     <div className="sticky top-0 z-10 border-b border-zinc-800/80 bg-zinc-900/80 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center gap-2 p-3">
+        {/* left: nav */}
+        <nav className="flex items-center gap-2 pr-2">
+          <NavLink
+            to="/"
+            className={({ isActive }) =>
+              `rounded-xl px-3 py-2 text-sm ${
+                isActive ? "bg-zinc-800 text-zinc-100" : "text-zinc-300 hover:bg-zinc-800/70"
+              }`
+            }
+            end
+          >
+            Dashboard
+          </NavLink>
 
-        {/* Add symbol */}
+          <NavLink
+            to="/scanner"
+            className={({ isActive }) =>
+              `rounded-xl px-3 py-2 text-sm ${
+                isActive ? "bg-zinc-800 text-zinc-100" : "text-zinc-300 hover:bg-zinc-800/70"
+              }`
+            }
+          >
+            Scanner
+          </NavLink>
+
+          <NavLink
+            to="/trade"
+            className={({ isActive }) =>
+              `rounded-xl px-3 py-2 text-sm ${
+                isActive ? "bg-zinc-800 text-zinc-100" : "text-zinc-300 hover:bg-zinc-800/70"
+              }`
+            }
+          >
+            Trade
+          </NavLink>
+        </nav>
+
+        <div className="mx-1 h-6 w-px bg-zinc-700/60" />
+
+        {/* Add symbols (supports multi-input) */}
         <input
           ref={inputRef}
-          placeholder="Add symbol (e.g. BTCUSDT)"
+          placeholder="Add symbols (e.g. BTCUSDT ETHUSDT)"
           className="w-64 rounded-xl border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm outline-none"
           onKeyDown={(e) => e.key === "Enter" && onAdd()}
         />
@@ -85,43 +202,40 @@ export default function TopBar() {
 
         <div className="mx-3 h-6 w-px bg-zinc-700/60" />
 
-        {/* Strategy controls */}
+        {/* Strategy controls (gated by provider readiness) */}
         <button
-          onClick={startAll}
+          onClick={startAllHandler}
           className="rounded-xl bg-zinc-800 px-3 py-2 text-sm hover:bg-zinc-700 disabled:opacity-60"
-          disabled={busy}
+          disabled={controlsDisabled}
+          title={providerReady ? "" : "Provider not ready"}
         >
           Start All
         </button>
         <button
           onClick={stopAllApi}
           className="rounded-xl bg-zinc-800 px-3 py-2 text-sm hover:bg-zinc-700 disabled:opacity-60"
-          disabled={busy}
+          disabled={controlsDisabled}
+          title={providerReady ? "" : "Provider not ready"}
         >
           Stop All
         </button>
         <button
           onClick={flattenAllApi}
           className="rounded-xl bg-zinc-800 px-3 py-2 text-sm hover:bg-zinc-700 disabled:opacity-60"
-          disabled={busy}
+          disabled={controlsDisabled}
+          title={providerReady ? "" : "Provider not ready"}
         >
           Flatten All
         </button>
 
         {/* Right side: provider switch + status */}
         <div className="ml-auto flex items-center gap-3">
-          <div className="text-sm text-zinc-400">
-            Running: {runningCount}
-          </div>
-
+          <div className="text-sm text-zinc-400">Running: {runningCount}</div>
           <div className="mx-1 h-6 w-px bg-zinc-700/60" />
-
-          {/* Provider dropdown+mode toggle */}
           <ProviderSwitch />
-
-          {/* tiny status */}
           <div className="text-xs text-zinc-500">
-            {provider?.toUpperCase()} / {mode ?? "—"} {wsEnabled ? "• WS" : "• REST"}
+            {provider?.toUpperCase() || "—"} / {mode ?? "—"}{" "}
+            <span className={providerChip.cls}>{providerChip.text}</span>
           </div>
         </div>
       </div>

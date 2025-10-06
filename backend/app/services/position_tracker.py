@@ -26,6 +26,8 @@ class TrackerResult:
     realized_pnl_cum: float
 
 
+# ───────────────────────────── helpers ─────────────────────────────
+
 def _num(x: Any, dflt: float = 0.0) -> float:
     try:
         v = float(x)
@@ -57,11 +59,22 @@ def _filtered_kwargs(model_cls, **kwargs) -> Dict[str, Any]:
     return {k: v for k, v in kwargs.items() if k in cols}
 
 
+# ───────────────────────────── tracker ─────────────────────────────
+
 class PositionTracker:
     """
-    Maintains moving-average inventory and realized PnL per (workspace_id, symbol).
+    Durable position & realized PnL tracker (per workspace_id, symbol).
 
-    Idempotency: (exchange_order_id, trade_id) in-memory + optional DB guard (pnl_ledger).
+    • **Spot-only, long-only invariant**:
+        - Never create negative qty (short).
+        - SELL is capped to current long quantity.
+        - If a negative qty is somehow stored (legacy), BUY first closes the short,
+          then opens long only with the remainder.
+
+    • Idempotency: (exchange_order_id, trade_id) tuple in-memory
+      + optional DB guard via pnl_ledger (if present).
+
+    • Fees: realized PnL is reduced by the provided fee amount (if any).
     """
 
     _IDEM_CACHE_LIMIT = 10_000
@@ -95,6 +108,8 @@ class PositionTracker:
                     or (str(kwargs.get("ts_ms")) if kwargs.get("ts_ms") is not None else None),
                 "executed_at": kwargs.get("executed_at"),
                 "strategy_tag": kwargs.get("strategy_tag"),
+                "exchange": kwargs.get("exchange"),
+                "account_id": kwargs.get("account_id"),
             }
         else:
             f = self._coerce_fill(fill)  # type: ignore[arg-type]
@@ -166,6 +181,8 @@ class PositionTracker:
                 "trade_id": getattr(fill, "trade_id", None),
                 "executed_at": getattr(fill, "executed_at", None),
                 "strategy_tag": getattr(fill, "strategy_tag", None),
+                "exchange": getattr(fill, "exchange", None),
+                "account_id": getattr(fill, "account_id", None),
             }
 
         d["symbol"] = str(d.get("symbol", "")).strip().upper()
@@ -228,11 +245,16 @@ class PositionTracker:
                 pass
 
     def _apply_fill(self, f: Dict[str, Any]) -> TrackerResult:
+        """
+        Core inventory math with **spot long-only** enforcement.
+        - SELL is limited to current long qty (extra ignored).
+        - BUY can flip a legacy short to flat, then open long with the remainder.
+        """
         symbol = f["symbol"]
         side = f["side"]
-        qty = _num(f["qty"])
-        price = _num(f["price"])
-        fee = _num(f.get("fee", 0.0))
+        qty = max(0.0, _num(f["qty"]))       # never negative
+        price = max(0.0, _num(f["price"]))   # never negative
+        fee = max(0.0, _num(f.get("fee", 0.0)))
 
         pos = self._load_or_create_position(symbol)
         cur_qty, cur_avg, realized_cum = self._get_pos_fields(pos)
@@ -241,43 +263,47 @@ class PositionTracker:
 
         if side == "BUY":
             if cur_qty < 0:
+                # Close legacy short first (best-effort), then open long with remainder.
                 close = min(qty, -cur_qty)
-                realized_delta += (cur_avg - price) * close
+                realized_delta += (cur_avg - price) * close  # closing short PnL
                 qty_after_close = qty - close
-                new_qty = cur_qty + close
-                if math.isclose(new_qty, 0.0, abs_tol=1e-12):
-                    new_qty = 0.0
+                cur_qty += close  # moves toward 0
+                if math.isclose(cur_qty, 0.0, abs_tol=1e-12):
+                    cur_qty = 0.0
                     cur_avg = 0.0
-                cur_qty = new_qty
                 if qty_after_close > 0:
-                    cur_avg = price
-                    cur_qty += qty_after_close
+                    # open long with remaining
+                    if cur_qty <= 0:
+                        cur_avg = price
+                        cur_qty = qty_after_close
+                    else:
+                        # (shouldn't happen under long-only, but safe)
+                        new_qty = cur_qty + qty_after_close
+                        cur_avg = (cur_qty * cur_avg + qty_after_close * price) / new_qty if new_qty > 0 else 0.0
+                        cur_qty = new_qty
             else:
+                # Normal long add
                 new_qty = cur_qty + qty
                 cur_avg = (cur_qty * cur_avg + qty * price) / new_qty if new_qty > 0 else 0.0
                 cur_qty = new_qty
-            realized_delta -= fee
+
+            realized_delta -= fee  # subtract fee from realized
 
         else:  # SELL
-            if cur_qty > 0:
-                close = min(qty, cur_qty)
-                realized_delta += (price - cur_avg) * close
-                qty_after_close = qty - close
-                new_qty = cur_qty - close
-                if math.isclose(new_qty, 0.0, abs_tol=1e-12):
-                    new_qty = 0.0
-                    cur_avg = 0.0
-                cur_qty = new_qty
-                if qty_after_close > 0:
-                    cur_avg = price
-                    cur_qty -= qty_after_close
+            if cur_qty <= 0:
+                # No long inventory → ignore sell (spot long-only)
+                qty_to_sell = 0.0
             else:
-                new_qty = cur_qty - qty
-                ab_prev = abs(cur_qty)
-                ab_new = abs(new_qty)
-                cur_avg = (ab_prev * cur_avg + qty * price) / ab_new if ab_new > 0 else 0.0
-                cur_qty = new_qty
-            realized_delta -= fee
+                qty_to_sell = min(qty, cur_qty)
+
+            if qty_to_sell > 0:
+                realized_delta += (price - cur_avg) * qty_to_sell
+                cur_qty = cur_qty - qty_to_sell
+                if math.isclose(cur_qty, 0.0, abs_tol=1e-12):
+                    cur_qty = 0.0
+                    cur_avg = 0.0
+            # Any "excess" sell is ignored to prevent shorts.
+            realized_delta -= fee  # subtract fee from realized
 
         realized_cum += realized_delta
 

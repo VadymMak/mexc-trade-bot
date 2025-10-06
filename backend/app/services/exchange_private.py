@@ -4,6 +4,7 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
+from datetime import datetime  # NEW
 
 from app.config.settings import settings
 
@@ -30,13 +31,13 @@ class PositionInfo:
 
 @dataclass
 class OrderRequest:
-    symbol: str          # normalized like "ETHUSDT"
-    side: str            # "BUY" | "SELL"
+    symbol: str                 # normalized like "ETHUSDT"
+    side: str                   # "BUY" | "SELL"
     qty: float
-    price: Optional[float] = None  # None => market
-    type: str = "MARKET"           # "MARKET" | "LIMIT"
-    tif: Optional[str] = None      # e.g. "IOC", "GTC"
-    tag: Optional[str] = None      # strategy tag / client note
+    price: Optional[float] = None   # None => market
+    type: str = "MARKET"            # "MARKET" | "LIMIT"
+    tif: Optional[str] = None       # e.g. "IOC", "GTC"
+    tag: Optional[str] = None       # strategy tag / client note
 
 
 @dataclass
@@ -44,10 +45,15 @@ class OrderResult:
     ok: bool
     client_order_id: Optional[str] = None
     exchange_order_id: Optional[str] = None
-    status: Optional[str] = None   # "FILLED" | "NEW" | ...
+    status: Optional[str] = None            # "FILLED" | "NEW" | ...
     filled_qty: float = 0.0
     avg_fill_price: float = 0.0
-    raw: Optional[Dict[str, Any]] = None  # full provider payload (for debugging)
+    # NEW: values used by LiveExecutor for PnL/fees
+    executed_at: Optional[datetime] = None  # exchange/server time of execution if known
+    fee: Optional[float] = None             # total fee for this order/fill if provider reports it
+    fee_asset: Optional[str] = None         # e.g. "USDT"
+    trade_id: Optional[str] = None          # provider trade id (if available)
+    raw: Optional[Dict[str, Any]] = None    # full provider payload (for debugging)
 
 
 # ─────────────────────────── Provider Enum ─────────────────────────

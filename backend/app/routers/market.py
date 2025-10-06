@@ -1,3 +1,4 @@
+# app/routers/market.py
 from __future__ import annotations
 
 import asyncio
@@ -25,13 +26,24 @@ ALLOWED_ORIGINS: List[str] = list(getattr(settings, "cors_origins", []) or []) o
 
 
 def _origin_ok(origin: Optional[str]) -> bool:
-    return bool(origin) and origin in ALLOWED_ORIGINS
+    if not origin:
+        return False
+    if "*" in ALLOWED_ORIGINS:
+        return True
+    return origin in ALLOWED_ORIGINS
 
 
-def _sse_format(event: str | None, data: dict | str, *, retry_ms: int | None = None) -> bytes:
+def _sse_format(
+    event: str | None,
+    data: dict | str,
+    *,
+    retry_ms: int | None = None,
+    event_id: str | None = None,
+) -> bytes:
     """
     Build a compliant SSE frame.
     - If retry_ms is provided, add a `retry:` hint for client reconnection backoff.
+    - If event_id is provided, add an `id:` line for resumability.
     """
     if isinstance(data, (dict, list)):
         payload = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
@@ -42,6 +54,8 @@ def _sse_format(event: str | None, data: dict | str, *, retry_ms: int | None = N
         lines.append(f"retry: {int(retry_ms)}")
     if event:
         lines.append(f"event: {event}")
+    if event_id is not None:
+        lines.append(f"id: {event_id}")
     for line in payload.splitlines() or [""]:
         lines.append(f"data: {line}")
     lines.append("")  # end-of-event
@@ -54,13 +68,14 @@ async def _preflight_stream(request: Request) -> FastAPIResponse:
     acr_headers = request.headers.get("access-control-request-headers", "")
     headers: Dict[str, str] = {}
     if _origin_ok(origin):
-        headers["Access-Control-Allow-Origin"] = origin
-        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Access-Control-Allow-Origin"] = origin if "*" not in ALLOWED_ORIGINS else "*"
+        # If wildcard is used, credentials must be false at the *CORS* layer; here we still echo for OPTIONS.
+        headers["Access-Control-Allow-Credentials"] = "true" if origin != "*" else "false"
         headers["Vary"] = "Origin"
         headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
         headers["Access-Control-Allow-Headers"] = (
             acr_headers
-            or "Content-Type, Authorization, If-Match, X-Idempotency-Key, Accept, Cache-Control"
+            or "Content-Type, Authorization, If-Match, X-Idempotency-Key, Accept, Cache-Control, Last-Event-ID"
         )
         headers["Access-Control-Max-Age"] = "86400"
     return FastAPIResponse(status_code=204, headers=headers)
@@ -114,10 +129,20 @@ async def stream_market(
                 })
         return out
 
+    # Basic event id counter per-connection (supports Last-Event-ID echo)
+    last_event_id_header = request.headers.get("last-event-id")
+    try:
+        start_eid = int(last_event_id_header) if last_event_id_header is not None else 0
+    except Exception:
+        start_eid = 0
+    eid = start_eid
+
     async def event_generator() -> AsyncGenerator[bytes, None]:
         # first message includes server-suggested retry backoff
         retry_ms = int(getattr(settings, "sse_retry_base_ms", 1000) or 1000)
-        yield _sse_format("hello", {"type": "hello"}, retry_ms=retry_ms)
+        nonlocal eid
+        eid += 1
+        yield _sse_format("hello", {"type": "hello"}, retry_ms=retry_ms, event_id=str(eid))
 
         try:
             # 0) ensure live ingestion
@@ -139,33 +164,55 @@ async def stream_market(
                     break
                 await asyncio.sleep(0.1)
 
+            eid += 1
             # snapshot: first 'snapshot' (L1+derived), then optional 'depth'
-            yield _sse_format("snapshot", {"type": "snapshot", "quotes": snapshot_quotes})
+            yield _sse_format("snapshot", {"type": "snapshot", "quotes": snapshot_quotes}, event_id=str(eid))
             if emit_depth:
                 snap_depth = _l2_payload(snapshot_quotes)
                 if snap_depth:
-                    yield _sse_format("depth", {"type": "depth", "depth": snap_depth})
+                    eid += 1
+                    yield _sse_format("depth", {"type": "depth", "depth": snap_depth}, event_id=str(eid))
 
             # 2) streaming
             quote_stream = stream_quote_batches(syms, interval_ms=interval_ms)
+            ping_every_ms = int(getattr(settings, "sse_ping_interval_ms", 15000) or 15000)
+            next_ping = asyncio.get_event_loop().time() + (ping_every_ms / 1000.0)
+
             async for batch in quote_stream:
                 if await request.is_disconnected():
                     break
+
+                now = asyncio.get_event_loop().time()
+
                 if not batch:
-                    yield _sse_format("ping", {"type": "ping"})
+                    # send periodic ping even when batch exists to keep proxies happy
+                    if now >= next_ping:
+                        eid += 1
+                        yield _sse_format("ping", {"type": "ping"}, event_id=str(eid))
+                        next_ping = now + (ping_every_ms / 1000.0)
                     continue
 
                 # always send quotes
-                yield _sse_format("quotes", {"type": "quotes", "quotes": _only_nonzero(batch)})
+                eid += 1
+                yield _sse_format("quotes", {"type": "quotes", "quotes": _only_nonzero(batch)}, event_id=str(eid))
 
                 # and (optionally) a separate 'depth' event if any item has L2
                 if emit_depth:
                     l2 = _l2_payload(batch)
                     if l2:
-                        yield _sse_format("depth", {"type": "depth", "depth": l2})
+                        eid += 1
+                        yield _sse_format("depth", {"type": "depth", "depth": l2}, event_id=str(eid))
+
+                # also keep ping cadence if interval_ms is very long
+                if now >= next_ping:
+                    eid += 1
+                    yield _sse_format("ping", {"type": "ping"}, event_id=str(eid))
+                    next_ping = now + (ping_every_ms / 1000.0)
+
         except (asyncio.CancelledError, GeneratorExit):
             return
         except Exception:
+            # swallow to keep connection from crashing with stack traces
             return
 
     headers = {
@@ -175,7 +222,8 @@ async def stream_market(
         "Vary": "Origin",
     }
     if _origin_ok(origin):
-        headers["Access-Control-Allow-Origin"] = origin
-        headers["Access-Control-Allow-Credentials"] = "true"
+        headers["Access-Control-Allow-Origin"] = origin if "*" not in ALLOWED_ORIGINS else "*"
+        # If wildcard origin is used, browsers disallow credentials anyway
+        headers["Access-Control-Allow-Credentials"] = "true" if origin != "*" else "false"
 
     return StreamingResponse(event_generator(), headers=headers, media_type="text/event-stream")

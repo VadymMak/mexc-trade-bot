@@ -7,6 +7,7 @@ import hmac
 import json
 import time
 from dataclasses import asdict
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -28,10 +29,9 @@ def _env(name: str, default: str = "") -> str:
 
 def _gate_conf() -> Dict[str, str]:
     """
-    Choose live vs testnet using settings.active_mode.
-    Falls back to env vars if settings fields aren’t present.
+    Choose live vs testnet using settings flags; fall back to env.
     """
-    is_demo = getattr(settings, "is_demo", False)
+    is_demo = bool(getattr(settings, "is_demo", False) or getattr(settings, "is_paper", False))
     if is_demo:
         return {
             "key": getattr(settings, "gate_testnet_api_key", None) or _env("GATE_TESTNET_API_KEY", ""),
@@ -48,7 +48,8 @@ def _gate_conf() -> Dict[str, str]:
 
 
 def _ts() -> str:
-    return str(int(time.time()))  # gate expects seconds as string
+    # Gate expects seconds since epoch as a string
+    return str(int(time.time()))
 
 
 def _hmac_sha512(secret: str, msg: str) -> str:
@@ -75,11 +76,24 @@ def _to_text_tag(tag: Optional[str]) -> str:
     return s if s.startswith("t-") else f"t-{s}"
 
 
+def _parse_dt_ms(ms: Any) -> Optional[datetime]:
+    try:
+        # Gate sometimes returns string seconds; we prioritize *_time_ms if available
+        v = float(ms)
+        if v > 1e12:  # already milliseconds
+            t = v / 1000.0
+        else:
+            t = v  # seconds
+        return datetime.fromtimestamp(t, tz=timezone.utc).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
 class GatePrivate(ExchangePrivate):
     """
-    Gate.io Spot private client (LIVE/TESTNET via settings.active_mode).
+    Gate.io Spot private client (LIVE/TESTNET via settings).
     - Spot “positions” are derived from balances (non-USDT assets with qty > 0).
-    - MARKET/LIMIT buy/sell.
+    - MARKET or LIMIT buy/sell.
     """
 
     def __init__(self) -> None:
@@ -110,14 +124,10 @@ class GatePrivate(ExchangePrivate):
 
     def provider_symbol(self, symbol: str) -> str:
         s = self.normalize_symbol(symbol)
-        if "_" in symbol:
-            # Already in BASE_QUOTE form
-            return symbol.upper()
-        # Prefer mapping …USDT → BASE_USDT
+        # Prefer mapping …USDT → BASE_USDT; fallback split of last 4 chars
         if s.endswith(self._quote) and len(s) > len(self._quote):
             base = s[: -len(self._quote)]
             return f"{base}_{self._quote}"
-        # Fallback: split before last 4 chars (USDT)
         return f"{s[:-4]}_{s[-4:]}" if len(s) > 4 else s
 
     # ---------- signing ----------
@@ -139,6 +149,7 @@ class GatePrivate(ExchangePrivate):
             "Timestamp": ts,
             "SIGN": sign,
             "Content-Type": "application/json",
+            "Accept": "application/json",
         }
 
     # ---------- low-level requests ----------
@@ -203,11 +214,11 @@ class GatePrivate(ExchangePrivate):
 
     async def place_order(self, req: OrderRequest) -> OrderResult:
         pair = self.provider_symbol(req.symbol)
-        side = req.side.lower()
+        side = str(req.side or "").lower()
         if side not in {"buy", "sell"}:
             return OrderResult(ok=False, status="REJECTED", raw={"reason": "side must be BUY or SELL"})
 
-        typ = "limit" if (req.type or "").upper() == "LIMIT" or req.price else "market"
+        typ = "limit" if (str(req.type or "").upper() == "LIMIT" or req.price) else "market"
 
         body: Dict[str, Any] = {
             "currency_pair": pair,
@@ -222,7 +233,7 @@ class GatePrivate(ExchangePrivate):
                 return OrderResult(ok=False, status="REJECTED", raw={"reason": "limit price required"})
             body["price"] = f"{req.price}"
         if req.tif:
-            body["time_in_force"] = req.tif.lower()
+            body["time_in_force"] = str(req.tif).lower()
 
         try:
             resp = await self._post("/spot/orders", body)
@@ -235,13 +246,44 @@ class GatePrivate(ExchangePrivate):
         except Exception as e:
             return OrderResult(ok=False, status="ERROR", raw={"msg": str(e)})
 
+        # Extract additional fields for PnL / fee accounting
+        executed_at = (
+            _parse_dt_ms(resp.get("update_time_ms"))
+            or _parse_dt_ms(resp.get("create_time_ms"))
+            or _parse_dt_ms(resp.get("update_time"))
+            or _parse_dt_ms(resp.get("create_time"))
+        )
+        fee = None
+        fee_asset = None
+        try:
+            # Gate commonly returns "fee" and "fee_currency" on order or on each deal
+            if resp.get("fee") is not None:
+                fee = float(resp.get("fee"))
+            if resp.get("fee_currency"):
+                fee_asset = str(resp.get("fee_currency")).upper()
+        except Exception:
+            pass
+
+        trade_id = None
+        try:
+            # Some payloads include last deal id or in "deals":[]
+            deals = resp.get("deal_list") or resp.get("deals") or []
+            if isinstance(deals, list) and deals:
+                trade_id = str(deals[-1].get("id") or deals[-1].get("trade_id") or "")
+        except Exception:
+            pass
+
         return OrderResult(
             ok=True,
             client_order_id=str(resp.get("text") or ""),
             exchange_order_id=str(resp.get("id") or ""),
             status=str(resp.get("status") or ""),
             filled_qty=float(resp.get("filled_amount") or 0),
-            avg_fill_price=float(resp.get("avg_deal_price") or 0),
+            avg_fill_price=float(resp.get("avg_deal_price") or resp.get("fill_price") or 0),
+            executed_at=executed_at,
+            fee=fee,
+            fee_asset=fee_asset,
+            trade_id=trade_id,
             raw=resp,
         )
 

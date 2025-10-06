@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
-from typing import Any, Sequence, cast
+from typing import Any, Sequence, cast, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,8 +36,8 @@ import app.models.orders             # noqa: F401
 import app.models.positions          # noqa: F401
 import app.models.fills              # noqa: F401
 import app.models.sessions           # noqa: F401
-import app.models.pnl_ledger         # noqa: F401  # PnL ledger
-import app.models.pnl_daily          # noqa: F401  # PnL daily
+import app.models.pnl_ledger         # noqa: F401
+import app.models.pnl_daily          # noqa: F401
 
 APP_VERSION = "0.1.0"
 logger = logging.getLogger("app.main")
@@ -91,7 +91,7 @@ def _safe_settings_dict() -> dict[str, Any]:
 async def lifespan(app: FastAPI):
     # Ensure DB schema exists (dev convenience; use Alembic in prod)
     try:
-        url_repr = str(getattr(engine.url, "render_as_string", lambda **_: engine.url)())
+        url_repr = str(getattr(engine.url, "render_as_string", lambda **_: engine.url)(hide_password=True))  # type: ignore[arg-type]
         print(f"🗄️  Using database: {url_repr}")
         Base.metadata.create_all(bind=engine)
         insp = inspect(engine)
@@ -103,9 +103,9 @@ async def lifespan(app: FastAPI):
         print(f"⚠️ DB schema init failed: {e}")
 
     # State holders
-    app.state.ws_client = cast(Any | None, None)
-    app.state.ws_task = cast(asyncio.Task | None, None)
-    app.state.ps_poller = cast(Any | None, None)
+    app.state.ws_client = cast(Optional[Any], None)
+    app.state.ws_task = cast(Optional[asyncio.Task], None)
+    app.state.ps_poller = cast(Optional[Any], None)
 
     symbols = getattr(settings, "symbols", []) or []
     enable_ws = getattr(settings, "enable_ws", False)
@@ -222,6 +222,11 @@ async def lifespan(app: FastAPI):
                 app.state.ws_client = None
                 app.state.ws_task = None
 
+        # (Optional) BINANCE WS placeholder — wire in when client is ready
+        # if prov == "BINANCE" and enable_ws and _symbols_ok(symbols) and app.state.ws_client is None:
+        #     from app.market_data.binance_ws import BinanceWebSocketClient
+        #     ...
+
         # PS poller (fallback)
         if app.state.ws_client is None and getattr(settings, "enable_ps_poller", True):
             try:
@@ -266,7 +271,8 @@ async def lifespan(app: FastAPI):
 
 
 # ------------------------------ app setup -----------------------------------
-app = FastAPI(title="MEXC Trade Bot API", version=APP_VERSION, lifespan=lifespan)
+# (Broaden title a bit — purely cosmetic)
+app = FastAPI(title="Trade Bot API", version=APP_VERSION, lifespan=lifespan)
 
 # ------------------------------ CORS ----------------------------------------
 _allowed_origins = list(getattr(settings, "cors_origins", []) or []) or [
@@ -275,10 +281,14 @@ _allowed_origins = list(getattr(settings, "cors_origins", []) or []) or [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+
+# If wildcard origin is used, credentials must be False (browser restriction)
+_allow_credentials = "*" not in _allowed_origins
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
-    allow_credentials=True,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=[
         "Content-Type",
@@ -291,7 +301,6 @@ app.add_middleware(
 )
 
 # ------------------------------ route mounting ------------------------------
-# app/api/routes.py mounts all sub-routers (market/strategy/execution/health/account/config + SSE)
 app.include_router(api_routes.router)
 
 # --- Debug: list all routes at startup ---
@@ -333,7 +342,7 @@ async def ping():
 
 @app.get("/")
 async def root():
-    return {"ok": True, "name": "MEXC Trade Bot API", "version": APP_VERSION, "config": _safe_settings_dict()}
+    return {"ok": True, "name": "Trade Bot API", "version": APP_VERSION, "config": _safe_settings_dict()}
 
 # --- Ultra simple health for request loop ---
 @app.get("/__debug")
@@ -349,3 +358,8 @@ if _PROM_AVAILABLE:
             return PlainTextResponse(data.decode("utf-8"), media_type=CONTENT_TYPE_LATEST)  # type: ignore[arg-type]
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
+else:
+    # Fallback so the route always exists (matches your OpenAPI)
+    @app.get("/metrics")
+    async def metrics_fallback():
+        return PlainTextResponse("# metrics not enabled\n", media_type=CONTENT_TYPE_LATEST)

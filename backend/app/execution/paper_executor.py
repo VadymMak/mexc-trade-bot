@@ -17,9 +17,9 @@ from app.models.orders import Order, OrderSide, OrderType, OrderStatus, TimeInFo
 from app.models.fills import Fill, FillSide, Liquidity
 from app.models.positions import Position, PositionSide, PositionStatus
 
-# PnL service (for ledger writes + SSE pnl_tick)
-from datetime import datetime
+from datetime import datetime, timezone
 from app.pnl.service import PnlService
+
 
 class PositionTrackerProto(Protocol):
     def on_fill(
@@ -31,9 +31,18 @@ class PositionTrackerProto(Protocol):
         price: Decimal,
         ts_ms: int,
         strategy_tag: str,
+        fee: Decimal | float | int | None,
+        fee_asset: Optional[str],
+        client_order_id: Optional[str],
+        exchange_order_id: Optional[str],
+        trade_id: Optional[str],
+        executed_at: Optional[datetime],
+        exchange: Optional[str],
+        account_id: Optional[str],
     ) -> None: ...
 
-# Use sane precision for price/qty math (matches Numeric(28,12))
+
+# sane precision for price/qty math (matches Numeric(28,12))
 getcontext().prec = 34
 
 
@@ -47,8 +56,7 @@ class MemPosition:
 
 
 class SessionFactory(Protocol):
-    def __call__(self) -> Session:
-        ...
+    def __call__(self) -> Session: ...
 
 
 def _now_ms() -> int:
@@ -63,26 +71,14 @@ def _dec(x: float | str | Decimal | None) -> Decimal:
     return Decimal(str(x))
 
 
-# ---------- rounding helpers (paper-friendly defaults) ----------
-def _price_places(symbol: str) -> int:
-    s = symbol.upper()
-    return 2 if s.endswith("USDT") else 6
-
-
+# ---------- rounding helpers ----------
 def _qty_places(symbol: str) -> int:
+    # в реале лучше тянуть шаг из биржи; для paper — 6 знаков
     return 6
 
 
 def _qty_quantum(symbol: str) -> Decimal:
     return Decimal("1").scaleb(-_qty_places(symbol))  # e.g. 1e-6
-
-
-def _round_price(symbol: str, price: Decimal) -> Decimal:
-    if price <= 0:
-        return Decimal("0")
-    places = _price_places(symbol)
-    quant = Decimal("1").scaleb(-places)
-    return price.quantize(quant, rounding=ROUND_DOWN)
 
 
 def _round_qty(symbol: str, qty: Decimal) -> Decimal:
@@ -95,12 +91,43 @@ def _round_qty(symbol: str, qty: Decimal) -> Decimal:
     return rounded
 
 
+async def _detect_price_places(symbol: str) -> int:
+    """Pick decimal places based on price level so cheap coins get enough precision."""
+    try:
+        q = await bt_service.get_quote(symbol.upper())
+        bid = _dec(q.get("bid", 0.0))
+        ask = _dec(q.get("ask", 0.0))
+        mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else (bid if bid > 0 else ask)
+    except Exception:
+        mid = Decimal("0")
+
+    if mid <= 0:
+        return 4
+    if mid >= Decimal("1"):
+        return 2
+    if mid >= Decimal("0.1"):
+        return 5
+    return 6
+
+
+async def _round_price_async(symbol: str, price: Decimal) -> Decimal:
+    if price <= 0:
+        return Decimal("0")
+    places = await _detect_price_places(symbol)
+    quant = Decimal("1").scaleb(-places)
+    return price.quantize(quant, rounding=ROUND_DOWN)
+
+
 def _split_symbol(symbol: str) -> Tuple[str, str]:
     s = symbol.upper()
     for tail in ("USDT", "USDC", "FDUSD", "BUSD"):
         if s.endswith(tail):
             return s[:-len(tail)], tail
     return s[:-3] or s, s[-3:] or "USDT"
+
+
+def _is_usd_quote(quote: str) -> bool:
+    return quote in {"USDT", "USDC", "BUSD", "FDUSD"}
 
 
 # ---------- debug helpers ----------
@@ -115,25 +142,26 @@ def _dbg(msg: str) -> None:
 
 class PaperExecutor:
     """
-    Paper execution simulator with DB persistence.
+    Paper execution simulator with DB persistence (spot, long-only).
+
     Guards:
       - Global exposure cap via settings.max_exposure_usd (0 = disabled)
       - Per-symbol exposure cap via env MAX_PER_SYMBOL_USD (0 = disabled)
-      - Price/Qty rounding to paper tick/step sizes
+      - Price/Qty rounding tuned for spot tick/step sizes
     """
 
     def __init__(
         self,
         session_factory: Optional[SessionFactory] = None,
         workspace_id: int = 1,
-        position_tracker: Optional[PositionTrackerProto] = None,  # NEW
+        position_tracker: Optional[PositionTrackerProto] = None,
     ) -> None:
         self._lock = asyncio.Lock()
         self._positions: Dict[str, MemPosition] = {}
         self._session_factory = session_factory
         self._wsid = workspace_id
         self._pnl = PnlService()
-        self._tracker = position_tracker  # NEW
+        self._tracker = position_tracker
 
         # Config
         try:
@@ -151,15 +179,18 @@ class PaperExecutor:
     # -------- StrategyEngine interface --------
 
     async def start_symbol(self, symbol: str) -> None:
+        # best-effort: разогреть котировки
         try:
             await ensure_symbols_subscribed([symbol.upper()])
         except Exception:
             pass
 
     async def stop_symbol(self, symbol: str) -> None:
+        # для paper сейчас нечего отменять — ордеров как таковых нет
         return None
 
     async def flatten_symbol(self, symbol: str) -> None:
+        """Закрыть текущую лонг-позицию по bid (или mid/avg как фоллбек)."""
         sym = symbol.upper()
 
         async with self._lock:
@@ -182,12 +213,14 @@ class PaperExecutor:
         bid = _dec(q.get("bid", 0.0))
         ask = _dec(q.get("ask", 0.0))
         mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else (bid if bid > 0 else ask)
-        # Prefer natural exit side; fallback smartly
-        exit_px = ask if ask > 0 else (bid if bid > 0 else (mid if mid > 0 else prev_avg))
-        exit_px = _round_price(sym, exit_px)
+
+        # Closing LONG -> SELL at BID; fallback to mid/prev_avg
+        exit_px = bid if bid > 0 else (mid if mid > 0 else prev_avg)
+        exit_px = await _round_price_async(sym, exit_px)
         close_qty = _round_qty(sym, close_qty)
 
-        if exit_px <= 0 or close_qty <= 0:
+        # игнорируем микроскопические "пылинки"
+        if exit_px <= 0 or close_qty <= Decimal("0"):
             _dbg(f"flatten rejected: px={exit_px} qty={close_qty}")
             return
 
@@ -207,6 +240,7 @@ class PaperExecutor:
             mp.ts_ms = _now_ms()
 
     async def cancel_orders(self, symbol: str) -> None:
+        # в paper ордеров нет — NOP
         return None
 
     async def place_maker(
@@ -218,9 +252,9 @@ class PaperExecutor:
         tag: str = "mm",
     ) -> Optional[str]:
         """
-        BUY: bid → ask → mid → provided price (rounded).
-        SELL: ask → bid → mid → provided price (rounded).
-        Returns client_order_id or None (if rejected by guards).
+        Spot maker simulation (long-only):
+          BUY  -> исполняем по BID (или MID/PROVIDED как фоллбек)
+          SELL -> исполняем по ASK (или MID/PROVIDED как фоллбек)
         """
         sym = symbol.upper()
         s_up = side.upper().strip()
@@ -230,6 +264,7 @@ class PaperExecutor:
             _dbg(f"reject: qty <= 0 after rounding (req={qty_raw}, step={_qty_quantum(sym)})")
             return None
 
+        # ensure quotes flow
         try:
             await ensure_symbols_subscribed([sym])
         except Exception:
@@ -245,12 +280,14 @@ class PaperExecutor:
         mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else (bid if bid > 0 else ask)
 
         provided = _dec(price)
-        if s_up == "BUY":
-            candidate = bid if bid > 0 else (ask if ask > 0 else (mid if mid > 0 else provided))
-        else:  # SELL
-            candidate = ask if ask > 0 else (bid if bid > 0 else (mid if mid > 0 else provided))
 
-        fill_price = _round_price(sym, candidate)
+        # По умолчанию — «лучшая сторона спреда», provided используем как мягкий фоллбек.
+        if s_up == "BUY":
+            candidate = bid if bid > 0 else (mid if mid > 0 else (provided if provided > 0 else bid))
+        else:  # SELL
+            candidate = ask if ask > 0 else (mid if mid > 0 else (provided if provided > 0 else ask))
+
+        fill_price = await _round_price_async(sym, candidate)
         if fill_price <= 0:
             _dbg(f"reject: no price available (bid={bid}, ask={ask}, mid={mid}, provided={provided})")
             return None
@@ -276,13 +313,18 @@ class PaperExecutor:
                 _dbg(f"reject: {sym} exposure {cur_sym+addl:.8f} > limit {self._max_per_symbol_usd}")
                 return None
 
-        # Snapshot avg for PnL calc if we are going to SELL (closing)
+        # ---------- Long-only guards for SELL ----------
         prev_avg_for_pnl = None
         if s_up == "SELL":
             async with self._lock:
-                prev = self._positions.get(sym)
-                if prev:
-                    prev_avg_for_pnl = prev.avg_price
+                prev = self._positions.get(sym) or MemPosition(symbol=sym)
+                if prev.qty <= 0:
+                    _dbg(f"reject SELL: no inventory for {sym}")
+                    return None
+                if qty_dec > prev.qty:
+                    _dbg(f"reject SELL: requested {qty_dec} > held {prev.qty} for {sym}")
+                    return None
+                prev_avg_for_pnl = prev.avg_price
 
         coid = await self._fill_and_persist(
             symbol=sym,
@@ -406,6 +448,7 @@ class PaperExecutor:
         prev_avg_for_pnl: Optional[Decimal] = None,
     ) -> str:
         ts_ms = _now_ms()
+        executed_at = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC for DB
         client_order_id = f"paper-{symbol}-{ts_ms}"
 
         # Snapshot previous avg/qty for accurate realized PnL (before memory update)
@@ -416,9 +459,10 @@ class PaperExecutor:
 
         await self._apply_memory_fill(symbol, side, fill_price, qty, ts_ms)
 
-        # Notify the PositionTracker (durable state) if present
+        # Notify durable tracker (does not break fills if fails)
         try:
             if self._tracker is not None:
+                ex = getattr(settings, "active_provider", None) or "PAPER"
                 self._tracker.on_fill(
                     symbol=symbol,
                     side=side,
@@ -426,9 +470,16 @@ class PaperExecutor:
                     price=fill_price,
                     ts_ms=ts_ms,
                     strategy_tag=strategy_tag,
+                    fee=Decimal("0"),
+                    fee_asset="USDT",
+                    client_order_id=client_order_id,
+                    exchange_order_id=None,
+                    trade_id=str(ts_ms),
+                    executed_at=executed_at,
+                    exchange=str(ex),
+                    account_id="paper",
                 )
         except Exception:
-            # tracker issues must not break paper fills
             pass
 
         if self._session_factory:
@@ -462,13 +513,13 @@ class PaperExecutor:
                     quote_qty=qty * fill_price,
                     fee=Decimal("0"),
                     fee_asset="USDT",
-                    liquidity=Liquidity.TAKER,
+                    liquidity=Liquidity.TAKER,  # симуляция немедленного исполнения
                     is_maker=False,
                     client_order_id=client_order_id,
                     exchange_order_id=None,
                     trade_id=str(ts_ms),
                     strategy_tag=strategy_tag,
-                    executed_at=None,
+                    executed_at=executed_at,
                 )
                 session.add(fill)
 
@@ -482,9 +533,11 @@ class PaperExecutor:
                         base, quote = _split_symbol(symbol)
                         ex = getattr(settings, "active_provider", None) or "PAPER"
                         acc = "paper"
+                        price_usd = Decimal("1") if _is_usd_quote(quote) else None
+
                         self._pnl.log_trade_realized(
                             session,
-                            ts=datetime.utcnow(),
+                            ts=executed_at,
                             exchange=str(ex),
                             account_id=acc,
                             symbol=symbol,
@@ -492,10 +545,22 @@ class PaperExecutor:
                             quote_asset=quote,
                             realized_asset=pnl_usd,
                             realized_usd=pnl_usd,
-                            price_usd=None,
+                            price_usd=price_usd,
                             ref_order_id=str(order.id),
                             ref_trade_id=str(ts_ms),
-                            meta={"mode": "paper", "client_order_id": client_order_id},
+                            meta={
+                                "meta_ver": 1,
+                                "mode": "paper",
+                                "side": side,
+                                "qty": float(qty),
+                                "price": float(fill_price),
+                                "fee": 0.0,
+                                "fee_asset": "USDT",
+                                "client_order_id": client_order_id,
+                                "exchange_order_id": None,
+                                "trade_id": str(ts_ms),
+                                "strategy_tag": strategy_tag,
+                            },
                             emit_sse=True,
                         )
 
