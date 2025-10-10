@@ -13,6 +13,7 @@ from sqlalchemy import (
     Index,
     func,
     text,
+    Boolean,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -45,6 +46,9 @@ class UIState(Base):
         server_default=text("1"),
     )
 
+    # Active flag (added to fix 'no attribute active' error)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -72,6 +76,7 @@ class UIState(Base):
             "layout": self.layout or {},
             "ui_prefs": self.ui_prefs or {},
             "revision": int(self.revision) if self.revision is not None else 0,
+            "active": self.active,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
@@ -81,4 +86,4 @@ class UIState(Base):
         self.revision = max(1, cur + inc)
 
     def __repr__(self) -> str:  # pragma: no cover
-        return f"<UIState ws={self.workspace_id} rev={self.revision} updated_at={self.updated_at}>"
+        return f"<UIState ws={self.workspace_id} rev={self.revision} active={self.active} updated_at={self.updated_at}>"

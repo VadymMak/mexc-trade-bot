@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import time
 import random
 from contextlib import suppress
-from typing import Any, Dict, List, Optional, Sequence, Tuple, AsyncGenerator, Set
+from typing import Any, Dict, List, Optional, Sequence, Tuple, AsyncGenerator, Set, Deque
+from collections import deque
+from dataclasses import dataclass, asdict
 
 import httpx
 
@@ -17,6 +20,30 @@ try:
     from app.config.constants import ABSORPTION_X_BPS as DEFAULT_ABS_BPS  # type: ignore
 except Exception:
     DEFAULT_ABS_BPS = 5.0  # safe default: ±5 bps
+
+# ----- ScanRow dataclass (temporary; move to scanner.py later) -----
+@dataclass
+class ScanRow:
+    symbol: str
+    bid: float = 0.0
+    ask: float = 0.0
+    mid: float = 0.0
+    spread_bps: float = 0.0
+    imbalance: float = 0.5
+    eff_spread_bps: float = 0.0
+    usdpm: float = 0.0
+    tpm: float = 0.0
+    vol_pattern: float = 0.0  # stability 0–100
+    atr_proxy: float = 0.0
+    depth_5bps: float = 0.0
+    depth_10bps: float = 0.0
+    liquidity_grade: str = "C"
+    dca_potential: float = 0.0
+    score: float = 0.0
+    last_update: int = 0
+
+    def as_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
 # ----- provider helpers -----
 def _provider() -> str:
@@ -97,6 +124,8 @@ except Exception:
         def __init__(self) -> None:
             self._lock = asyncio.Lock()
             self._quotes: Dict[str, Dict[str, Any]] = {}
+            self._trackers: Dict[str, ScanRow] = {}
+            self._price_buffers: Dict[str, Deque[float]] = {}
             self._subscribers: List[asyncio.Queue[Dict[str, Any]]] = []
 
         async def subscribe(self) -> asyncio.Queue[Dict[str, Any]]:
@@ -116,6 +145,19 @@ except Exception:
             for qq in subs:
                 with suppress(Exception):
                     qq.put_nowait(dict(evt))
+
+        def _recalc_score(self, row: ScanRow) -> None:
+            preset = getattr(settings, 'scan_preset', 'balanced')
+            spread_factor = 100 / max(row.spread_bps + 1, 1)
+            vol_factor = row.vol_pattern / 100
+            usd_factor = min(1.0, row.usdpm / 1000)
+            tpm_factor = min(row.tpm / 10, 1.0)
+            dca_factor = min(row.dca_potential / 10, 1.0)
+            if preset == 'scalper':
+                row.score = vol_factor * spread_factor * tpm_factor * 100
+            else:
+                row.score = vol_factor * spread_factor * dca_factor * usd_factor * 100
+            row.score = max(0, min(100, row.score))
 
         async def update_book_ticker(
             self,
@@ -143,7 +185,76 @@ except Exception:
                 if "asks" in prev:
                     evt["asks"] = prev["asks"]
                 self._quotes[sym] = evt
+
+                if sym not in self._trackers:
+                    self._trackers[sym] = ScanRow(symbol=sym)
+                row = self._trackers[sym]
+                row.bid = bid
+                row.ask = ask
+                row.mid = (bid + ask) * 0.5 if bid > 0 and ask > 0 else (bid or ask or 0.0)
+                row.spread_bps = ((ask - bid) / row.mid * 1e4) if row.mid > 0 and bid > 0 and ask > 0 else 0.0
+                row.imbalance = (bid_qty / (bid_qty + ask_qty)) if (bid_qty > 0 or ask_qty > 0) else 0.5
+                row.eff_spread_bps = row.spread_bps * (0.5 + abs(row.imbalance - 0.5))
+                row.last_update = ts
+
+                # Price buffer for vol_pattern proxy
+                if sym not in self._price_buffers:
+                    self._price_buffers[sym] = deque(maxlen=60)
+                self._price_buffers[sym].append(row.mid)
+
+                buffer = self._price_buffers[sym]
+                if len(buffer) >= 2:
+                    n = len(buffer)
+                    mean_p = sum(buffer) / n
+                    var = sum((x - mean_p) ** 2 for x in buffer) / n
+                    std_p = var ** 0.5
+                    rel_vol = (std_p / mean_p * 1e4) if mean_p > 0 else 0.0
+                    row.vol_pattern = max(0.0, min(100.0, 100 - rel_vol * 10))
+                    row.atr_proxy = max(buffer) - min(buffer)
+                else:
+                    row.vol_pattern = 100.0
+                    row.atr_proxy = 0.0
+
+                row.dca_potential = row.depth_5bps / max(row.usdpm, 1.0)
+                self._recalc_score(row)
+
             await self._broadcast(evt)
+
+            # SSE emit
+            if sym in self._trackers:
+                try:
+                    sse_pub = _get_sse_publisher()
+                    if sse_pub:
+                        await sse_pub.emit('scan_row_update', {'symbol': sym, **self._trackers[sym].as_dict()})
+                except Exception:
+                    pass
+
+        async def update_tape_metrics(
+            self,
+            symbol: str,
+            usdpm: float,
+            tpm: float,
+            ts_ms: Optional[int] = None,
+        ) -> None:
+            sym = (symbol or "").upper()
+            ts = ts_ms if ts_ms is not None else int(time.time() * 1000)
+            async with self._lock:
+                if sym not in self._trackers:
+                    return
+                row = self._trackers[sym]
+                row.usdpm = float(usdpm)
+                row.tpm = float(tpm)
+                row.last_update = ts
+                row.dca_potential = row.depth_5bps / max(row.usdpm, 1.0)
+                self._recalc_score(row)
+
+            # SSE emit
+            try:
+                sse_pub = _get_sse_publisher()
+                if sse_pub:
+                    await sse_pub.emit('scan_row_update', {'symbol': sym, **self._trackers[sym].as_dict()})
+            except Exception:
+                pass
 
         async def update_partial_depth(
             self,
@@ -174,7 +285,49 @@ except Exception:
                     entry["ask"], entry["askQty"] = nasks[0]
                 entry["ts_ms"] = int(ts)
                 self._quotes[sym] = entry
+
+                if sym in self._trackers:
+                    row = self._trackers[sym]
+                    mid = row.mid
+                    if mid <= 0 and "bid" in entry and "ask" in entry:
+                        mid = (entry["bid"] + entry["ask"]) * 0.5
+                        row.mid = mid
+
+                    for bps in [5, 10]:
+                        band = bps / 10000.0
+                        bid_floor = mid * (1.0 - band)
+                        ask_cap = mid * (1.0 + band)
+                        d_bid = sum(p * q for p, q in nbids if p >= bid_floor)
+                        d_ask = sum(p * q for p, q in nasks if p <= ask_cap)
+                        depth = d_bid + d_ask
+                        if bps == 5:
+                            row.depth_5bps = depth
+                        else:
+                            row.depth_10bps = depth
+
+                    # Liquidity grade
+                    if row.depth_5bps > 5000:
+                        row.liquidity_grade = "A"
+                    elif row.depth_5bps > 1000:
+                        row.liquidity_grade = "B"
+                    elif row.depth_5bps > 100:
+                        row.liquidity_grade = "C"
+                    else:
+                        row.liquidity_grade = "D"
+
+                    row.dca_potential = row.depth_5bps / max(row.usdpm, 1.0)
+                    self._recalc_score(row)
+
             await self._broadcast({"symbol": sym, **self._quotes[sym]})
+
+            # SSE emit
+            if sym in self._trackers:
+                try:
+                    sse_pub = _get_sse_publisher()
+                    if sse_pub:
+                        await sse_pub.emit('scan_row_update', {'symbol': sym, **self._trackers[sym].as_dict()})
+                except Exception:
+                    pass
 
         async def get_quote(self, symbol: str) -> Dict[str, Any]:
             async with self._lock:
@@ -192,8 +345,23 @@ except Exception:
                         sel.append(sym)
                 return [dict(v) for k, v in self._quotes.items() if k in sel]
 
+        # --- FIX: provide a sync reset (no 'async with' inside) ---
         def reset(self) -> None:
-            self._quotes.clear()
+            """
+            Synchronous reset used by provider-switch hooks.
+            We avoid 'async with' here to keep this callable from sync code.
+            Replacing the dict is atomic in CPython and good enough for our usage.
+            """
+            self._quotes = {}
+            self._trackers = {}
+            self._price_buffers = {}
+
+        # Optional async variant if you ever need a locked reset in async code
+        async def areset(self) -> None:
+            async with self._lock:
+                self._quotes.clear()
+                self._trackers.clear()
+                self._price_buffers.clear()
 
     book_tracker = _MiniBookTracker()  # type: ignore
 
@@ -214,6 +382,23 @@ except Exception:
         ts_ms: Optional[int],
     ) -> None:
         await book_tracker.update_partial_depth(symbol, bids, asks, ts_ms=ts_ms, keep_levels=10)
+
+    async def on_tape_metrics(
+        symbol: str,
+        usdpm: float,
+        tpm: float,
+        ts_ms: Optional[int] = None,
+    ) -> None:
+        await book_tracker.update_tape_metrics(symbol, usdpm, tpm, ts_ms=ts_ms)
+
+
+# SSE publisher helper
+def _get_sse_publisher():
+    try:
+        from app.services.sse_publisher import sse_publisher
+        return sse_publisher
+    except Exception:
+        return None
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -451,7 +636,7 @@ try:
         PROTO_AVAILABLE as _WS_PROTO_OK,
     )
 except Exception:
-    _WSClient = None
+    _WSClient = None  # type: ignore[assignment]
     _WS_PROTO_OK = False
 
 _REST_POLL_TASK: Optional[asyncio.Task[None]] = None
@@ -494,14 +679,12 @@ async def _fetch_depth_binance_mexc(client: httpx.AsyncClient, symbol: str, limi
         asks: List[Tuple[float, float]] = []
         for it in bids_raw:
             with suppress(Exception):
-                p = float(it[0])
-                q = float(it[1])
+                p = float(it[0]); q = float(it[1])
                 if p > 0 and q > 0:
                     bids.append((p, q))
         for it in asks_raw:
             with suppress(Exception):
-                p = float(it[0])
-                q = float(it[1])
+                p = float(it[0]); q = float(it[1])
                 if p > 0 and q > 0:
                     asks.append((p, q))
         ts_ms = int(time.time() * 1000)
@@ -540,14 +723,12 @@ async def _fetch_depth_gate(client: httpx.AsyncClient, symbol: str, limit: int =
         asks: List[Tuple[float, float]] = []
         for it in bids_raw:
             with suppress(Exception):
-                p = float(it[0])
-                q = float(it[1])
+                p = float(it[0]); q = float(it[1])
                 if p > 0 and q > 0:
                     bids.append((p, q))
         for it in asks_raw:
             with suppress(Exception):
-                p = float(it[0])
-                q = float(it[1])
+                p = float(it[0]); q = float(it[1])
                 if p > 0 and q > 0:
                     asks.append((p, q))
         ts_ms = int(time.time() * 1000)
@@ -756,13 +937,45 @@ async def ensure_symbols_subscribed(symbols: Sequence[str]) -> None:
 
 # ── reset hook for provider switching ────────────────────────────────────────
 def reset() -> None:
+    """Reset all trackers/caches for provider switch (hook from config_manager)."""
+    global _SUBSCRIBED, _WS_WANTED, _WS_RUNNING, _DEPTH_SUBSCRIBED
     _SUBSCRIBED.clear()
     _WS_WANTED.clear()
     _WS_RUNNING.clear()
     _DEPTH_SUBSCRIBED.clear()
+
+    # Try book_tracker.reset() (supports both sync and async)
     try:
         reset_fn = getattr(book_tracker, "reset", None)
         if callable(reset_fn):
-            reset_fn()
-    except Exception:
-        pass
+            res = reset_fn()
+            if inspect.isawaitable(res):  # if some impl provides async reset()
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    asyncio.run(res)  # no running loop (rare in FastAPI context)
+                else:
+                    loop.create_task(res)  # fire-and-forget
+            print("Book tracker reset() called.")
+            return
+    except Exception as e:
+        print(f"Book tracker reset failed: {e}")
+
+    # Fallback: try async variant name if provided
+    try:
+        areset_fn = getattr(book_tracker, "areset", None)
+        if callable(areset_fn):
+            coro = areset_fn()
+            if inspect.isawaitable(coro):
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    asyncio.run(coro)
+                else:
+                    loop.create_task(coro)
+            print("Book tracker areset() scheduled.")
+            return
+    except Exception as e:
+        print(f"Book tracker areset failed: {e}")
+
+    print("Reset completed with basic state clears.")

@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 # ───────────────────────── helpers ─────────────────────────
 
 def _is_demo_mode() -> bool:
+    """
+    Legacy fallback if GATE_WS_ENV is not set.
+    """
     try:
         m = getattr(settings, "active_mode", None) or getattr(settings, "account_mode", None) or "paper"
         return str(m).lower() in {"paper", "demo", "test", "testnet"}
@@ -34,21 +37,37 @@ def _is_demo_mode() -> bool:
 
 def _ws_base_url() -> str:
     """
-    Resolve Gate WS base with provider/mode awareness.
-    Prefers Settings.ws_base_url_resolved (new), then legacy fields, then constants.
-    """
-    # 1) Preferred: provider/mode–aware endpoint
-    try:
-        resolved = getattr(settings, "ws_base_url_resolved", None)
-        if resolved:
-            return resolved
-    except Exception:
-        pass
+    Resolve Gate WS base with per-exchange precedence:
 
-    # 2) Legacy Gate-specific fields
+    1) If settings.gate_ws_env in {LIVE, TESTNET} → choose the corresponding Gate base.
+    2) Else use Gate-specific bases with legacy demo/live detection.
+    3) As a final fallback, return well-known public endpoints.
+
+    NOTE: We intentionally IGNORE any global ws_base_url_resolved here so Gate can
+    run live/testnet independently of ACTIVE_MODE and other providers.
+    """
+    # 1) Explicit per-exchange env
+    env = (getattr(settings, "gate_ws_env", "") or "").strip().upper()
+    if env in {"LIVE", "PROD"}:
+        base = getattr(settings, "gate_ws_base", None)
+        if base:
+            logger.info(f"Gate WS selecting LIVE via GATE_WS_ENV → {base}")
+            return base
+        return "wss://api.gateio.ws/ws/v4/"
+    if env in {"TESTNET", "SANDBOX"}:
+        base = getattr(settings, "gate_testnet_ws_base", None)
+        if base:
+            logger.info(f"Gate WS selecting TESTNET via GATE_WS_ENV → {base}")
+            return base
+        # common testnet endpoint
+        return "wss://ws-testnet.gateio.ws/v4/ws/spot"
+
+    # 2) Legacy behavior: derive from active/demo mode
     if _is_demo_mode():
-        return getattr(settings, "gate_testnet_ws_base", None) or "wss://api-public.sandbox.gateio.ws/ws/v4/"
-    return getattr(settings, "gate_ws_base", None) or "wss://api.gateio.ws/ws/v4/"
+        base = getattr(settings, "gate_testnet_ws_base", None)
+        return base or "wss://ws-testnet.gateio.ws/v4/ws/spot"
+    base = getattr(settings, "gate_ws_base", None)
+    return base or "wss://api.gateio.ws/ws/v4/"
 
 
 def _to_gate_pair(sym: str) -> str:
@@ -61,6 +80,27 @@ def _to_gate_pair(sym: str) -> str:
     if len(s) > 4:
         return f"{s[:-4]}_{s[-4:]}"
     return s
+
+
+def _to_float(x: Any) -> float:
+    try:
+        return float(x)
+    except Exception:
+        return 0.0
+
+
+def _parse_levels(raw: Any) -> List[Tuple[float, float]]:
+    out: List[Tuple[float, float]] = []
+    if not isinstance(raw, list):
+        return out
+    for row in raw:
+        try:
+            p = float(row[0]); q = float(row[1])
+            if p > 0 and q > 0:
+                out.append((p, q))
+        except Exception:
+            continue
+    return out
 
 
 # ───────────────────────── client ─────────────────────────
@@ -303,29 +343,9 @@ class GateWebSocketClient:
         if not bids and not asks:
             return
 
-        ts_ms = int(time.time() * 1000)
+        ts_ms = int(result.get("t", 0)) or int(time.time() * 1000)
         with suppress(Exception):
             await on_partial_depth(sym, bids[: self.depth_limit], asks[: self.depth_limit], ts_ms=ts_ms)
 
 
-# ───────────────────────── utils ─────────────────────────
-
-def _to_float(x: Any) -> float:
-    try:
-        return float(x)
-    except Exception:
-        return 0.0
-
-
-def _parse_levels(raw: Any) -> List[Tuple[float, float]]:
-    out: List[Tuple[float, float]] = []
-    if not isinstance(raw, list):
-        return out
-    for row in raw:
-        try:
-            p = float(row[0]); q = float(row[1])
-            if p > 0 and q > 0:
-                out.append((p, q))
-        except Exception:
-            continue
-    return out
+__all__ = ["GateWebSocketClient"]

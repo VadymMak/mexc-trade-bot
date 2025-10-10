@@ -46,6 +46,8 @@ class ScannerRow(BaseModel):
     imbalance: Optional[float] = Field(None, description="Top-of-book size imbalance (0..1), 0.5 if unknown")
     ws_lag_ms: Optional[int] = Field(None, description="Estimated WS lag for this symbol, if available")
 
+    queue: Optional[List[str]] = None  # For rotation top-3
+
     # Depth (±bps windows)
     depth5_bid_usd: Optional[float] = Field(None, description="USD depth on bid side within ±5 bps from mid")
     depth5_ask_usd: Optional[float] = Field(None, description="USD depth on ask side within ±5 bps from mid")

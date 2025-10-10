@@ -1,21 +1,12 @@
-# app/market_data/mexc_http.py
+# app/market_data/mexc_http.py  # Файл переименован в mexc_http.py для соответствия ошибке (было mex_http.py? — используй mexc_http.py)
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple, Protocol
+from typing import Any, Dict, List, Optional, Tuple
 import time
+import httpx  # Добавлено: для HTTP-запросов (установи pip install httpx если нет)
 
 
-class HttpLike(Protocol):
-    """Минимальный интерфейс HTTP-клиента, который нам нужен здесь."""
-    def get_json(
-        self,
-        url: str,
-        params: Optional[Dict[str, Any]] = ...
-    ) -> Dict[str, Any]:
-        ...
-
-
-class MexcHTTP:
+class MexcHttp:
     """
     Лёгкая HTTP-обёртка для MEXC Spot V3 (публичные эндпоинты), без авторизации.
     Базовые вызовы:
@@ -27,9 +18,17 @@ class MexcHTTP:
     Комиссии:
       - По умолчанию считаем maker_fee = 0.0, taker_fee = 0.0005 (0.05%) для spot.
       - Если в exchangeInfo появятся per-symbol fee-поля/filters — парсер заполнит override.
+
+    Исправления:
+      - Класс переименован в MexcHttp для точного соответствия ожидаемому импорту ('MexcHttp').
+      - Самостоятельный httpx.Client (без внешнего HttpLike).
+      - __init__ принимает base_url для гибкости.
+      - Добавлена обработка ошибок в запросах.
+      - Добавлен метод close() для cleanup.
+      - Файл: используй имя 'mexc_http.py' (как в ошибке).
     """
 
-    BASE_URL = "https://api.mexc.com"
+    # API_VERSION = "/api/v3"  # Вынесено в пути
     EXCHANGE_INFO = "/api/v3/exchangeInfo"
     BOOK_TICKER = "/api/v3/ticker/bookTicker"
     DEPTH = "/api/v3/depth"
@@ -39,9 +38,10 @@ class MexcHTTP:
     DEFAULT_MAKER_FEE = 0.0       # 0%
     DEFAULT_TAKER_FEE = 0.0005    # 0.05%
 
-    def __init__(self, http: HttpLike, *, ttl_sec: int = 30) -> None:
-        self._http = http
+    def __init__(self, base_url: str = "https://api.mexc.com", *, ttl_sec: int = 30) -> None:
+        self.base_url = base_url.rstrip('/')
         self._ttl_sec = ttl_sec
+        self._client = httpx.Client(timeout=10.0, follow_redirects=True)
         self._cache_exch: Dict[str, Any] = {}
         self._cache_exch_ts: float = 0.0
         # fee override per symbol: {"BTCUSDT": (maker, taker)}
@@ -52,9 +52,23 @@ class MexcHTTP:
     def _now(self) -> float:
         return time.time()
 
+    def _make_request(self, method: str, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Внутренний метод для GET-запросов с обработкой ошибок."""
+        url = f"{self.base_url}{path}"
+        try:
+            response = self._client.request(method, url, params=params)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            raise Exception(f"MEXC HTTP {e.response.status_code}: {e.response.text}")
+        except httpx.RequestError as e:
+            raise Exception(f"MEXC request failed: {e}")
+        except Exception as e:
+            raise Exception(f"Unexpected error in MEXC request: {e}")
+
     def _cached_exchange_info(self) -> Dict[str, Any]:
         if not self._cache_exch or (self._now() - self._cache_exch_ts) > self._ttl_sec:
-            data = self._http.get_json(self.BASE_URL + self.EXCHANGE_INFO)
+            data = self._make_request('GET', self.EXCHANGE_INFO)
             self._parse_fees_from_exchange_info(data)
             self._cache_exch = data
             self._cache_exch_ts = self._now()
@@ -123,6 +137,10 @@ class MexcHTTP:
         zero = (maker == 0.0)
         return maker, taker, zero
 
+    def close(self) -> None:
+        """Закрывает HTTP-клиент."""
+        self._client.close()
+
     # ---------- ПУБЛИЧНЫЕ МЕТОДЫ ----------
 
     def fetch_symbols(self) -> List[Dict[str, Any]]:
@@ -163,7 +181,7 @@ class MexcHTTP:
         Возвращает bid/ask/last (last фоллбэк — среднее bid/ask).
         """
         params = {"symbol": symbol.upper()}
-        data = self._http.get_json(self.BASE_URL + self.BOOK_TICKER, params=params)
+        data = self._make_request('GET', self.BOOK_TICKER, params=params)
 
         bid = float(data.get("bidPrice", 0.0))
         ask = float(data.get("askPrice", 0.0))
@@ -194,7 +212,7 @@ class MexcHTTP:
         Возвращает bids/asks: [[price, qty], ...]
         """
         params = {"symbol": symbol.upper(), "limit": limit}
-        data = self._http.get_json(self.BASE_URL + self.DEPTH, params=params)
+        data = self._make_request('GET', self.DEPTH, params=params)
 
         bids = data.get("bids") or []
         asks = data.get("asks") or []
@@ -218,7 +236,7 @@ class MexcHTTP:
         Последние сделки. Нормализованный список: [{price, qty, isBuyerMaker, ts}, ...]
         """
         params = {"symbol": symbol.upper(), "limit": limit}
-        data = self._http.get_json(self.BASE_URL + self.TRADES, params=params)
+        data = self._make_request('GET', self.TRADES, params=params)
         out: List[Dict[str, Any]] = []
 
         for t in data:

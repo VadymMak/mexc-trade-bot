@@ -18,6 +18,54 @@ try:
 except Exception:
     _idem = None
 
+# --- in-memory idempotency fallback (used only if StrategyService is unavailable) ---
+if _idem is None:
+    import time
+    import asyncio
+    from typing import Tuple
+
+    class _MemIdem:
+        """
+        Minimal in-memory idempotency cache.
+        Stores the full action result for a given idempotency key for a short time window.
+        """
+        def __init__(self, ttl_seconds: int = 60) -> None:
+            self.ttl = max(0, int(getattr(settings, "idempotency_window_sec", ttl_seconds) or ttl_seconds))
+            self._store: dict[str, Tuple[float, dict]] = {}
+            self._lock = asyncio.Lock()
+
+        async def execute_idempotent(
+            self,
+            op: str,  # kept for parity with StrategyService; not used here
+            key: str,
+            payload: dict,  # kept for parity; not used here
+            action: Callable[[], Awaitable[dict]],
+        ) -> dict:
+            # If disabled or no key, just run the action
+            if not self.ttl or not key:
+                res = await action()
+                res.setdefault("idempotent", False)
+                return res
+
+            now = time.monotonic()
+            async with self._lock:
+                hit = self._store.get(key)
+                if hit and hit[0] > now:
+                    cached = dict(hit[1])
+                    cached["idempotent"] = True
+                    return cached
+
+            # Execute & cache
+            res = await action()
+            res = dict(res)
+            res.setdefault("idempotent", False)
+
+            async with self._lock:
+                self._store[key] = (now + self.ttl, res)
+            return res
+
+    _idem = _MemIdem(ttl_seconds=60)
+
 router = APIRouter(prefix="/api/exec", tags=["execution"])
 
 
@@ -29,6 +77,7 @@ def _parse_float(v: Any, default: float = 0.0) -> float:
         return float(v)
     except Exception:
         return default
+
 
 async def _idempotent(
     op_name: str,

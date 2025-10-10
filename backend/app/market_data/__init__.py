@@ -12,9 +12,9 @@ except Exception:
     MEXCWebSocketClient = None  # type: ignore[misc,assignment]
 
 try:
-    from app.market_data.http_client import MexcHTTPClient  # если есть свой REST клиент
+    from .mexc_http import MexcHttp  # Стандартизировано: класс MexcHttp для соответствия ожидаемому импорту
 except Exception:
-    MexcHTTPClient = None  # type: ignore[misc,assignment]
+    MexcHttp = None  # type: ignore[misc,assignment]
 
 # Заглушки под Binance (этап 1)
 from .binance_ws_stub import BinanceWSClient
@@ -40,14 +40,14 @@ def make_http_client() -> Optional[Any]:
     """
     Возвращает REST-клиент маркет-даты под провайдера.
     Этап 1:
-      - MEXC -> если есть MexcHTTPClient, вернём его; иначе None (используется прямой httpx в сервисах)
+      - MEXC -> если есть MexcHttp, вернём его; иначе None (используется прямой httpx в сервисах)
       - BINANCE -> заглушка, держащая base_url на testnet
     """
     if settings.is_mexc:
-        if MexcHTTPClient is None:
+        if MexcHttp is None:
             return None
-        return MexcHTTPClient(
-            base_url=getattr(settings, "rest_base_url", "https://api.mexc.com/api/v3")
+        return MexcHttp(
+            base_url=getattr(settings, "rest_base_url", "https://api.mexc.com")
         )
     # BINANCE DEMO
     return BinanceHTTPClient(

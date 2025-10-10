@@ -1,3 +1,4 @@
+# tests/test_smoke_backend.py
 import os
 import json
 import time
@@ -7,6 +8,15 @@ import contextlib
 import httpx
 import pytest
 
+# ───────────────────────── Opt-in switch ─────────────────────────
+# These tests hit a live server. Skip the whole module unless explicitly enabled.
+RUN_BACKEND_SMOKE = os.getenv("RUN_BACKEND_SMOKE") == "1"
+pytestmark = pytest.mark.skipif(
+    not RUN_BACKEND_SMOKE,
+    reason="Backend smoke tests are disabled. Set RUN_BACKEND_SMOKE=1 to enable."
+)
+
+# ───────────────────────── Config ─────────────────────────
 BASE_URL = os.getenv("BOT_BASE_URL", "http://127.0.0.1:8000")
 SSE_SYMBOLS = os.getenv("BOT_SSE_SYMBOLS", "BTCUSDT,ETHUSDT")
 SSE_TIMEOUT_SEC = float(os.getenv("BOT_SSE_TIMEOUT", "10"))  # how long we wait for first SSE batch

@@ -1,3 +1,4 @@
+# app/scoring/tiering.py
 from __future__ import annotations
 
 from typing import List, Tuple, Optional
@@ -194,5 +195,8 @@ def snapshot_from_metrics(
         tier=tier,
         reasons=reasons,
         stale=("score_penalty_stale" in reasons),
-        fees=(fees or FeeInfo()),  # ensure schema-valid FeeInfo
+        fees=(fees or FeeInfo()),
     )
+
+
+__all__ = ["score_metrics", "snapshot_from_metrics"]

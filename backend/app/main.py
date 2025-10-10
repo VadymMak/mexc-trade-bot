@@ -1,4 +1,4 @@
-# app/main.py
+# app/main.py (полный файл с фиксом)
 from __future__ import annotations
 
 import asyncio
@@ -9,6 +9,7 @@ from typing import Any, Sequence, cast, Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
+from sqlalchemy.orm import Session
 
 # Prometheus (optional)
 try:
@@ -24,20 +25,21 @@ from app.config.settings import settings
 from app.api import routes as api_routes
 from app.services.book_tracker import on_book_ticker
 from app.services.config_manager import config_manager
+from app.db.session import SessionLocal  # Добавили для DB session в lifespan
+from app.db.engine import engine, apply_migrations  # Добавили apply_migrations
 
 # Ensure DB schema exists on startup (dev convenience; Alembic in prod)
-from app.db.engine import engine
 from app.models.base import Base
 
 # IMPORTANT: import ALL models before create_all so tables are known
-import app.models.ui_state           # noqa: F401
-import app.models.strategy_state     # noqa: F401
-import app.models.orders             # noqa: F401
-import app.models.positions          # noqa: F401
-import app.models.fills              # noqa: F401
-import app.models.sessions           # noqa: F401
-import app.models.pnl_ledger         # noqa: F401
-import app.models.pnl_daily          # noqa: F401
+from app.models.ui_state import UIState      # noqa: F401  # Explicit class import to match expectations
+import app.models.strategy_state            # noqa: F401
+import app.models.orders                    # noqa: F401
+import app.models.positions                 # noqa: F401
+import app.models.fills                     # noqa: F401
+import app.models.sessions                  # noqa: F401
+import app.models.pnl_ledger                # noqa: F401
+import app.models.pnl_daily                 # noqa: F401
 
 APP_VERSION = "0.1.0"
 logger = logging.getLogger("app.main")
@@ -94,6 +96,7 @@ async def lifespan(app: FastAPI):
         url_repr = str(getattr(engine.url, "render_as_string", lambda **_: engine.url)(hide_password=True))  # type: ignore[arg-type]
         print(f"🗄️  Using database: {url_repr}")
         Base.metadata.create_all(bind=engine)
+        apply_migrations(engine)  # Добавили: применяем миграции после create_all
         insp = inspect(engine)
         tables = sorted(insp.get_table_names())
         print(f"📦 DB schema ensured (create_all). Tables: {tables}")
@@ -107,17 +110,20 @@ async def lifespan(app: FastAPI):
     app.state.ws_task = cast(Optional[asyncio.Task], None)
     app.state.ps_poller = cast(Optional[Any], None)
 
-    symbols = getattr(settings, "symbols", []) or []
+    # Resolved provider/mode + REST base (initial)
+    initial_provider = str(getattr(settings, "active_provider", getattr(settings, "exchange_provider", "MEXC"))).lower()
+    initial_mode = str(getattr(settings, "active_mode", getattr(settings, "account_mode", "DEMO"))).upper()
+    rest_base = getattr(settings, "rest_base_url_resolved", getattr(settings, "rest_base_url", ""))
+
+    # Normalize symbols
+    symbols_raw = getattr(settings, "symbols", []) or []
+    symbols = [s.strip().replace(' ', '') for s in symbols_raw]  # Normalize (fix 'B TCUSDT' -> 'BTCUSDT')
+    symbols = [s for s in symbols if s]  # Remove empty
     enable_ws = getattr(settings, "enable_ws", False)
     enable_ps = getattr(settings, "enable_ps_poller", True)
 
-    # Resolved provider/mode + REST base (initial)
-    initial_provider = str(getattr(settings, "active_provider", getattr(settings, "exchange_provider", "MEXC"))).upper()
-    initial_mode = str(getattr(settings, "active_mode", getattr(settings, "account_mode", "PAPER"))).upper()
-    rest_base = getattr(settings, "rest_base_url_resolved", getattr(settings, "rest_base_url", ""))
-
     print(
-        f"🧭 Startup config: PROVIDER={initial_provider} | MODE={initial_mode} | ENABLE_WS={enable_ws} | "
+        f"🧭 Startup config: PROVIDER={initial_provider.upper()} | MODE={initial_mode} | ENABLE_WS={enable_ws} | "
         f"ENABLE_PS_POLLER={enable_ps} | symbols={symbols} | REST_BASE={rest_base}"
     )
 
@@ -181,7 +187,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Book tracker reset failed: {e}")
 
     async def _hook_start_streams(provider: str, mode: str) -> bool:
-        prov = (provider or "").strip().upper()
+        prov = (provider or "").strip().lower()  # Match config_manager (lowercase)
         ws_enabled_flag = False
 
         # Always try (re)subscription via service layer
@@ -192,7 +198,7 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"ensure_symbols_subscribed failed: {e}")
 
         # MEXC WS
-        if prov == "MEXC" and enable_ws and _symbols_ok(symbols):
+        if prov == "mexc" and enable_ws and _symbols_ok(symbols):
             try:
                 from app.market_data.ws_client import MEXCWebSocketClient
                 app.state.ws_client = MEXCWebSocketClient([s for s in symbols if str(s).strip()])
@@ -205,7 +211,7 @@ async def lifespan(app: FastAPI):
                 app.state.ws_task = None
 
         # GATE WS
-        if prov == "GATE" and enable_ws and _symbols_ok(symbols) and app.state.ws_client is None:
+        if prov == "gate" and enable_ws and _symbols_ok(symbols) and app.state.ws_client is None:
             try:
                 from app.market_data.gate_ws import GateWebSocketClient
                 app.state.ws_client = GateWebSocketClient(
@@ -222,13 +228,13 @@ async def lifespan(app: FastAPI):
                 app.state.ws_client = None
                 app.state.ws_task = None
 
-        # (Optional) BINANCE WS placeholder — wire in when client is ready
-        # if prov == "BINANCE" and enable_ws and _symbols_ok(symbols) and app.state.ws_client is None:
+        # (Optional) BINANCE WS placeholder — wire in when ready
+        # if prov == "binance" and enable_ws and _symbols_ok(symbols) and app.state.ws_client is None:
         #     from app.market_data.binance_ws import BinanceWebSocketClient
         #     ...
 
         # PS poller (fallback)
-        if app.state.ws_client is None and getattr(settings, "enable_ps_poller", True):
+        if app.state.ws_client is None and enable_ps:
             try:
                 from app.market_data.http_client_ps import PSMarketPoller
                 app.state.ps_poller = PSMarketPoller(
@@ -254,12 +260,15 @@ async def lifespan(app: FastAPI):
     )
 
     # Initialize ConfigManager state and start initial streams
-    config_manager._state.active = initial_provider  # type: ignore[attr-defined]
+    config_manager._state.active = initial_provider  # type: ignore[attr-defined]  # Установили из settings
     config_manager._state.mode = initial_mode        # type: ignore[attr-defined]
+    db_session = SessionLocal()  # Создаём session для init
     try:
-        await config_manager.init_on_startup()
+        await config_manager.init_on_startup(db=db_session)
     except Exception as e:
         logger.error(f"ConfigManager init_on_startup failed: {e}")
+    finally:
+        db_session.close()
 
     print("🚀 Application startup complete (managed by ConfigManager).")
     try:

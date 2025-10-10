@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import os
 from dataclasses import dataclass, asdict
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
@@ -49,24 +50,24 @@ class ConfigManager:
     """
 
     # How long we remember idempotency decisions (seconds)
-    _IDEMPOTENCY_TTL = 5 * 60
+    _IDEMPOTENCY_TTL = int(os.getenv("IDEMPOTENCY_WINDOW_SEC", "300"))  # Из .env, default 5min
 
     def __init__(
         self,
-        initial_provider: Provider = "gate",
-        initial_mode: Mode = "PAPER",
+        initial_provider: Provider = os.getenv("ACTIVE_PROVIDER", "mexc").lower(),  # Из .env
+        initial_mode: Mode = os.getenv("ACTIVE_MODE", "DEMO").upper(),  # Из .env
         available_providers: Optional[List[Provider]] = None,
     ) -> None:
         self._lock = asyncio.Lock()
         self._ready = asyncio.Event()
 
-        self._available = available_providers or ["gate", "mexc", "binance"]
+        self._available = available_providers or ["gate", "mexc", "binance"]  # Lowercase для consistency с enum
         self._state = ConfigState(
             active=initial_provider,
             mode=initial_mode,
             available=self._available,
             ws_enabled=False,
-            revision=1,
+            revision=int(os.getenv("UI_REVISION_SEED", "1")),  # Из .env
         )
 
         # Hooks (to be wired in main.py)
@@ -77,6 +78,10 @@ class ConfigManager:
 
         # Idempotency memory: key -> (timestamp, state_dict)
         self._idem_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+
+        # Clients (reload on switch)
+        self._private_client: Optional[Any] = None  # ccxt или custom
+        self._public_client: Optional[Any] = None   # Для REST/WS public
 
     # ─────────────────────────── Wiring / Hooks ────────────────────────────
 
@@ -96,9 +101,10 @@ class ConfigManager:
 
     # ─────────────────────────── Initialization ────────────────────────────
 
-    async def init_on_startup(self) -> None:
+    async def init_on_startup(self, db: Any = None) -> None:  # Добавили db для load state из DB
         """
         Called once from app lifespan. Starts streams for the initial provider/mode.
+        Loads persisted state from DB if provided.
         """
         if not all(
             [
@@ -112,6 +118,15 @@ class ConfigManager:
                 "ConfigManager hooks are not fully wired. Call set_hooks(...) before init_on_startup()."
             )
 
+        # Load persisted state from DB (если есть)
+        if db:
+            try:
+                persisted = self._load_from_db(db)  # Реализуй ниже или в отдельном методе
+                self._state = ConfigState(**persisted)
+                logger.info("ConfigManager: loaded persisted state from DB: %s", self._state.active)
+            except Exception:
+                logger.warning("ConfigManager: failed to load persisted state (using initial)")
+
         async with self._lock:
             logger.info(
                 "ConfigManager: initializing — provider=%s, mode=%s",
@@ -124,6 +139,9 @@ class ConfigManager:
             except Exception:
                 logger.exception("ConfigManager: reset_book_tracker on startup failed (continuing).")
 
+            # Reload clients для initial (сегрегация)
+            self._reload_clients(self._state.active, self._state.mode)
+
             # Start streams for initial provider/mode
             ws_enabled = await self._hook_start_streams(self._state.active, self._state.mode)
             self._state.ws_enabled = bool(ws_enabled)
@@ -133,6 +151,10 @@ class ConfigManager:
                 self._state.ws_enabled,
                 self._state.revision,
             )
+
+            # Save to DB
+            if db:
+                self._save_to_db(db)
 
     # ───────────────────────────── Public API ──────────────────────────────
 
@@ -160,6 +182,7 @@ class ConfigManager:
         provider: Provider,
         mode: Mode,
         idempotency_key: Optional[str] = None,
+        db: Optional[Any] = None,  # Добавили db для persist
     ) -> Dict[str, Any]:
         """
         Safely switch provider/mode:
@@ -194,6 +217,8 @@ class ConfigManager:
                 state = self._state.to_dict()
                 if idempotency_key:
                     self._idem_cache[idempotency_key] = (time.time(), state)
+                if db:
+                    self._save_to_db(db)
                 return dict(state)
 
             logger.info(
@@ -233,6 +258,9 @@ class ConfigManager:
             self._state.active = provider
             self._state.mode = mode
 
+            # Reload clients (сегрегация: private/public по provider/mode)
+            self._reload_clients(provider, mode)
+
             # 4) Start streams for new provider/mode
             ws_enabled = False
             try:
@@ -259,6 +287,10 @@ class ConfigManager:
             # Periodically prune cache
             self._prune_idem_cache()
 
+            # Persist to DB
+            if db:
+                self._save_to_db(db)
+
             return dict(state)
 
     # ───────────────────────────── Internals ───────────────────────────────
@@ -268,6 +300,94 @@ class ConfigManager:
         stale_keys = [k for k, (ts, _) in self._idem_cache.items() if now - ts > self._IDEMPOTENCY_TTL]
         for k in stale_keys:
             self._idem_cache.pop(k, None)
+
+    def _reload_clients(self, provider: Provider, mode: Mode) -> None:
+        """Reload private/public clients based on provider/mode (sandbox/mocks)."""
+        try:
+            from app.services.exchange_private import get_private_client  # Импорт здесь, чтобы избежать circular
+
+            sandbox = (mode == "DEMO")
+            mock_mode = (mode == "PAPER")
+
+            self._private_client = get_private_client(provider, sandbox=sandbox, mock=mock_mode)
+
+            # Public client: custom HTTP clients (no ccxt; use project stubs)
+            self._public_client = None
+            try:
+                if provider == "mexc":
+                    from app.market_data.mexc_http import MexcHttp  # Изменено: предполагаемый класс/функция; поделись файлом для точности
+                    # MEXC public has no separate sandbox URL — always main
+                    self._public_client = MexcHttp(base_url="https://api.mexc.com")
+                elif provider == "gate":
+                    from app.market_data.http_client import GateHttpClient  # Assume exists
+                    sandbox_url = "https://api.gateio.dtfund.cn" if sandbox else "https://api.gateio.ws"
+                    self._public_client = GateHttpClient(base_url=sandbox_url)
+                elif provider == "binance":
+                    from app.market_data.binance_http_stub import BinanceHttpStub  # Stub if not full
+                    sandbox_url = "https://testnet.binance.vision" if sandbox else "https://api.binance.com"
+                    self._public_client = BinanceHttpStub(base_url=sandbox_url)
+                logger.debug("ConfigManager: loaded public client for %s", provider)
+            except ImportError as e:
+                logger.warning("Public client import failed (e.g., %s) — stubbed as None", e)
+                self._public_client = None
+            except Exception as e:
+                logger.error("Failed to init public client: %s", e)
+                self._public_client = None
+
+            logger.info("ConfigManager: reloaded clients for %s/%s", provider, mode)
+        except Exception as e:
+            logger.exception("ConfigManager: client reload failed: %s", e)
+            self._private_client = None
+            self._public_client = None
+
+    def _load_from_db(self, db: Any) -> Dict[str, Any]:
+        """Load persisted state from DB (e.g., ui_state table)."""
+        try:
+            from app.models.ui_state import UIState
+            ui = db.query(UIState).first()
+            if ui:
+                prefs = ui.ui_prefs or {}
+                if not isinstance(prefs, dict):
+                    prefs = {}  # Fallback if not dict
+                active = prefs.get("provider", ui.active or "mexc")  # Use model field if prefs empty
+                mode = prefs.get("mode", "DEMO")
+                ws_enabled = prefs.get("ws_enabled", False)
+                return {
+                    "active": active,
+                    "mode": mode,
+                    "ws_enabled": ws_enabled,
+                    "revision": ui.revision
+                }
+            return self._state.to_dict()  # Fallback to initial
+        except Exception as e:
+            logger.warning("Failed to load from DB: %s", e)
+            return self._state.to_dict()
+
+    def _save_to_db(self, db: Any) -> None:
+        """Save state to DB (e.g., update ui_state.revision/active/mode)."""
+        try:
+            from app.models.ui_state import UIState
+            ui = db.query(UIState).first()
+            if not ui:
+                ui = UIState(active=False)  # Create with default active
+                db.add(ui)
+            prefs = ui.ui_prefs or {}
+            if not isinstance(prefs, dict):
+                prefs = {}
+            prefs.update({
+                "provider": self._state.active,
+                "mode": self._state.mode,
+                "ws_enabled": self._state.ws_enabled
+            })
+            ui.ui_prefs = prefs
+            ui.active = True  # Set active=True for current state
+            ui.revision = self._state.revision
+            ui.bump_revision()  # Use model method
+            db.commit()
+            logger.debug("Saved state to DB: %s", self._state.active)
+        except Exception as e:
+            logger.error("Failed to save to DB: %s", e)
+            # Не raise, чтобы не ломать switch
 
 
 # Module-level singleton (import this from other modules)

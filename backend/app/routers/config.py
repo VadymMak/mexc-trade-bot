@@ -4,10 +4,11 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 
 from app.services.config_manager import config_manager
+from app.db.session import get_db  # Добавили для persistence revision/state в DB (если нужно)
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +17,16 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 
 # ──────────────────────────── Schemas ────────────────────────────
 class ProviderState(BaseModel):
-    active: str = Field(..., description="Current provider: gate | mexc | binance")
-    mode: str = Field(..., description="Mode: PAPER | DEMO | LIVE")
-    available: list[str] = Field(..., description="List of available providers")
+    active: str = Field(..., description="Current provider: gate | mexc | binance", enum=["gate", "mexc", "binance"])
+    mode: str = Field(..., description="Mode: PAPER | DEMO | LIVE", enum=["PAPER", "DEMO", "LIVE"])
+    available: list[str] = Field(default_factory=lambda: ["gate", "mexc", "binance"], description="List of available providers")
     ws_enabled: bool = Field(..., description="Whether WS is enabled for the active provider")
     revision: int = Field(..., description="Incremented each successful switch")
 
 
 class ProviderSwitchIn(BaseModel):
-    provider: str = Field(..., description="Target provider: gate | mexc | binance")
-    mode: str = Field(..., description="Target mode: PAPER | DEMO | LIVE")
+    provider: str = Field(..., description="Target provider: gate | mexc | binance", enum=["gate", "mexc", "binance"])
+    mode: str = Field(..., description="Target mode: PAPER | DEMO | LIVE", enum=["PAPER", "DEMO", "LIVE"])
 
 
 # ─────────────────────────── Debug endpoint ───────────────────────
@@ -57,6 +58,7 @@ async def get_provider_config() -> ProviderState:
 async def switch_provider_config(
     payload: ProviderSwitchIn,
     x_idempotency_key: Optional[str] = Header(default=None, convert_underscores=True, alias="X-Idempotency-Key"),
+    db = Depends(get_db)  # Добавили для DB persistence (revision/ui_state)
 ) -> ProviderState:
     """
     Safely switches provider/mode:
@@ -66,17 +68,20 @@ async def switch_provider_config(
       4) start streams for new provider/mode
       5) bump revision
 
-    Idempotent when X-Idempotency-Key is provided.
+    Idempotent when X-Idempotency-Key is provided (checks recent switches within window).
+    Without key: full switch always executed (non-idempotent).
     """
     try:
-        # Normalize here; ConfigManager may also validate
+        # Нормализация (уже в pydantic enum, но strip для safety)
         provider = payload.provider.strip().lower()
         mode = payload.mode.strip().upper()
 
+        # Передаём db в manager для persist
         state = await config_manager.switch(
             provider=provider,
             mode=mode,
             idempotency_key=x_idempotency_key,
+            db=db
         )
         return ProviderState(**state)
     except ValueError as ve:
