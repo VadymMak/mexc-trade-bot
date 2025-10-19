@@ -6,6 +6,10 @@ from pydantic import Field, AliasChoices
 
 
 def _normalize_cors(v: Any) -> list[str]:
+    """
+    Accepts list/tuple, CSV string, or JSON-ish list string.
+    Returns a clean list; preserves a single '*' if provided.
+    """
     if v is None:
         return []
     if isinstance(v, (list, tuple)):
@@ -16,6 +20,7 @@ def _normalize_cors(v: Any) -> list[str]:
             return []
         if s == "*":
             return ["*"]
+        # strip brackets for JSON-ish strings
         if s.startswith("[") and s.endswith("]"):
             s = s[1:-1]
         return [p.strip() for p in s.split(",") if p.strip()]
@@ -23,17 +28,50 @@ def _normalize_cors(v: Any) -> list[str]:
     return [s] if s else []
 
 
+def _coalesce_symbol(raw: str) -> str:
+    """
+    Normalize symbols like ' BTC USDT ' → 'BTCUSDT', 'eth/usdt' → 'ETHUSDT'.
+    Removes spaces and separators, then uppercases.
+    """
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    for sep in (" ", "/", "-", "_"):
+        s = s.replace(sep, "")
+    return s.upper()
+
+
 def _csv_split(s: str | None) -> list[str]:
+    """
+    Split CSV or JSON-ish list string to a clean list of symbols.
+    Trims whitespace and ignores empties.
+    """
     if not s:
         return []
-    return [x.strip() for x in s.split(",") if x.strip()]
+    ss = s.strip()
+    if ss.startswith("[") and ss.endswith("]"):
+        ss = ss[1:-1]
+    parts = [x.strip() for x in ss.split(",") if x.strip()]
+    return parts
+
+
+def _unique_preserve(seq: list[str]) -> list[str]:
+    """De-duplicate while preserving order."""
+    seen = set()
+    out = []
+    for x in seq:
+        if x and x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
 
 
 class Settings(BaseSettings):
     """
     Unified settings:
-    - Keeps your aliases & provider/mode resolution.
-    - Adds micro-scalp thresholds (ATR/spread/depth/ratio-gate), exec/risk, health, and sanity helpers.
+    - Provider/mode resolution
+    - WS/REST tunables for resiliency (rate suffix, subscribe throttle, lifecycle, timeouts, retries)
+    - Scanner & strategy thresholds
     """
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -105,7 +143,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("MEXC_REST_BASE", "mexc_rest_base"),
         description="MEXC REST base (Spot v3)",
     )
-    # NEW: used by candles_cache in demo mode; defaults to prod if unset
     mexc_testnet_rest_base: str = Field(
         default=os.getenv("MEXC_TESTNET_REST_BASE", os.getenv("MEXC_REST_BASE", "https://api.mexc.com")),
         validation_alias=AliasChoices("MEXC_TESTNET_REST_BASE", "mexc_testnet_rest_base"),
@@ -150,6 +187,24 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GATE_WS_BASE", "gate_ws_base"),
     )
 
+    gate_maker_fee: float | None = Field(
+        default=(lambda v=os.getenv("GATE_MAKER_FEE"): float(v) if v not in (None, "") else None)(),
+        validation_alias=AliasChoices("GATE_MAKER_FEE", "gate_maker_fee"),
+        description="Optional hard override for Gate maker fee (fraction, e.g. 0.0002)",
+    )
+
+    gate_taker_fee: float | None = Field(
+        default=(lambda v=os.getenv("GATE_TAKER_FEE"): float(v) if v not in (None, "") else None)(),
+        validation_alias=AliasChoices("GATE_TAKER_FEE", "gate_taker_fee"),
+        description="Optional hard override for Gate taker fee (fraction, e.g. 0.0006)",
+    )
+
+    gate_zero_fee: bool | None = Field(
+        default=(os.getenv("GATE_ZERO_FEE", "").lower() in {"1","true","yes","on"}) if os.getenv("GATE_ZERO_FEE") else None,
+        validation_alias=AliasChoices("GATE_ZERO_FEE", "gate_zero_fee"),
+        description="Optional hard override to force 'zero_fee' flag",
+    )
+
     # ---------- Gate explicit WS env switch ----------
     gate_ws_env: str = Field(
         default=os.getenv("GATE_WS_ENV", ""),
@@ -161,7 +216,7 @@ class Settings(BaseSettings):
     gate_testnet_api_key: str | None = Field(default=os.getenv("GATE_TESTNET_API_KEY"))
     gate_testnet_api_secret: str | None = Field(default=os.getenv("GATE_TESTNET_API_SECRET"))
     gate_testnet_rest_base: str = Field(
-        default=os.getenv("GATE_TESTNET_REST_BASE", "https://api-testnet.gateapi.io/api/v4"),
+        default=os.getenv("GATE_TESTNET_REST_BASE", "https://api.gateio.ws/api/v4"),  
         validation_alias=AliasChoices("GATE_TESTNET_REST_BASE", "gate_testnet_rest_base"),
         description="Gate testnet REST (api-testnet.gateapi.io)",
     )
@@ -198,7 +253,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CORS_ORIGINS_CSV", "cors_origins_csv"),
     )
 
-    # ========== HTTP/WS (legacy MEXC) ==========
+    # ========== HTTP/WS core (legacy MEXC names kept for compat) ==========
     rest_base_url: str = Field(
         default=os.getenv("REST_BASE_URL", "https://api.mexc.com/api/v3"),
         validation_alias=AliasChoices("REST_BASE_URL", "rest_base_url"),
@@ -236,6 +291,72 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("WS_SERVER_HOSTNAME", "ws_server_hostname"),
     )
 
+    # ---------- NEW: Global REST tuning (used by exchange HTTP clients) ----------
+    rest_timeout_sec: float = Field(
+        default=float(os.getenv("REST_TIMEOUT_SEC", "10.0")),
+        validation_alias=AliasChoices("REST_TIMEOUT_SEC", "rest_timeout_sec"),
+        description="Per-request timeout for exchange REST calls.",
+    )
+    rest_retry_attempts: int = Field(
+        default=int(os.getenv("REST_RETRY_ATTEMPTS", "2")),
+        validation_alias=AliasChoices("REST_RETRY_ATTEMPTS", "rest_retry_attempts"),
+        description="How many times to retry on timeouts/5xx/429 (not counting the first try).",
+    )
+    rest_retry_backoff_ms: int = Field(
+        default=int(os.getenv("REST_RETRY_BACKOFF_MS", "1500")),
+        validation_alias=AliasChoices("REST_RETRY_BACKOFF_MS", "rest_retry_backoff_ms"),
+        description="Initial backoff between REST retries (milliseconds).",
+    )
+    rest_retry_backoff_factor: float = Field(
+        default=float(os.getenv("REST_RETRY_BACKOFF_FACTOR", "2.0")),
+        validation_alias=AliasChoices("REST_RETRY_BACKOFF_FACTOR", "rest_retry_backoff_factor"),
+        description="Multiplier for exponential backoff: next = prev * factor.",
+    )
+    rest_backoff_max_sec: float = Field(
+        default=float(os.getenv("REST_BACKOFF_MAX_SEC", "60.0")),
+        validation_alias=AliasChoices("REST_BACKOFF_MAX_SEC", "rest_backoff_max_sec"),
+        description="Maximum backoff delay between retries (seconds)",
+    )
+
+    # ========== HTTP Polling Client Settings ==========
+    http_poll_interval_sec: float = Field(
+        default=float(os.getenv("HTTP_POLL_INTERVAL_SEC", "1.0")),
+        validation_alias=AliasChoices("HTTP_POLL_INTERVAL_SEC", "http_poll_interval_sec"),
+        description="Interval between HTTP polls for market data (seconds)",
+    )
+    http_unavailable_threshold: int = Field(
+        default=int(os.getenv("HTTP_UNAVAILABLE_THRESHOLD", "5")),
+        validation_alias=AliasChoices("HTTP_UNAVAILABLE_THRESHOLD", "http_unavailable_threshold"),
+        description="Number of consecutive failures before marking symbol unavailable",
+    )
+    http_max_concurrent_requests: int = Field(
+        default=int(os.getenv("HTTP_MAX_CONCURRENT_REQUESTS", "10")),
+        validation_alias=AliasChoices("HTTP_MAX_CONCURRENT_REQUESTS", "http_max_concurrent_requests"),
+        description="Max concurrent HTTP requests (semaphore limit)",
+    )
+    http_debug_logging: bool = Field(
+        default=os.getenv("HTTP_DEBUG_LOGGING", "false").lower() in {"1", "true", "yes", "on"},
+        validation_alias=AliasChoices("HTTP_DEBUG_LOGGING", "http_debug_logging"),
+        description="Enable verbose logging for HTTP client",
+    )
+
+    # ========== MEXC Fees (defaults, can be overridden) ==========
+    mexc_maker_fee: float = Field(
+        default=0.0,
+        validation_alias=AliasChoices("MEXC_MAKER_FEE", "mexc_maker_fee"),
+        description="MEXC maker fee (default 0% = competitive advantage)",
+    )
+    mexc_taker_fee: float = Field(
+        default=0.0005,
+        validation_alias=AliasChoices("MEXC_TAKER_FEE", "mexc_taker_fee"),
+        description="MEXC taker fee (default 0.05% = 5 bps)",
+    )
+    mexc_zero_fee: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("MEXC_ZERO_FEE", "mexc_zero_fee"),
+        description="MEXC maker fee is exactly 0.0 (promotional feature)",
+    )
+
     # ========== Proxies ==========
     http_proxy_env: str = Field(
         default=os.getenv("HTTP_PROXY", ""),
@@ -263,6 +384,33 @@ class Settings(BaseSettings):
                                            validation_alias=AliasChoices("ENABLE_SSE_LAST_EVENT_ID", "enable_sse_last_event_id"))
     enable_orderbook_ws: bool = Field(default=os.getenv("ENABLE_ORDERBOOK_WS", "false").lower() in {"1", "true", "yes", "on"},
                                       validation_alias=AliasChoices("ENABLE_ORDERBOOK_WS", "enable_orderbook_ws"))
+    
+    http_debug_gate: bool = Field(
+        default=os.getenv("HTTP_DEBUG_GATE", "0").lower() in {"1","true","yes","on"},
+        validation_alias=AliasChoices("HTTP_DEBUG_GATE", "http_debug_gate"),
+        description="Verbose httpx logs for Gate REST"
+    )
+    http_debug_mexc: bool = Field(
+        default=os.getenv("HTTP_DEBUG_MEXC", "0").lower() in {"1","true","yes","on"},
+        validation_alias=AliasChoices("HTTP_DEBUG_MEXC", "http_debug_mexc"),
+        description="Verbose httpx logs for MEXC REST"
+    )
+    scan_endpoint_timeout_sec: int = Field(
+        default=int(os.getenv("SCAN_ENDPOINT_TIMEOUT_SEC", "18")),  # было 12, стало 18
+        validation_alias=AliasChoices("SCAN_ENDPOINT_TIMEOUT_SEC", "scan_endpoint_timeout_sec"),
+        description="Hard cap for /api/scanner/* route execution (accounts for retries)"
+    )
+    # ========== Scanner Concurrency Controls ==========
+    gate_scan_concurrency: int = Field(
+        default=int(os.getenv("GATE_SCAN_CONCURRENCY", "12")),
+        validation_alias=AliasChoices("GATE_SCAN_CONCURRENCY", "gate_scan_concurrency"),
+        description="Max parallel enrichments for Gate scanner (Stage 2)",
+    )
+    mexc_scan_concurrency: int = Field(
+        default=int(os.getenv("MEXC_SCAN_CONCURRENCY", "10")),
+        validation_alias=AliasChoices("MEXC_SCAN_CONCURRENCY", "mexc_scan_concurrency"),
+        description="Max parallel enrichments for MEXC scanner (Stage 2)",
+    )
 
     # ========== Scanner Features / Weights / TTL ==========
     feature_vol_pattern_v1: bool = Field(default=os.getenv("FEATURE_VOL_PATTERN_V1", "0").lower() in {"1", "true", "yes", "on"},
@@ -274,7 +422,7 @@ class Settings(BaseSettings):
     exec_dry_run: bool = Field(default=os.getenv("EXEC_DRY_RUN", "1").lower() in {"1", "true", "yes", "on"},
                                validation_alias=AliasChoices("EXEC_DRY_RUN", "exec_dry_run"))
 
-    # (legacy, kept) custom scoring knobs you already had
+    # legacy scoring knobs
     sc_w_spread_bps: float = Field(default=float(os.getenv("SC_W_SPREAD_BPS", "15")))
     sc_w_sum5: float = Field(default=float(os.getenv("SC_W_SUM5", "18")))
     sc_w_ratio: float = Field(default=float(os.getenv("SC_W_RATIO", "18")))
@@ -283,7 +431,7 @@ class Settings(BaseSettings):
     sc_w_spoof: float = Field(default=float(os.getenv("SC_W_SPOOF", "8")))
     sc_w_exit: float = Field(default=float(os.getenv("SC_W_EXIT", "8")))
 
-    # NEW: weights expected by market_scanner._score_row (optional env overrides)
+    # new weights for market_scanner._score_row
     score_w_usd_per_min: float = Field(default=float(os.getenv("SCORE_W_USD_PER_MIN", "1.0")))
     score_w_depth: float = Field(default=float(os.getenv("SCORE_W_DEPTH", "0.7")))
     score_w_spread: float = Field(default=float(os.getenv("SCORE_W_SPREAD", "0.5")))
@@ -295,21 +443,16 @@ class Settings(BaseSettings):
     scanner_cache_ttl: float = Field(default=float(os.getenv("SCANNER_CACHE_TTL", "20.0")))
 
     # ======== Strategy thresholds (prompt) ========
-    # Tape
     usdpm_min: float = Field(default=float(os.getenv("USDPM_MIN", "20.0")))
     tpm_min: int = Field(default=int(os.getenv("TPM_MIN", "5")))
-    median_usd_min: float = Field(default=float(os.getenv("MEDIAN_USD_MIN", "0")))  # optional
-    # ATR
+    median_usd_min: float = Field(default=float(os.getenv("MEDIAN_USD_MIN", "0")))
     atr_max_usd: float = Field(default=float(os.getenv("ATR_MAX_USD", "8.0")))
-    atr_pct_max_1m: float = Field(default=float(os.getenv("ATR_PCT_MAX_1M", "0.8")))  # %
-    # Glass / spread / depth
+    atr_pct_max_1m: float = Field(default=float(os.getenv("ATR_PCT_MAX_1M", "0.8")))
     spread_bps_min: int = Field(default=int(os.getenv("SPREAD_BPS_MIN", "1")))
     spread_bps_max: int = Field(default=int(os.getenv("SPREAD_BPS_MAX", "7")))
     depth5_min_usd: int = Field(default=int(os.getenv("DEPTH5_MIN_USD", "1000")))
     depth10_min_usd: int = Field(default=int(os.getenv("DEPTH10_MIN_USD", "3000")))
-    # Ratio-gate
     usdpm_per_depth5_min_ratio: float = Field(default=float(os.getenv("USDPM_PER_DEPTH5_MIN_RATIO", "0.1")))
-    # Balance filters
     stability_min: int = Field(default=int(os.getenv("STABILITY_MIN", "70")))
     vol_pattern_min: int = Field(default=int(os.getenv("VOL_PATTERN_MIN", "0")))
     vol_pattern_max: int = Field(default=int(os.getenv("VOL_PATTERN_MAX", "100")))
@@ -318,14 +461,68 @@ class Settings(BaseSettings):
     order_size_usd_min: float = Field(default=float(os.getenv("ORDER_SIZE_USD_MIN", "1.0")))
     order_size_usd_max: float = Field(default=float(os.getenv("ORDER_SIZE_USD_MAX", "2.0")))
     exec_cancel_timeout_sec: int = Field(default=int(os.getenv("EXEC_CANCEL_TIMEOUT_SEC", "10")))
-    exec_tp_pct: float = Field(default=float(os.getenv("EXEC_TP_PCT", "0.1")))  # +0.1%
+    exec_tp_pct: float = Field(default=float(os.getenv("EXEC_TP_PCT", "0.1")))
     max_exposure_usd: float = Field(default=float(os.getenv("MAX_EXPOSURE_USD", "1000")))
-    idempotency_window_sec: int = Field(default=int(os.getenv("IDEMPOTENCY_WINDOW_SEC", "600")))
+    idempotency_window_sec: int = 300
+    idempotency_max_size: int = 10000  # ← This is probably missing or named differently
+
+    # =============================================================================
+    # Idempotency
+    # =============================================================================
+    idempotency_enabled: bool = Field(
+        default=os.getenv("IDEMPOTENCY_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
+        validation_alias=AliasChoices("IDEMPOTENCY_ENABLED", "idempotency_enabled"),
+        description="Enable idempotency checks for mutation endpoints (place/flatten/close_all)"
+    )
+
+    idempotency_ttl_seconds: int = Field(
+        default=int(os.getenv("IDEMPOTENCY_TTL_SECONDS", "600")),
+        ge=60,        # minimum 1 minute
+        le=3600,      # maximum 1 hour
+        validation_alias=AliasChoices("IDEMPOTENCY_TTL_SECONDS", "idempotency_ttl_seconds"),
+        description="How long to cache idempotency keys (seconds). Default: 10 minutes."
+    )
+
+    idempotency_backend: str = Field(
+        default=os.getenv("IDEMPOTENCY_BACKEND", "memory").lower(),
+        validation_alias=AliasChoices("IDEMPOTENCY_BACKEND", "idempotency_backend"),
+        description="Storage backend: 'memory' (in-process dict) or 'redis' (external cache)"
+    )
+
+    idempotency_redis_url: str | None = Field(
+        default=os.getenv("IDEMPOTENCY_REDIS_URL"),
+        validation_alias=AliasChoices("IDEMPOTENCY_REDIS_URL", "idempotency_redis_url"),
+        description="Redis URL for idempotency cache (required if backend=redis). Example: redis://localhost:6379/1"
+    )
 
     # ======== Inclusion / Exclusions ========
     include_stables: bool = Field(default=os.getenv("INCLUDE_STABLES", "false").lower() in {"1", "true", "yes", "on"})
     exclude_leveraged: bool = Field(default=os.getenv("EXCLUDE_LEVERAGED", "true").lower() in {"1", "true", "yes", "on"})
     exclude_perps: bool = Field(default=os.getenv("EXCLUDE_PERPS", "true").lower() in {"1", "true", "yes", "on"})
+
+    # ========================================
+    # ML Data Collection Settings
+    # ========================================
+    ML_LOGGING_ENABLED: bool = Field(
+        default=os.getenv("ML_LOGGING_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+        validation_alias=AliasChoices("ML_LOGGING_ENABLED", "ml_logging_enabled"),
+        description="Enable ML data collection (snapshots for training)"
+    )
+    ML_LOGGING_SYMBOLS: str = Field(
+        default=os.getenv("ML_LOGGING_SYMBOLS", ""),
+        validation_alias=AliasChoices("ML_LOGGING_SYMBOLS", "ml_logging_symbols"),
+        description="Comma-separated symbols to log for ML (e.g., BTCUSDT,ETHUSDT)"
+    )
+    ML_LOGGING_INTERVAL_SEC: float = Field(
+        default=float(os.getenv("ML_LOGGING_INTERVAL_SEC", "2.0")),
+        validation_alias=AliasChoices("ML_LOGGING_INTERVAL_SEC", "ml_logging_interval_sec"),
+        description="Snapshot interval in seconds (default: 2.0)"
+    )
+    ML_LOGGING_PRESET: str = Field(
+        default=os.getenv("ML_LOGGING_PRESET", "hedgehog"),
+        validation_alias=AliasChoices("ML_LOGGING_PRESET", "ml_logging_preset"),
+        description="Scanner preset for ML metrics (hedgehog/balanced/etc.)"
+    )
 
     # ======== SSE / WS tuning ========
     sse_ping_interval_ms: int = Field(default=int(os.getenv("SSE_PING_INTERVAL_MS", "15000")))
@@ -333,6 +530,54 @@ class Settings(BaseSettings):
     sse_retry_max_ms: int = Field(default=int(os.getenv("SSE_RETRY_MAX_MS", "20000")))
     ws_orderbook_snapshot_levels: int = Field(default=int(os.getenv("WS_OB_SNAPSHOT_LEVELS", "10")))
     ws_orderbook_delta_buffer: int = Field(default=int(os.getenv("WS_OB_DELTA_BUFFER", "64")))
+
+    # ---------- NEW: WS lifecycle & rate controls (used by ws_client/constants) ----------
+    ws_rate_suffix: str = Field(
+        default=os.getenv("WS_RATE_SUFFIX", "@500ms"),
+        validation_alias=AliasChoices("WS_RATE_SUFFIX", "ws_rate_suffix"),
+        description="Requested WS frequency suffix, e.g. '@500ms'. Empty string means provider default.",
+    )
+    ws_subscribe_rate_limit_per_sec: int = Field(
+        default=int(os.getenv("WS_SUBSCRIBE_RATE_LIMIT_PER_SEC", "8")),
+        validation_alias=AliasChoices("WS_SUBSCRIBE_RATE_LIMIT_PER_SEC", "ws_subscribe_rate_limit_per_sec"),
+        description="Throttle for SUBSCRIPTION sends (topics per second).",
+    )
+    ws_max_topics: int = Field(
+        default=int(os.getenv("WS_MAX_TOPICS", "30")),
+        validation_alias=AliasChoices("WS_MAX_TOPICS", "ws_max_topics"),
+        description="Max topics per single WS connection before sharding.",
+    )
+    ws_ping_interval_sec: int = Field(
+        default=int(os.getenv("WS_PING_INTERVAL_SEC", "20")),
+        validation_alias=AliasChoices("WS_PING_INTERVAL_SEC", "ws_ping_interval_sec"),
+        description="Send JSON PING if no frames for this many seconds.",
+    )
+    ws_ping_timeout: float = Field(
+    default=float(os.getenv("WS_PING_TIMEOUT", "10.0")),
+    validation_alias=AliasChoices("WS_PING_TIMEOUT", "ws_ping_timeout"),
+    description="WebSocket ping timeout (seconds, float for Gate compatibility)"
+    )
+
+    ws_recv_timeout_multiplier: float = Field(
+        default=float(os.getenv("WS_RECV_TIMEOUT_MULTIPLIER", "2.5")),
+        validation_alias=AliasChoices("WS_RECV_TIMEOUT_MULTIPLIER", "ws_recv_timeout_multiplier"),
+        ge=1.5,
+        le=5.0,
+        description="Multiplier for recv timeout (ping_interval * multiplier)"
+    )
+
+    gate_depth_limit: int = Field(
+        default=int(os.getenv("GATE_DEPTH_LIMIT", "10")),
+        validation_alias=AliasChoices("GATE_DEPTH_LIMIT", "gate_depth_limit"),
+        ge=5,
+        le=50,
+        description="Order book depth limit for Gate WS"
+    )
+    ws_max_lifetime_sec: int = Field(
+        default=int(os.getenv("WS_MAX_LIFETIME_SEC", str(23 * 3600))),
+        validation_alias=AliasChoices("WS_MAX_LIFETIME_SEC", "ws_max_lifetime_sec"),
+        description="Force WS reconnect before 24h limit; avoids midnight edge cases and exchange-side stale connections"
+    )
 
     # ======== Metrics / Health ========
     metrics_port: int = Field(default=int(os.getenv("METRICS_PORT", "9000")))
@@ -349,7 +594,11 @@ class Settings(BaseSettings):
     # ---------- Handy properties ----------
     @property
     def symbols(self) -> List[str]:
-        return [s.upper() for s in _csv_split(self.symbols_csv)]
+        return [_coalesce_symbol(s) for s in _csv_split(self.symbols_csv)]
+
+    @property
+    def symbols_unique(self) -> List[str]:
+        return _unique_preserve(self.symbols)
 
     @property
     def live_use_market_for_maker(self) -> bool:
@@ -415,23 +664,15 @@ class Settings(BaseSettings):
     # ---------- Provider-resolved endpoints ----------
     @property
     def rest_base_url_resolved(self) -> str:
-        # For Gate, honor explicit WS env for REST too (keeps demo/live consistent)
         if self.is_gate:
-            env = (self.gate_ws_env or "").strip().upper()
-            if env in {"TESTNET", "SANDBOX"}:
-                return self.gate_testnet_rest_base
-            if env == "LIVE":
-                return self.gate_rest_base
-            # Fallback to global ACTIVE_MODE if GATE_WS_ENV not set
-            return self.gate_testnet_rest_base if self.is_demo else self.gate_rest_base
+            # ✅ ALWAYS use production for public endpoints (faster, more reliable)
+            return self.gate_rest_base
         if self.is_binance:
             return self.binance_rest_base
-        # MEXC default
         return self.mexc_rest_base or self.rest_base_url
 
     @property
     def ws_base_url_resolved(self) -> str:
-        # Global hard override wins
         if self.ws_base_url_override:
             return self.ws_base_url_override
         if self.is_gate:
@@ -440,11 +681,9 @@ class Settings(BaseSettings):
                 return self.gate_testnet_ws_base
             if env == "LIVE":
                 return self.gate_ws_base
-            # Fallback to global ACTIVE_MODE if GATE_WS_ENV not set
             return self.gate_testnet_ws_base if self.is_demo else self.gate_ws_base
         if self.is_binance:
             return self.binance_ws_base
-        # MEXC default
         return self.ws_url_public
 
     def api_key_pair(self) -> Tuple[Optional[str], Optional[str]]:
@@ -467,6 +706,20 @@ class Settings(BaseSettings):
         """Alias used by GateWebSocketClient; keeps your current client line working."""
         return self.gate_ws_base
 
+    # ---------- UI/Router helpers ----------
+    @property
+    def available_providers(self) -> list[str]:
+        return ["gate", "mexc", "binance"]
+
+    def provider_state(self) -> dict:
+        return {
+            "active": self.active_provider.lower(),
+            "mode": self.active_mode,
+            "available": self.available_providers,
+            "ws_enabled": bool(self.enable_ws),
+            "revision": None,
+        }
+
     # ---------- Sanity helpers ----------
     def is_live_safe(self) -> bool:
         """LIVE=true requires valid keys for the active provider."""
@@ -481,8 +734,8 @@ class Settings(BaseSettings):
             issues.append("LIVE=on, но не заданы ключи для активного провайдера.")
         if self.database_url.startswith("sqlite") and self.is_live:
             issues.append("LIVE на SQLite — проверь DATABASE_URL (ожидается Postgres).")
-        if self.symbols and any(self.quote not in s for s in self.symbols):
-            issues.append(f"В SYMBOLS есть пары без квоты {self.quote}.")
+        if self.symbols and any(not s.endswith(self.quote) for s in self.symbols):
+            issues.append(f"В SYMBOLS есть пары без квоты {self.quote} (ожидается окончание тикера на {self.quote}).")
         if self.depth5_min_usd > self.depth10_min_usd:
             issues.append("DEPTH5_MIN_USD > DEPTH10_MIN_USD — проверь пороги.")
         return issues

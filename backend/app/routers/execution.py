@@ -1,9 +1,9 @@
 # app/routers/execution.py
 from __future__ import annotations
 
-from typing import Optional, Dict, Any, Awaitable, Callable, List
+from typing import Optional, Dict, Any, List
 
-from fastapi import APIRouter, Body, HTTPException, Path, Query, Header
+from fastapi import APIRouter, Body, HTTPException, Path, Query, Depends
 
 from app.config.settings import settings
 from app.execution.router import exec_router
@@ -11,60 +11,8 @@ from app.execution.router import exec_router
 # Subscribe symbols to market data before actions
 from app.services.book_tracker import ensure_symbols_subscribed, get_all_quotes
 
-# Optional idempotency (reuses your StrategyService infra)
-try:
-    from app.services.strategy_service import StrategyService
-    _idem: StrategyService | None = StrategyService(ttl_seconds=settings.idempotency_window_sec)
-except Exception:
-    _idem = None
-
-# --- in-memory idempotency fallback (used only if StrategyService is unavailable) ---
-if _idem is None:
-    import time
-    import asyncio
-    from typing import Tuple
-
-    class _MemIdem:
-        """
-        Minimal in-memory idempotency cache.
-        Stores the full action result for a given idempotency key for a short time window.
-        """
-        def __init__(self, ttl_seconds: int = 60) -> None:
-            self.ttl = max(0, int(getattr(settings, "idempotency_window_sec", ttl_seconds) or ttl_seconds))
-            self._store: dict[str, Tuple[float, dict]] = {}
-            self._lock = asyncio.Lock()
-
-        async def execute_idempotent(
-            self,
-            op: str,  # kept for parity with StrategyService; not used here
-            key: str,
-            payload: dict,  # kept for parity; not used here
-            action: Callable[[], Awaitable[dict]],
-        ) -> dict:
-            # If disabled or no key, just run the action
-            if not self.ttl or not key:
-                res = await action()
-                res.setdefault("idempotent", False)
-                return res
-
-            now = time.monotonic()
-            async with self._lock:
-                hit = self._store.get(key)
-                if hit and hit[0] > now:
-                    cached = dict(hit[1])
-                    cached["idempotent"] = True
-                    return cached
-
-            # Execute & cache
-            res = await action()
-            res = dict(res)
-            res.setdefault("idempotent", False)
-
-            async with self._lock:
-                self._store[key] = (now + self.ttl, res)
-            return res
-
-    _idem = _MemIdem(ttl_seconds=60)
+# NEW: Import standardized idempotency system
+from app.utils.idempotency import idempotent, get_idempotency_key
 
 router = APIRouter(prefix="/api/exec", tags=["execution"])
 
@@ -79,21 +27,9 @@ def _parse_float(v: Any, default: float = 0.0) -> float:
         return default
 
 
-async def _idempotent(
-    op_name: str,
-    key: Optional[str],
-    payload: Dict[str, Any],
-    action: Callable[[], Awaitable[Dict[str, Any]]],
-) -> Dict[str, Any]:
-    if _idem and key:
-        return await _idem.execute_idempotent(op_name, key, payload, action)
-    res = await action()
-    res.setdefault("idempotent", False)
-    return res
-
-
 # ---------------------------- endpoints ----------------------------
 @router.post("/place")
+@idempotent(ttl_seconds=600)  # NEW: Standardized idempotency decorator
 async def place_order(
     payload: dict = Body(
         ...,
@@ -108,7 +44,7 @@ async def place_order(
             "}\n"
         ),
     ),
-    x_idempotency_key: Optional[str] = Header(default=None, alias="X-Idempotency-Key"),
+    x_idempotency_key: Optional[str] = Depends(get_idempotency_key),  # NEW: Use Depends
 ) -> dict:
     sym = str(payload.get("symbol", "")).strip().upper()
     side = str(payload.get("side", "")).strip().upper()
@@ -130,26 +66,20 @@ async def place_order(
         pass
 
     port = exec_router.get_port()
-
-    async def _act() -> Dict[str, Any]:
-        coid = await port.place_maker(sym, side, price, qty, tag=tag)
-        if not coid:
-            raise HTTPException(status_code=400, detail="order rejected (risk guard or no price)")
-        pos = await port.get_position(sym)
-        return {"ok": True, "client_order_id": coid, "position": pos}
-
-    return await _idempotent(
-        op_name="exec.place",
-        key=x_idempotency_key,
-        payload={"symbol": sym, "side": side, "qty": qty, "price": price, "tag": tag},
-        action=_act,
-    )
+    
+    # SIMPLIFIED: Direct execution (decorator handles idempotency)
+    coid = await port.place_maker(sym, side, price, qty, tag=tag)
+    if not coid:
+        raise HTTPException(status_code=400, detail="order rejected (risk guard or no price)")
+    pos = await port.get_position(sym)
+    return {"ok": True, "client_order_id": coid, "position": pos}
 
 
 @router.post("/flatten/{symbol}")
+@idempotent(ttl_seconds=600)  # NEW: Standardized idempotency decorator
 async def flatten_symbol(
     symbol: str = Path(..., description="e.g. BTCUSDT"),
-    x_idempotency_key: Optional[str] = Header(default=None, alias="X-Idempotency-Key"),
+    x_idempotency_key: Optional[str] = Depends(get_idempotency_key),  # NEW: Use Depends
 ) -> dict:
     sym = symbol.strip().upper()
     if not sym:
@@ -162,22 +92,16 @@ async def flatten_symbol(
         pass
 
     port = exec_router.get_port()
-
-    async def _act() -> Dict[str, Any]:
-        await port.flatten_symbol(sym)
-        pos = await port.get_position(sym)
-        return {"ok": True, "flattened": sym, "position": pos}
-
-    return await _idempotent(
-        op_name="exec.flatten_symbol",
-        key=x_idempotency_key,
-        payload={"symbol": sym},
-        action=_act,
-    )
+    
+    # SIMPLIFIED: Direct execution (decorator handles idempotency)
+    await port.flatten_symbol(sym)
+    pos = await port.get_position(sym)
+    return {"ok": True, "flattened": sym, "position": pos}
 
 
 @router.get("/position/{symbol}")
 async def get_position(symbol: str = Path(..., description="e.g. BTCUSDT")) -> dict:
+    """Read-only endpoint - no idempotency needed."""
     sym = symbol.strip().upper()
     if not sym:
         raise HTTPException(status_code=400, detail="symbol is required")
@@ -192,6 +116,7 @@ async def get_position(symbol: str = Path(..., description="e.g. BTCUSDT")) -> d
 @router.get("/positions")
 async def get_positions(symbols: Optional[List[str]] = Query(None)) -> list[dict]:
     """
+    Read-only endpoint - no idempotency needed.
     If no symbols are provided, returns positions for all symbols we currently have quotes for.
     """
     port = exec_router.get_port()
@@ -224,7 +149,12 @@ async def get_positions(symbols: Optional[List[str]] = Query(None)) -> list[dict
 
 
 @router.post("/cancel/{symbol}")
-async def cancel_orders(symbol: str = Path(..., description="no-op in paper mode")) -> dict:
+@idempotent(ttl_seconds=300)  # NEW: Shorter TTL for cancel operations
+async def cancel_orders(
+    symbol: str = Path(..., description="no-op in paper mode"),
+    x_idempotency_key: Optional[str] = Depends(get_idempotency_key),  # NEW: Use Depends
+) -> dict:
+    """Cancel all orders for symbol. Idempotent to prevent double-cancellations."""
     sym = symbol.strip().upper()
     if not sym:
         raise HTTPException(status_code=400, detail="symbol is required")

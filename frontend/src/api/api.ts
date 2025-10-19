@@ -1,3 +1,4 @@
+// src/api/api.ts
 import http from "@/lib/http";
 import type { StrategyMetricsJSON, UISnapshot } from "@/types/api";
 import type { Position } from "@/types/index";
@@ -99,13 +100,14 @@ export async function getWatchlist(): Promise<WatchlistBulkOut> {
     if (typeof data === "object" && data !== null) {
       const root = data as Record<string, unknown>;
 
-      // nested: { ui_state:{ watchlist:{ items|symbols, revision? } } }
-      const ui = typeof root.ui_state === "object" && root.ui_state !== null
-        ? (root.ui_state as Record<string, unknown>)
-        : undefined;
-      const wl = ui && typeof ui.watchlist === "object" && ui.watchlist !== null
-        ? (ui.watchlist as Record<string, unknown>)
-        : undefined;
+      const ui =
+        typeof root.ui_state === "object" && root.ui_state !== null
+          ? (root.ui_state as Record<string, unknown>)
+          : undefined;
+      const wl =
+        ui && typeof ui.watchlist === "object" && ui.watchlist !== null
+          ? (ui.watchlist as Record<string, unknown>)
+          : undefined;
 
       if (wl) {
         if (Array.isArray(wl.items)) {
@@ -122,7 +124,6 @@ export async function getWatchlist(): Promise<WatchlistBulkOut> {
         }
       }
 
-      // flat modern: { items: [...], revision? }
       if (Array.isArray(root.items)) {
         return {
           items: normalizeItems(root.items as unknown[]),
@@ -130,7 +131,6 @@ export async function getWatchlist(): Promise<WatchlistBulkOut> {
         };
       }
 
-      // flat legacy: { symbols: [...], revision? }
       if (Array.isArray(root.symbols)) {
         return {
           items: normalizeItems(root.symbols as unknown[]),
@@ -139,7 +139,6 @@ export async function getWatchlist(): Promise<WatchlistBulkOut> {
       }
     }
 
-    // bare legacy array
     if (Array.isArray(data)) return { items: normalizeItems(data as unknown[]) };
 
     return { items: [] };
@@ -153,7 +152,6 @@ export async function getWatchlist(): Promise<WatchlistBulkOut> {
     return typeof st === "number" ? st : undefined;
   };
 
-  // 1) Preferred for your backend: POST with empty symbols to /api/ui/watchlist:bulk
   try {
     const resPost = await http.post<unknown>(
       "/api/ui/watchlist:bulk",
@@ -163,13 +161,11 @@ export async function getWatchlist(): Promise<WatchlistBulkOut> {
     return parse(resPost.data);
   } catch (e) {
     const st = statusOf(e);
-    // 2) Fallback to /api/ui/state (if available)
     if (st === 404 || st === 405 || st === 400 || st === undefined) {
       try {
         const resState = await http.get<unknown>("/api/ui/state");
         return parse(resState.data);
       } catch {
-        // 3) Final fallback: try GET /api/ui/watchlist:bulk (some envs expose read via GET)
         try {
           const resGet = await http.get<unknown>("/api/ui/watchlist:bulk");
           return parse(resGet.data);
@@ -178,7 +174,6 @@ export async function getWatchlist(): Promise<WatchlistBulkOut> {
         }
       }
     }
-    // if other error with POST, rethrow
     throw e;
   }
 }
@@ -330,6 +325,18 @@ export async function apiGetUISnapshot(
 }
 
 /* ───────── scanner ───────── */
+
+/** Accept both new snake_case and legacy camelCase fields in a typed way. */
+type GetScannerOptsCompat = GetScannerOpts & {
+  // legacy camelCase accepted by older UI code
+  includeStables?: boolean;
+  excludeLeveraged?: boolean;
+  minUsd?: number;
+  minDepth5Usd?: number;
+  minDepth10Usd?: number;
+  minTradesPerMin?: number;
+};
+
 function normalizeScannerRows(rows: ScannerRow[]): ScannerRow[] {
   return rows.map((r) => {
     const bid = Number(r.bid || 0);
@@ -352,38 +359,100 @@ function normalizeScannerRows(rows: ScannerRow[]): ScannerRow[] {
     };
   });
 }
-function buildScannerParams(opts: GetScannerOpts): URLSearchParams {
-  const params = new URLSearchParams();
-  const quote = (opts.quote ?? "USDT").toUpperCase();
-  const minSpreadPct = opts.minBps !== undefined ? opts.minBps / 100 : 0.1;
-  const limit = Number.isFinite(opts.limit as number) ? (opts.limit as number) : 30;
 
+function buildScannerParams(opts: GetScannerOptsCompat): URLSearchParams {
+  const params = new URLSearchParams();
+
+  // server-native params
+  const quote = (opts.quote ?? "USDT").toUpperCase();
+  const limit = Number.isFinite(opts.limit as number) ? (opts.limit as number) : 30;
   params.set("quote", quote);
-  params.set("min_spread_pct", String(minSpreadPct));
   params.set("limit", String(limit));
 
-  if (opts.minUsd !== undefined) params.set("min_quote_vol_usd", String(opts.minUsd));
-  if (opts.includeStables !== undefined) params.set("include_stables", String(opts.includeStables));
-  if (opts.excludeLeveraged !== undefined)
-    params.set("exclude_leveraged", String(opts.excludeLeveraged));
-  if (opts.minDepth5Usd !== undefined) params.set("min_depth5_usd", String(opts.minDepth5Usd));
-  if (opts.minDepth10Usd !== undefined) params.set("min_depth10_usd", String(opts.minDepth10Usd));
-  if (opts.minTradesPerMin !== undefined)
+  if (opts.preset) params.set("preset", String(opts.preset));
+  if (typeof opts.fetch_candles === "boolean") params.set("fetch_candles", String(opts.fetch_candles));
+  if (Array.isArray(opts.depth_bps_levels) && opts.depth_bps_levels.length > 0) {
+    params.set("depth_bps_levels", opts.depth_bps_levels.join(","));
+  }
+  if (typeof opts.rotation === "boolean") params.set("rotation", String(opts.rotation));
+  if (typeof opts.explain === "boolean") params.set("explain", String(opts.explain));
+
+  // spread (UI in bps → server in percent)
+  if (typeof (opts as { max_spread_bps?: number }).max_spread_bps === "number") {
+    params.set("min_spread_pct", String((opts as { max_spread_bps: number }).max_spread_bps / 100));
+  } else if (typeof opts.minBps === "number") {
+    params.set("min_spread_pct", String(opts.minBps / 100));
+  }
+
+  // volumes / activity
+  if (typeof opts.min_quote_vol_usd === "number") {
+    params.set("min_quote_vol_usd", String(opts.min_quote_vol_usd));
+  } else if (typeof opts.minUsd === "number") {
+    params.set("min_quote_vol_usd", String(opts.minUsd));
+  }
+  if (typeof opts.min_usd_per_min === "number") params.set("min_usd_per_min", String(opts.min_usd_per_min));
+  if (typeof (opts as { min_median_trade_usd?: number }).min_median_trade_usd === "number")
+    params.set("min_median_trade_usd", String((opts as { min_median_trade_usd: number }).min_median_trade_usd));
+  if (typeof (opts as { min_vol_pattern?: number }).min_vol_pattern === "number")
+    params.set("min_vol_pattern", String((opts as { min_vol_pattern: number }).min_vol_pattern));
+  if (typeof (opts as { max_atr_proxy?: number }).max_atr_proxy === "number")
+    params.set("max_atr_proxy", String((opts as { max_atr_proxy: number }).max_atr_proxy));
+  if (typeof (opts as { activity_ratio?: number }).activity_ratio === "number")
+    params.set("activity_ratio", String((opts as { activity_ratio: number }).activity_ratio));
+
+  // depth / trades
+  if (typeof opts.min_depth5_usd === "number") {
+    params.set("min_depth5_usd", String(opts.min_depth5_usd));
+  } else if (typeof opts.minDepth5Usd === "number") {
+    params.set("min_depth5_usd", String(opts.minDepth5Usd));
+  }
+  if (typeof opts.min_depth10_usd === "number") {
+    params.set("min_depth10_usd", String(opts.min_depth10_usd));
+  } else if (typeof opts.minDepth10Usd === "number") {
+    params.set("min_depth10_usd", String(opts.minDepth10Usd));
+  }
+  if (typeof opts.min_trades_per_min === "number") {
+    params.set("min_trades_per_min", String(opts.min_trades_per_min));
+  } else if (typeof opts.minTradesPerMin === "number") {
     params.set("min_trades_per_min", String(opts.minTradesPerMin));
-  if (opts.minUsdPerMin !== undefined) params.set("min_usd_per_min", String(opts.minUsdPerMin));
-  if (opts.explain !== undefined) params.set("explain", String(opts.explain));
+  }
+
+  // booleans
+  if (typeof opts.include_stables === "boolean") {
+    params.set("include_stables", String(opts.include_stables));
+  } else if (typeof opts.includeStables === "boolean") {
+    params.set("include_stables", String(opts.includeStables));
+  }
+
+  if (typeof opts.exclude_leveraged === "boolean") {
+    params.set("exclude_leveraged", String(opts.exclude_leveraged));
+  } else if (typeof opts.excludeLeveraged === "boolean") {
+    params.set("exclude_leveraged", String(opts.excludeLeveraged));
+  }
+
+  // whitelist
+  if (Array.isArray((opts as { symbols?: string[] }).symbols)) {
+    const list = dedupeSymbols((opts as { symbols: string[] }).symbols);
+    if (list.length) params.set("symbols", list.join(","));
+  } else if (typeof (opts as { symbols?: string }).symbols === "string" && (opts as { symbols: string }).symbols.trim()) {
+    params.set("symbols", (opts as { symbols: string }).symbols.trim());
+  }
+
   return params;
 }
+
 export async function getScannerGateTop(opts: GetScannerOpts = {}): Promise<ScannerRow[]> {
   const res = await http.get<ScannerRow[]>("/api/scanner/gate/top", { params: buildScannerParams(opts) });
   const arr = Array.isArray(res.data) ? res.data : [];
   return normalizeScannerRows(arr);
 }
+
 export async function getScannerMexcTop(opts: GetScannerOpts = {}): Promise<ScannerRow[]> {
   const res = await http.get<ScannerRow[]>("/api/scanner/mexc/top", { params: buildScannerParams(opts) });
   const arr = Array.isArray(res.data) ? res.data : [];
   return normalizeScannerRows(arr);
 }
+
 export async function getScannerTopAny(
   exchange: "gate" | "mexc" | "all",
   opts: GetScannerOpts = {}
@@ -394,31 +463,31 @@ export async function getScannerTopAny(
   const arr = Array.isArray(res.data) ? res.data : [];
   return normalizeScannerRows(arr);
 }
-export async function getScannerGateTopTiered(opts: {
-  preset?: "conservative" | "balanced" | "aggressive";
-  quote?: "USDT" | "USDC" | "FDUSD" | "BUSD" | "ALL";
-  limit?: number;
-  explain?: boolean;
-} = {}): Promise<ScannerTopTieredResponse> {
-  const params = new URLSearchParams();
-  params.set("preset", opts.preset ?? "balanced");
-  params.set("quote", opts.quote ?? "USDT");
-  params.set("limit", String(Number.isFinite(opts.limit as number) ? (opts.limit as number) : 50));
-  if (opts.explain !== undefined) params.set("explain", String(opts.explain));
+
+export async function getScannerGateTopTiered(opts: GetScannerOpts = {}): Promise<ScannerTopTieredResponse> {
+  const params = buildScannerParams({
+    preset: opts.preset ?? "balanced",
+    quote: (opts.quote ?? "USDT") as string,
+    limit: Number.isFinite(opts.limit as number) ? (opts.limit as number) : 50,
+    fetch_candles: typeof opts.fetch_candles === "boolean" ? opts.fetch_candles : true,
+    depth_bps_levels: Array.isArray(opts.depth_bps_levels) ? opts.depth_bps_levels : [5, 10],
+    explain: typeof opts.explain === "boolean" ? opts.explain : false,
+    rotation: typeof opts.rotation === "boolean" ? opts.rotation : false,
+  });
   const res = await http.get<ScannerTopTieredResponse>("/api/scanner/gate/top_tiered", { params });
   return res.data;
 }
-export async function getScannerMexcTopTiered(opts: {
-  preset?: "conservative" | "balanced" | "aggressive";
-  quote?: "USDT";
-  limit?: number;
-  explain?: boolean;
-} = {}): Promise<ScannerTopTieredResponse> {
-  const params = new URLSearchParams();
-  params.set("preset", opts.preset ?? "balanced");
-  params.set("quote", opts.quote ?? "USDT");
-  params.set("limit", String(Number.isFinite(opts.limit as number) ? (opts.limit as number) : 50));
-  if (opts.explain !== undefined) params.set("explain", String(opts.explain));
+
+export async function getScannerMexcTopTiered(opts: GetScannerOpts = {}): Promise<ScannerTopTieredResponse> {
+  const params = buildScannerParams({
+    preset: opts.preset ?? "balanced",
+    quote: (opts.quote ?? "USDT") as string,
+    limit: Number.isFinite(opts.limit as number) ? (opts.limit as number) : 50,
+    fetch_candles: typeof opts.fetch_candles === "boolean" ? opts.fetch_candles : true,
+    depth_bps_levels: Array.isArray(opts.depth_bps_levels) ? opts.depth_bps_levels : [5, 10],
+    explain: typeof opts.explain === "boolean" ? opts.explain : false,
+    rotation: typeof opts.rotation === "boolean" ? opts.rotation : false,
+  });
   const res = await http.get<ScannerTopTieredResponse>("/api/scanner/mexc/top_tiered", { params });
   return res.data;
 }
@@ -435,10 +504,10 @@ export async function getTickers(params?: {
   const rows = await getScannerGateTop({
     quote: "USDT",
     minBps: typeof params?.min_spread_pct === "number" ? params.min_spread_pct * 100 : undefined,
-    minUsd: params?.min_quote_vol_usd,
+    min_quote_vol_usd: params?.min_quote_vol_usd,
     limit: params?.limit,
-    includeStables: params?.include_stables,
-    excludeLeveraged: params?.exclude_leveraged,
+    include_stables: params?.include_stables,
+    exclude_leveraged: params?.exclude_leveraged,
   });
   return rows;
 }

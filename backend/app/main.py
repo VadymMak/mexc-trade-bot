@@ -1,17 +1,16 @@
-# app/main.py (полный файл с фиксом)
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager, suppress
 from typing import Any, Sequence, cast, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy.orm import Session
 
-# Prometheus (optional)
+# Prometheus (optional): only expose /metrics; do NOT create metrics here
 try:
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
     _PROM_AVAILABLE = True
@@ -25,14 +24,14 @@ from app.config.settings import settings
 from app.api import routes as api_routes
 from app.services.book_tracker import on_book_ticker
 from app.services.config_manager import config_manager
-from app.db.session import SessionLocal  # Добавили для DB session в lifespan
-from app.db.engine import engine, apply_migrations  # Добавили apply_migrations
+from app.db.session import SessionLocal
+from app.db.engine import engine, apply_migrations
 
 # Ensure DB schema exists on startup (dev convenience; Alembic in prod)
 from app.models.base import Base
 
 # IMPORTANT: import ALL models before create_all so tables are known
-from app.models.ui_state import UIState      # noqa: F401  # Explicit class import to match expectations
+from app.models.ui_state import UIState      # noqa: F401
 import app.models.strategy_state            # noqa: F401
 import app.models.orders                    # noqa: F401
 import app.models.positions                 # noqa: F401
@@ -43,6 +42,13 @@ import app.models.pnl_daily                 # noqa: F401
 
 APP_VERSION = "0.1.0"
 logger = logging.getLogger("app.main")
+
+# ------------------------------- idempotency --------------------------------
+from app.services.idempotency import get_idempotency_manager
+
+# Get or create global idempotency manager instance
+idempotency_mgr = get_idempotency_manager()
+logger.info(f"🔐 IdempotencyManager initialized: enabled={idempotency_mgr._enabled}, TTL={idempotency_mgr._default_ttl}s")
 
 
 # ------------------------------- helpers ------------------------------------
@@ -88,6 +94,40 @@ def _safe_settings_dict() -> dict[str, Any]:
     return data
 
 
+def _health_snapshot(app: FastAPI) -> dict[str, Any]:
+    start_mono = getattr(app.state, "start_mono", None)
+    uptime_sec = (time.monotonic() - start_mono) if start_mono else None
+
+    ws_client = getattr(app.state, "ws_client", None)
+    ps_poller = getattr(app.state, "ps_poller", None)
+
+    ws_lag_ms = getattr(ws_client, "lag_ms", None)
+    depth_updates_per_sec = getattr(ws_client, "depth_updates_per_sec", None)
+    ticks_per_sec = getattr(ws_client, "ticks_per_sec", None)
+
+    # Optional cache hitrate (safe fallback to None if not implemented)
+    try:
+        from app.services import market_scanner  # type: ignore
+        fn = getattr(market_scanner, "get_cache_hitrate", None)
+        cache_hit = fn() if callable(fn) else None
+    except Exception:
+        cache_hit = None
+
+    return {
+        "status": "ok",
+        "version": APP_VERSION,
+        "provider": getattr(settings, "active_provider", getattr(settings, "exchange_provider", "MEXC")),
+        "mode": getattr(settings, "active_mode", getattr(settings, "account_mode", "DEMO")),
+        "ws_enabled": bool(ws_client),
+        "ps_active": bool(ps_poller),
+        "ws_lag_ms": ws_lag_ms,
+        "depth_updates_per_sec": depth_updates_per_sec,
+        "ticks_per_sec": ticks_per_sec,
+        "cache_hitrate": cache_hit,
+        "uptime_sec": round(uptime_sec, 3) if uptime_sec is not None else None,
+    }
+
+
 # ------------------------------ lifespan ------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -96,7 +136,7 @@ async def lifespan(app: FastAPI):
         url_repr = str(getattr(engine.url, "render_as_string", lambda **_: engine.url)(hide_password=True))  # type: ignore[arg-type]
         print(f"🗄️  Using database: {url_repr}")
         Base.metadata.create_all(bind=engine)
-        apply_migrations(engine)  # Добавили: применяем миграции после create_all
+        apply_migrations(engine)
         insp = inspect(engine)
         tables = sorted(insp.get_table_names())
         print(f"📦 DB schema ensured (create_all). Tables: {tables}")
@@ -104,6 +144,8 @@ async def lifespan(app: FastAPI):
             print("⚠️  WARNING: PnL tables missing — check model imports and Base.metadata registration.")
     except Exception as e:
         print(f"⚠️ DB schema init failed: {e}")
+
+    app.state.start_mono = time.monotonic()
 
     # State holders
     app.state.ws_client = cast(Optional[Any], None)
@@ -115,10 +157,15 @@ async def lifespan(app: FastAPI):
     initial_mode = str(getattr(settings, "active_mode", getattr(settings, "account_mode", "DEMO"))).upper()
     rest_base = getattr(settings, "rest_base_url_resolved", getattr(settings, "rest_base_url", ""))
 
-    # Normalize symbols
+    # Normalize symbols (remove ALL whitespace incl. NBSP) and uppercase
     symbols_raw = getattr(settings, "symbols", []) or []
-    symbols = [s.strip().replace(' ', '') for s in symbols_raw]  # Normalize (fix 'B TCUSDT' -> 'BTCUSDT')
-    symbols = [s for s in symbols if s]  # Remove empty
+
+    def _clean_sym(x: Any) -> str:
+        s = str(x or "")
+        s = "".join(s.split())  # removes all unicode whitespace
+        return s.upper()
+
+    symbols = [_clean_sym(s) for s in symbols_raw if _clean_sym(s)]
     enable_ws = getattr(settings, "enable_ws", False)
     enable_ps = getattr(settings, "enable_ps_poller", True)
 
@@ -187,7 +234,13 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Book tracker reset failed: {e}")
 
     async def _hook_start_streams(provider: str, mode: str) -> bool:
-        prov = (provider or "").strip().lower()  # Match config_manager (lowercase)
+        prov = (provider or "").strip().lower()
+
+        # ⛳ Idempotent guard: if anything already running, skip
+        if getattr(app.state, "ws_client", None) or getattr(app.state, "ps_poller", None):
+            logger.info("Streams already active; skipping start.")
+            return True
+
         ws_enabled_flag = False
 
         # Always try (re)subscription via service layer
@@ -228,23 +281,21 @@ async def lifespan(app: FastAPI):
                 app.state.ws_client = None
                 app.state.ws_task = None
 
-        # (Optional) BINANCE WS placeholder — wire in when ready
-        # if prov == "binance" and enable_ws and _symbols_ok(symbols) and app.state.ws_client is None:
-        #     from app.market_data.binance_ws import BinanceWebSocketClient
-        #     ...
-
         # PS poller (fallback)
-        if app.state.ws_client is None and enable_ps:
+        if app.state.ws_client is None and getattr(settings, "enable_ps_poller", True):
             try:
-                from app.market_data.http_client_ps import PSMarketPoller
-                app.state.ps_poller = PSMarketPoller(
-                    symbols=symbols,
-                    interval=getattr(settings, "poll_interval_sec", 2.0),
-                    depth_limit=getattr(settings, "depth_limit", 10),
-                    on_update=_rest_update_adapter,
-                )
-                await app.state.ps_poller.start()
-                logger.info("⚠️ Using PS market poller (WS disabled or not started).")
+                if _symbols_ok(symbols):
+                    from app.market_data.http_client_ps import PSMarketPoller
+                    app.state.ps_poller = PSMarketPoller(
+                        symbols=symbols,
+                        interval=getattr(settings, "poll_interval_sec", 2.0),
+                        depth_limit=getattr(settings, "depth_limit", 10),
+                        on_update=_rest_update_adapter,
+                    )
+                    await app.state.ps_poller.start()
+                    logger.info("⚠️ Using PS market poller (WS disabled or not started).")
+                else:
+                    logger.info("PS poller not started: no symbols configured.")
             except Exception as e:
                 logger.error(f"⚠️ PS poller import/start failed, skipping: {e}")
                 app.state.ps_poller = None
@@ -260,9 +311,9 @@ async def lifespan(app: FastAPI):
     )
 
     # Initialize ConfigManager state and start initial streams
-    config_manager._state.active = initial_provider  # type: ignore[attr-defined]  # Установили из settings
+    config_manager._state.active = initial_provider  # type: ignore[attr-defined]
     config_manager._state.mode = initial_mode        # type: ignore[attr-defined]
-    db_session = SessionLocal()  # Создаём session для init
+    db_session = SessionLocal()
     try:
         await config_manager.init_on_startup(db=db_session)
     except Exception as e:
@@ -270,17 +321,31 @@ async def lifespan(app: FastAPI):
     finally:
         db_session.close()
 
+    # ────────────────────── ML Data Logger ──────────────────────
+    ml_logger = None
+    try:
+        from app.services.ml_logger import get_ml_logger
+        ml_logger = get_ml_logger()
+        await ml_logger.start()
+    except Exception as e:
+        print(f"⚠️ ML logger init failed (non-critical): {e}")
+
     print("🚀 Application startup complete (managed by ConfigManager).")
     try:
         yield
     finally:
         with suppress(Exception):
+            await idempotency_mgr.stop()
+        with suppress(Exception):
             await _hook_stop_streams()
+        # Stop ML logger
+        if 'ml_logger' in locals() and ml_logger:
+            with suppress(Exception):
+                await ml_logger.stop()
         print("🛑 Application shutdown complete.")
 
 
 # ------------------------------ app setup -----------------------------------
-# (Broaden title a bit — purely cosmetic)
 app = FastAPI(title="Trade Bot API", version=APP_VERSION, lifespan=lifespan)
 
 # ------------------------------ CORS ----------------------------------------
@@ -291,7 +356,6 @@ _allowed_origins = list(getattr(settings, "cors_origins", []) or []) or [
     "http://127.0.0.1:3000",
 ]
 
-# If wildcard origin is used, credentials must be False (browser restriction)
 _allow_credentials = "*" not in _allowed_origins
 
 app.add_middleware(
@@ -349,26 +413,36 @@ _mount_ui_router_if_needed(app)
 async def ping():
     return {"message": "pong"}
 
+
 @app.get("/")
 async def root():
     return {"ok": True, "name": "Trade Bot API", "version": APP_VERSION, "config": _safe_settings_dict()}
 
-# --- Ultra simple health for request loop ---
+
 @app.get("/__debug")
 async def __debug():
     return {"ok": True}
+
+
+# ------------------------------ healthz -------------------------------------
+@app.get("/healthz")
+async def healthz():
+    try:
+        return JSONResponse(_health_snapshot(app))
+    except Exception as e:
+        return JSONResponse({"status": "error", "error": str(e)}, status_code=500)
+
 
 # ------------------------------ ops: /metrics -------------------------------
 if _PROM_AVAILABLE:
     @app.get("/metrics")
     async def metrics():
         try:
-            data = generate_latest()  # type: ignore[no-untyped-call]
-            return PlainTextResponse(data.decode("utf-8"), media_type=CONTENT_TYPE_LATEST)  # type: ignore[arg-type]
+            data = generate_latest()  # default REGISTRY
+            return PlainTextResponse(data.decode("utf-8"), media_type=CONTENT_TYPE_LATEST)
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
 else:
-    # Fallback so the route always exists (matches your OpenAPI)
     @app.get("/metrics")
     async def metrics_fallback():
         return PlainTextResponse("# metrics not enabled\n", media_type=CONTENT_TYPE_LATEST)

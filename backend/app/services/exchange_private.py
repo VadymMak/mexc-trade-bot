@@ -8,9 +8,9 @@ import time
 import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
-from datetime import datetime  # NEW
+from datetime import datetime
 
-import aiohttp  # Assume installed; for async HTTP
+import aiohttp  # async HTTP
 
 from app.config.settings import settings
 
@@ -54,12 +54,11 @@ class OrderResult:
     status: Optional[str] = None            # "FILLED" | "NEW" | ...
     filled_qty: float = 0.0
     avg_fill_price: float = 0.0
-    # NEW: values used by LiveExecutor for PnL/fees
-    executed_at: Optional[datetime] = None  # exchange/server time of execution if known
-    fee: Optional[float] = None             # total fee for this order/fill if provider reports it
-    fee_asset: Optional[str] = None         # e.g. "USDT"
-    trade_id: Optional[str] = None          # provider trade id (if available)
-    raw: Optional[Dict[str, Any]] = None    # full provider payload (for debugging)
+    executed_at: Optional[datetime] = None  # exchange/server time if known
+    fee: Optional[float] = None
+    fee_asset: Optional[str] = None
+    trade_id: Optional[str] = None
+    raw: Optional[Dict[str, Any]] = None
 
 
 # ─────────────────────────── Provider Enum ─────────────────────────
@@ -71,7 +70,6 @@ class Provider(enum.Enum):
 
     @staticmethod
     def from_settings() -> "Provider":
-        # prefer the resolved/normalized provider
         prov = (settings.active_provider or "MEXC").upper()
         if prov in {"GATE", "GATEIO", "GATE.IO"}:
             return Provider.GATE
@@ -83,23 +81,12 @@ class Provider(enum.Enum):
 # ─────────────────────── Unified Private API (Protocol) ───────────────────────
 
 class ExchangePrivate(Protocol):
-    """
-    Minimal cross-exchange private interface for:
-      - balances
-      - positions
-      - orders
-      - convenience ops (close-all)
-    Implementations must also provide an async close() hook.
-    """
-    # --- symbol mapping helpers (provider-specific normalization) ---
     def normalize_symbol(self, symbol: str) -> str: ...
     def provider_symbol(self, symbol: str) -> str: ...
 
-    # --- account state ---
     async def fetch_balances(self) -> List[BalanceInfo]: ...
     async def fetch_positions(self) -> List[PositionInfo]: ...
 
-    # --- orders ---
     async def place_order(self, req: OrderRequest) -> OrderResult: ...
     async def cancel_order(
         self,
@@ -109,12 +96,9 @@ class ExchangePrivate(Protocol):
     ) -> bool: ...
     async def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]: ...
 
-    # --- convenience trade op ---
     async def close_all_positions(self, use_market: bool = True) -> Dict[str, Any]: ...
 
-    # --- lifecycle ---
     async def aclose(self) -> None: ...
-    # (optional) async context manager support
     async def __aenter__(self): ...  # pragma: no cover
     async def __aexit__(self, exc_type, exc, tb): ...  # pragma: no cover
 
@@ -122,7 +106,7 @@ class ExchangePrivate(Protocol):
 # ───────────────────────── Mock Implementation ─────────────────────────
 
 class MockExchangePrivate(ExchangePrivate):
-    """Mock for DEMO mode - returns fake data, no real API calls."""
+    """Mock for DEMO/PAPER w/o keys — returns fake data, no real API calls."""
 
     def normalize_symbol(self, symbol: str) -> str:
         return symbol.upper().replace(" ", "")
@@ -138,9 +122,10 @@ class MockExchangePrivate(ExchangePrivate):
         ]
 
     async def fetch_positions(self) -> List[PositionInfo]:
+        now = int(time.time() * 1000)
         return [
-            PositionInfo(symbol="BTCUSDT", qty=0.5, avg_price=50000.0, ts_ms=int(time.time() * 1000)),
-            PositionInfo(symbol="ETHUSDT", qty=10.0, avg_price=3000.0, ts_ms=int(time.time() * 1000)),
+            PositionInfo(symbol="BTCUSDT", qty=0.5, avg_price=50000.0, ts_ms=now),
+            PositionInfo(symbol="ETHUSDT", qty=10.0, avg_price=3000.0, ts_ms=now),
         ]
 
     async def place_order(self, req: OrderRequest) -> OrderResult:
@@ -149,18 +134,14 @@ class MockExchangePrivate(ExchangePrivate):
             client_order_id=f"mock_{int(time.time())}",
             exchange_order_id=f"ex_mock_{int(time.time())}",
             status="FILLED",
-            filled_qty=req.qty,
-            avg_fill_price=req.price or 0.0,
+            filled_qty=float(req.qty),
+            avg_fill_price=float(req.price or 0.0),
             executed_at=datetime.utcnow(),
-            raw={"mock": True},
+            raw={"mock": True, "req": req.__dict__},
         )
 
-    async def cancel_order(
-        self,
-        symbol: str,
-        client_order_id: Optional[str] = None,
-        exchange_order_id: Optional[str] = None,
-    ) -> bool:
+    async def cancel_order(self, symbol: str, client_order_id: Optional[str] = None,
+                           exchange_order_id: Optional[str] = None) -> bool:
         return True
 
     async def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -182,98 +163,103 @@ class MockExchangePrivate(ExchangePrivate):
 # ───────────────────────── MEXC Implementation ─────────────────────────
 
 class MexcPrivate(ExchangePrivate):
-    """MEXC Spot Private API Client (async). Assumes spot trading."""
+    """MEXC Spot Private API Client (async)."""
 
     BASE_URL = "https://api.mexc.com"
     TESTNET_URL = "https://api.mexcdevelop.com"
 
     def __init__(self, sandbox: bool = False):
-        self.api_key = os.getenv("MEXC_API_KEY")
-        self.secret = os.getenv("MEXC_SECRET")
+        # Prefer Settings; env is a fallback
+        self.api_key = settings.api_key or os.getenv("MEXC_API_KEY")
+        self.secret = settings.api_secret or os.getenv("MEXC_SECRET")
         if not self.api_key or not self.secret:
+            # LIVE must have keys; for PAPER/DEMO the factory avoids constructing us
             raise ValueError("MEXC_API_KEY and MEXC_SECRET must be set in environment")
         self.base_url = self.TESTNET_URL if sandbox else self.BASE_URL
-        self.session = None
+        self.session: Optional[aiohttp.ClientSession] = None
 
     def _sign_request(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Sign MEXC request with HMAC-SHA256."""
+        """Sign MEXC request with HMAC-SHA256 (Spot v3)."""
+        # MEXC expects timestamp included in signature
+        params = dict(params or {})
         timestamp = str(int(time.time() * 1000))
-        query_string = "&".join([f"{k}={v}" for k, v in sorted(params.items()) if v is not None])
+        params["timestamp"] = timestamp
+        # Sort keys and build canonical query
+        query_string = "&".join(f"{k}={v}" for k, v in sorted(params.items()) if v is not None)
         signature = hmac.new(
             self.secret.encode("utf-8"),
-            f"{query_string}&timestamp={timestamp}".encode("utf-8"),
+            query_string.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
-        params["timestamp"] = timestamp
         params["signature"] = signature
         return params
 
+    async def _ensure_session(self) -> aiohttp.ClientSession:
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession()
+        return self.session
+
     async def __aenter__(self):
-        self.session = aiohttp.ClientSession()
+        await self._ensure_session()
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        if self.session:
-            await self.session.close()
+        await self.aclose()
 
     async def aclose(self) -> None:
-        if self.session:
+        if self.session and not self.session.closed:
             await self.session.close()
 
     def normalize_symbol(self, symbol: str) -> str:
-        return symbol.upper().replace(" ", "")  # e.g., "BTC USDT" -> "BTCUSDT"
+        return symbol.upper().replace(" ", "")
 
     def provider_symbol(self, symbol: str) -> str:
-        return self.normalize_symbol(symbol)  # MEXC uses same format
+        return self.normalize_symbol(symbol)
 
     async def _request(self, method: str, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Private signed request helper."""
-        if params is None:
-            params = {}
-        params = self._sign_request(params)
+        session = await self._ensure_session()
+        signed = self._sign_request(params or {})
         url = f"{self.base_url}{endpoint}"
         headers = {"X-MEXC-APIKEY": self.api_key}
-        async with self.session.request(method, url, params=params, headers=headers) as resp:
+        async with session.request(method.upper(), url, params=signed, headers=headers) as resp:
             if resp.status != 200:
-                raise Exception(f"MEXC API error {resp.status}: {await resp.text()}")
+                body = await resp.text()
+                raise Exception(f"MEXC API error {resp.status}: {body}")
             return await resp.json()
 
     async def fetch_balances(self) -> List[BalanceInfo]:
-        data = await self._request("GET", "/api/v3/account")
-        balances = []
+        data = await self._request("GET", "/api/v3/account", {})
+        balances: List[BalanceInfo] = []
         for asset_data in data.get("balances", []):
-            asset = asset_data["asset"]
-            free = float(asset_data["free"])
-            locked = float(asset_data["locked"])
-            total = free + locked
-            balances.append(BalanceInfo(asset=asset, free=free, locked=locked, total=total))
+            asset = asset_data.get("asset")
+            free = float(asset_data.get("free", 0) or 0)
+            locked = float(asset_data.get("locked", 0) or 0)
+            balances.append(BalanceInfo(asset=asset, free=free, locked=locked, total=free + locked))
         return balances
 
     async def fetch_positions(self) -> List[PositionInfo]:
-        # For spot, positions derived from balances (qty > 0 for base assets)
+        # Spot: derive “positions” from non-quote balances
         balances = await self.fetch_balances()
-        positions = []
         ts_ms = int(time.time() * 1000)
-        # Simplified: assume USDT pairs, fetch ticker for avg_price approx (but set to 0 for now)
+        res: List[PositionInfo] = []
         for bal in balances:
-            if bal.asset != "USDT" and bal.free > 0:  # Base asset with balance
-                symbol = f"{bal.asset}USDT"
-                positions.append(PositionInfo(
-                    symbol=symbol,
+            if bal.asset and bal.asset.upper() != "USDT" and bal.free > 0:
+                res.append(PositionInfo(
+                    symbol=f"{bal.asset.upper()}USDT",
                     qty=bal.free,
-                    avg_price=0.0,  # Would need historical avg; stub for now
-                    ts_ms=ts_ms
+                    avg_price=0.0,  # historical avg not available from this endpoint
+                    ts_ms=ts_ms,
                 ))
-        return positions
+        return res
 
     async def place_order(self, req: OrderRequest) -> OrderResult:
-        params = {
+        params: Dict[str, Any] = {
             "symbol": self.provider_symbol(req.symbol),
-            "side": req.side,
-            "type": req.type,
+            "side": req.side.upper(),
+            "type": req.type.upper(),
             "quantity": str(req.qty),
         }
-        if req.price:
+        if req.price is not None:
             params["price"] = str(req.price)
         if req.tif:
             params["timeInForce"] = req.tif
@@ -281,13 +267,18 @@ class MexcPrivate(ExchangePrivate):
             params["newClientOrderId"] = req.tag
 
         data = await self._request("POST", "/api/v3/order", params)
+        executed_qty = float(data.get("executedQty", 0) or 0)
+        cum_quote = float(data.get("cummulativeQuoteQty", 0) or 0)
+        avg_price = (cum_quote / executed_qty) if executed_qty > 0 else 0.0
+
         return OrderResult(
             ok=data.get("orderId") is not None,
-            client_order_id=req.tag,
-            exchange_order_id=data.get("orderId"),
+            client_order_id=data.get("clientOrderId") or req.tag,
+            exchange_order_id=str(data.get("orderId")) if data.get("orderId") is not None else None,
             status=data.get("status"),
-            filled_qty=float(data.get("executedQty", 0)),
-            avg_fill_price=float(data.get("cummulativeQuoteQty", 0)) / max(1, float(data.get("executedQty", 1))),
+            filled_qty=executed_qty,
+            avg_fill_price=avg_price,
+            executed_at=None,  # MEXC order response doesn't always include server-time for fills
             raw=data,
         )
 
@@ -297,7 +288,7 @@ class MexcPrivate(ExchangePrivate):
         client_order_id: Optional[str] = None,
         exchange_order_id: Optional[str] = None,
     ) -> bool:
-        params = {"symbol": self.provider_symbol(symbol)}
+        params: Dict[str, Any] = {"symbol": self.provider_symbol(symbol)}
         if client_order_id:
             params["origClientOrderId"] = client_order_id
         elif exchange_order_id:
@@ -305,48 +296,77 @@ class MexcPrivate(ExchangePrivate):
         else:
             return False
         data = await self._request("DELETE", "/api/v3/order", params)
-        return data.get("orderId") is not None
+        return bool(data.get("orderId") or data.get("clientOrderId"))
 
     async def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
-        params = {}
+        params: Dict[str, Any] = {}
         if symbol:
             params["symbol"] = self.provider_symbol(symbol)
         data = await self._request("GET", "/api/v3/openOrders", params)
-        return data
-
-    async def close_all_positions(self, use_market: bool = True) -> Dict[str, Any]:
-        positions = await self.fetch_positions()
-        results = {"closed": [], "errors": []}
-        for pos in positions:
-            side = "SELL" if pos.qty > 0 else "BUY"
-            req = OrderRequest(symbol=pos.symbol, side=side, qty=abs(pos.qty), type="MARKET" if use_market else "LIMIT")
-            result = await self.place_order(req)
-            if result.ok:
-                results["closed"].append(pos.symbol)
-            else:
-                results["errors"].append(pos.symbol)
-        return results
+        # MEXC returns a list
+        if isinstance(data, list):
+            return data
+        return data.get("data", []) if isinstance(data, dict) else []  # defensive
 
 
-# ───────────────────────── Factory (providers added one-by-one) ─────────────────────────
+# ───────────────────────── Factory ─────────────────────────
 
+def _have_mexc_keys() -> bool:
+    k = settings.api_key or os.getenv("MEXC_API_KEY")
+    s = settings.api_secret or os.getenv("MEXC_SECRET")
+    return bool(k and s)
+
+# app/services/exchange_private.py  — заменить только эту функцию
 def get_private_client(provider: Optional[str] = None, sandbox: bool = False, mock: bool = False) -> ExchangePrivate:
     """
-    Returns an ExchangePrivate implementation based on settings.active_provider / active_mode.
-    Supports MEXC, GATE (lazy), BINANCE (TBD). Uses provided args if given, else defaults.
+    Возвращает приватный клиент по активному провайдеру/режиму.
+    Правила:
+      - DEMO: всегда мок.
+      - PAPER: если нет ключей → мок; если ключи есть → реальный клиент.
+      - LIVE: реальный клиент, ошибки пробрасываем.
+      - Любая ошибка создания реального клиента в DEMO/PAPER → фоллбэк на мок.
     """
-    # Force mock if DEMO mode, even if caller passes mock=False (fallback for reload issues)
-    effective_mock = mock or (settings.active_mode == "DEMO")
-    if effective_mock:
+    mode = (settings.active_mode or "PAPER").upper()
+
+    # DEMO всегда мок
+    if mode == "DEMO" or mock:
         return MockExchangePrivate()
 
+    # Определяем провайдера
     prov = Provider(provider.upper()) if provider else Provider.from_settings()
-    if prov == Provider.GATE:
-        # imported lazily to avoid hard dependency until the file exists
-        from app.services.gate_private import GatePrivate  # type: ignore
-        return GatePrivate()  # TODO: pass sandbox/mock if GatePrivate supports
-    if prov == Provider.BINANCE:
-        # to be implemented next (binance_private.py)
-        raise NotImplementedError("Binance private client not implemented yet.")
-    # default: MEXC
-    return MexcPrivate(sandbox=sandbox)
+
+    # Хелпер проверки наличия ключей по провайдеру
+    def _has_keys() -> bool:
+        if prov == Provider.MEXC:
+            return bool(os.getenv("MEXC_API_KEY") and os.getenv("MEXC_SECRET"))
+        if prov == Provider.GATE:
+            # можно учесть GATE_WS_ENV, но для простоты проверим обе пары
+            return bool(os.getenv("GATE_API_KEY") and os.getenv("GATE_API_SECRET")) or \
+                   bool(os.getenv("GATE_TESTNET_API_KEY") and os.getenv("GATE_TESTNET_API_SECRET"))
+        if prov == Provider.BINANCE:
+            return bool(os.getenv("BINANCE_API_KEY") and os.getenv("BINANCE_API_SECRET"))
+        return False
+
+    # PAPER: без ключей — мок
+    if mode == "PAPER" and not _has_keys():
+        return MockExchangePrivate()
+
+    # Пробуем реальный клиент
+    try:
+        if prov == Provider.GATE:
+            from app.services.gate_private import GatePrivate  # type: ignore
+            return GatePrivate(sandbox=(mode == "DEMO"))
+        if prov == Provider.BINANCE:
+            # Пока не реализовано — в PAPER откатываемся на мок, в LIVE кидаем явную ошибку
+            if mode == "LIVE":
+                raise NotImplementedError("Binance private client not implemented yet.")
+            return MockExchangePrivate()
+        # default: MEXC
+        return MexcPrivate(sandbox=(mode == "DEMO"))
+    except Exception as e:
+        # В DEMO/PAPER — фоллбэк на мок, в LIVE — пробрасываем
+        if mode in {"DEMO", "PAPER"}:
+            print(f"[Config] Private client fallback to MOCK ({prov.value}) due to: {e}")
+            return MockExchangePrivate()
+        raise
+

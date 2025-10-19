@@ -7,74 +7,70 @@ import {
   getScannerTopAny,
   startStrategy,
 } from "@/api/api";
-import type { ScannerRow as ApiScannerRow } from "@/types";
-
-/** Доп. поля, которые бэкенд может прислать (explain и уточнения по спреду). */
-type BackendOptional = {
-  eff_spread_bps?: number;
-  eff_spread_bps_taker?: number;
-  spread_bps?: number;
-  spread_pct?: number;
-  reason?: string | null;
-  reasons_all?: string[];
-  bid_qty?: number;
-  ask_qty?: number;
-};
-
-/** Расширенная строка для UI (добавляем вычисляемые поля/алиасы). */
-export type UiScannerRow = ApiScannerRow & {
-  _bps: number;
-  _mid: number;
-  _minQty: number;
-  _notionalNow: number;
-  _notionalProxy: number;
-  _quote: string;
-  _base: string;
-
-  /** Проброс explain */
-  reason?: string | null;
-  reasons_all?: string[];
-};
+import type { ScannerRow as ApiScannerRow, ScannerUiRow, GetScannerOpts } from "@/types";
 
 export type QuoteFilter = "ALL" | "USDT" | "USDC" | "FDUSD" | "BUSD";
 export type ExchangeFilter = "gate" | "mexc" | "all";
 
+/** ───────── store shape ───────── */
 type ScannerState = {
-  rows: UiScannerRow[];
+  rows: ScannerUiRow[];
   lastUpdated: number | null;
   loading: boolean;
   error?: string;
 
   running: boolean;
-  exchange: ExchangeFilter;
-  quote: QuoteFilter;
+  intervalMs: number;
 
-  /** Порог по спреду (bps) для клиентского и серверного фильтра */
+  exchange: ExchangeFilter;
+
+  // backend-native
+  preset: string;
+  quote: QuoteFilter;
+  fetchCandles: boolean;
+  rotation: boolean;
+  explain: boolean;
+  depthBpsLevels: number[];
+
+  // FE & legacy gates
   minBps: number;
-  /** Мин. ликвидность по USD (L1 notional если есть, иначе 24h proxy) */
   minUsd: number;
   limit: number;
   includeStables: boolean;
   excludeLeveraged: boolean;
 
-  /** Флаг для будущего API; если true — отправляем explain=1 */
-  explain: boolean;
+  // extra FE gates aligned to strategy
+  minDepth5Usd: number;
+  minDepth10Usd: number;
+  minTradesPerMin: number;
+  hideUnknownFees: boolean;
 
-  intervalMs: number;
+  filtered: () => ScannerUiRow[];
 
-  filtered: () => UiScannerRow[];
-
+  // setters
   setRunning: (v: boolean) => void;
+  setIntervalMs: (v: number) => void;
   setExchange: (v: ExchangeFilter) => void;
+
+  setPreset: (v: string) => void;
   setQuote: (q: QuoteFilter) => void;
+  setFetchCandles: (v: boolean) => void;
+  setRotation: (v: boolean) => void;
+  setExplain: (v: boolean) => void;
+  setDepthBpsLevels: (v: number[]) => void;
+
   setMinBps: (v: number) => void;
   setMinUsd: (v: number) => void;
   setLimit: (v: number) => void;
   setIncludeStables: (v: boolean) => void;
   setExcludeLeveraged: (v: boolean) => void;
-  setExplain: (v: boolean) => void;
-  setIntervalMs: (v: number) => void;
 
+  setMinDepth5Usd: (v: number) => void;
+  setMinDepth10Usd: (v: number) => void;
+  setMinTradesPerMin: (v: number) => void;
+  setHideUnknownFees: (v: boolean) => void;
+
+  // actions
   refresh: () => Promise<void>;
   sendToStrategy: (symbol: string) => Promise<void>;
 };
@@ -105,22 +101,76 @@ function baseOf(symbol: string): string {
   return s;
 }
 
-/** Позволяем учитывать bid_qty/ask_qty, если появятся в ответе. */
-type MaybeQty = Pick<BackendOptional, "bid_qty" | "ask_qty">;
+function computeMinDepth(
+  depthMap?: Record<number, { bid_usd?: number; ask_usd?: number }>
+): number | undefined {
+  if (!depthMap) return undefined;
+  
+  const depths: number[] = [];
+  for (const [, depth] of Object.entries(depthMap)) {
+    if (typeof depth.bid_usd === 'number') depths.push(depth.bid_usd);
+    if (typeof depth.ask_usd === 'number') depths.push(depth.ask_usd);
+  }
+  
+  return depths.length > 0 ? Math.min(...depths) : undefined;
+}
 
-/** Предпочитаем eff_spread_bps (алиас taker), затем spread_bps, затем пересчёт. */
-function pickBestBps(r: ApiScannerRow & Partial<BackendOptional>): number {
-  if (typeof r.eff_spread_bps === "number") return r.eff_spread_bps;
-  if (typeof r.eff_spread_bps_taker === "number") return r.eff_spread_bps_taker;
+/* ───────── depth checking helpers ───────── */
+
+/**
+ * Check if depth at specific BPS level meets threshold.
+ * Returns true if both bid and ask meet threshold.
+ * Returns null if depth_at_bps data not available at this level.
+ */
+function checkDepthAtBps(
+  r: ScannerUiRow, 
+  bps: number, 
+  minUsd: number
+): boolean | null {
+  const depth = r.depth_at_bps?.[bps];
+  if (!depth) return null; // No data at this BPS level
+  
+  const bidOk = typeof depth.bid_usd === 'number' && depth.bid_usd >= minUsd;
+  const askOk = typeof depth.ask_usd === 'number' && depth.ask_usd >= minUsd;
+  
+  // Both sides must meet threshold
+  return bidOk && askOk;
+}
+
+/**
+ * Fallback: Check legacy depth5 fields.
+ * Returns true if depth meets threshold OR if data is missing (permissive).
+ */
+function checkLegacyDepth5(r: ScannerUiRow, minUsd: number): boolean {
+  return (
+    r.depth5_bid_usd === undefined ||
+    r.depth5_ask_usd === undefined ||
+    (r.depth5_bid_usd >= minUsd && r.depth5_ask_usd >= minUsd)
+  );
+}
+
+/**
+ * Fallback: Check legacy depth10 fields.
+ */
+function checkLegacyDepth10(r: ScannerUiRow, minUsd: number): boolean {
+  return (
+    r.depth10_bid_usd === undefined ||
+    r.depth10_ask_usd === undefined ||
+    (r.depth10_bid_usd >= minUsd && r.depth10_ask_usd >= minUsd)
+  );
+}
+
+function pickBestBps(r: ApiScannerRow): number {
+  if (typeof r.eff_spread_maker_bps === "number") return r.eff_spread_maker_bps;
+  if (typeof r.eff_spread_taker_bps === "number") return r.eff_spread_taker_bps;
   if (typeof r.spread_bps === "number") return r.spread_bps;
-  if (typeof r.spread_pct === "number") return r.spread_pct * 100.0; // % → bps
+  if (typeof r.spread_pct === "number") return r.spread_pct * 100.0;
   return calcBps(r.bid, r.ask);
 }
 
-function toUiRow(r: ApiScannerRow): UiScannerRow {
-  const rOpt = r as ApiScannerRow & Partial<BackendOptional>;
+function toUiRow(r: ApiScannerRow): ScannerUiRow {
 
-  const spreadBps = pickBestBps(rOpt);
+  const spreadBps = pickBestBps(r);
 
   const mid =
     Number.isFinite(r.bid) && Number.isFinite(r.ask) && r.bid > 0 && r.ask > 0
@@ -129,26 +179,36 @@ function toUiRow(r: ApiScannerRow): UiScannerRow {
       ? Number(r.last)
       : 0;
 
-  const withQty = rOpt as ApiScannerRow & MaybeQty;
-  const bidQty = typeof withQty.bid_qty === "number" ? withQty.bid_qty : 0;
-  const askQty = typeof withQty.ask_qty === "number" ? withQty.ask_qty : 0;
-  const minQty = Math.min(bidQty || 0, askQty || 0);
-  const notionalNow = mid > 0 && minQty > 0 ? mid * minQty : 0;
+  const notionalNow = 0;
 
   const notionalProxy = typeof r.quote_volume_24h === "number" ? r.quote_volume_24h : 0;
 
+  const reasons = Array.isArray(r.reasons_all) ? r.reasons_all : [];
+  const feeUnknown = reasons.includes("fees:none");
+
+  const minDepthAtBps = computeMinDepth(r.depth_at_bps);
+
   return {
-    ...r,
-    _bps: spreadBps,
-    _mid: mid,
-    _minQty: minQty,
-    _notionalNow: notionalNow,
-    _notionalProxy: notionalProxy,
-    _quote: quoteOf(r.symbol),
-    _base: baseOf(r.symbol),
-    reason: rOpt.reason ?? undefined,
-    reasons_all: Array.isArray(rOpt.reasons_all) ? rOpt.reasons_all : undefined,
-  };
+  ...r,
+  // Internal computed fields (prefixed with _)
+  _bps: spreadBps,
+  _mid: mid,
+  _minQty: 0,
+  _notionalNow: notionalNow,
+  _notionalProxy: notionalProxy,
+  _quote: quoteOf(r.symbol),
+  _base: baseOf(r.symbol),
+  _feeUnknown: feeUnknown,
+  _minDepthAtBps: minDepthAtBps,
+  
+  // Page-level computed fields (no prefix) - computed here for compatibility
+  mid: mid,
+  spread_bps_ui: spreadBps,
+  daily_notional_usd: notionalProxy,
+  quote_ccy: quoteOf(r.symbol),
+  base_ccy: baseOf(r.symbol),
+  fee_unknown: feeUnknown,
+};
 }
 
 function errorMessage(e: unknown): string {
@@ -161,6 +221,74 @@ function errorMessage(e: unknown): string {
   }
 }
 
+/* ───────── persistence (localStorage) ───────── */
+
+const LS_KEY = "scanner.store.filters.v1";
+
+// Only persist non-function, user-controlled filters (avoid rows, errors, etc.)
+type PersistSlice = Pick<
+  ScannerState,
+  | "running"
+  | "intervalMs"
+  | "exchange"
+  | "preset"
+  | "quote"
+  | "fetchCandles"
+  | "rotation"
+  | "explain"
+  | "depthBpsLevels"
+  | "minBps"
+  | "minUsd"
+  | "limit"
+  | "includeStables"
+  | "excludeLeveraged"
+  | "minDepth5Usd"
+  | "minDepth10Usd"
+  | "minTradesPerMin"
+  | "hideUnknownFees"
+>;
+
+function loadPersist(): Partial<PersistSlice> {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Partial<PersistSlice>;
+    return parsed ?? {};
+  } catch {
+    return {};
+  }
+}
+function savePersist(s: PersistSlice) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(s));
+  } catch {
+    /* ignore quota errors */
+  }
+}
+function pickPersist(s: ScannerState): PersistSlice {
+  const snap: PersistSlice = {
+    running: s.running,
+    intervalMs: s.intervalMs,
+    exchange: s.exchange,
+    preset: s.preset,
+    quote: s.quote,
+    fetchCandles: s.fetchCandles,
+    rotation: s.rotation,
+    explain: s.explain,
+    depthBpsLevels: s.depthBpsLevels,
+    minBps: s.minBps,
+    minUsd: s.minUsd,
+    limit: s.limit,
+    includeStables: s.includeStables,
+    excludeLeveraged: s.excludeLeveraged,
+    minDepth5Usd: s.minDepth5Usd,
+    minDepth10Usd: s.minDepth10Usd,
+    minTradesPerMin: s.minTradesPerMin,
+    hideUnknownFees: s.hideUnknownFees,
+  };
+  return snap;
+}
+
 /* ───────── store ───────── */
 
 export const useScannerStore = create<ScannerState>()(
@@ -171,86 +299,140 @@ export const useScannerStore = create<ScannerState>()(
     error: undefined,
 
     running: true,
-    exchange: "gate",
-    quote: "USDT",
+    intervalMs: 4000,
 
-    minBps: 2.0,
-    minUsd: 50_000,
-    limit: 200,
+    exchange: "gate",
+
+    // backend-native defaults
+    preset: "hedgehog",
+    quote: "USDT",
+    fetchCandles: true,
+    rotation: true,
+    explain: true,
+    depthBpsLevels: [5, 10],
+
+    // FE & legacy gates
+    minBps: 10,
+    minUsd: 10_000,
+    limit: 100,
     includeStables: false,
     excludeLeveraged: true,
 
-    explain: true,
-    intervalMs: 4000,
+    // extra FE gates aligned to strategy
+    minDepth5Usd: 1_000,
+    minDepth10Usd: 3_000,
+    minTradesPerMin: 5,
+    hideUnknownFees: true,
 
     filtered: () => {
-      const { rows, quote, minBps, minUsd } = get();
-      const byQuote = quote === "ALL" ? rows : rows.filter((r) => r._quote === quote);
-      const byLiq = byQuote.filter(
-        (r) => r._bps >= minBps && (r._notionalNow >= minUsd || r._notionalProxy >= minUsd)
-      );
-      // чем меньше bps, тем лучше — сортируем по возрастанию
-      return [...byLiq].sort((a, b) => a._bps - b._bps);
+      const {
+        rows,
+        quote,
+        minBps,
+        minUsd,
+        minDepth5Usd,
+        minDepth10Usd,
+        minTradesPerMin,
+        hideUnknownFees,
+      } = get();
+
+      let list = quote === "ALL" ? rows : rows.filter((r) => r._quote === quote);
+      if (hideUnknownFees) list = list.filter((r) => !r._feeUnknown);
+
+      list = list.filter((r) => {
+        const bpsOK = r._bps >= minBps;
+        const usdOK = (r._notionalNow || 0) >= minUsd || (r._notionalProxy || 0) >= minUsd;
+
+        const depth5OK = checkDepthAtBps(r, 5, minDepth5Usd) ?? 
+                     checkLegacyDepth5(r, minDepth5Usd);
+    
+    const depth10OK = checkDepthAtBps(r, 10, minDepth10Usd) ?? 
+                      checkLegacyDepth10(r, minDepth10Usd);
+
+        const tpmOK =
+          typeof r.trades_per_min !== "number" || r.trades_per_min >= minTradesPerMin;
+
+        return bpsOK && usdOK && depth5OK && depth10OK && tpmOK;
+      });
+
+      return [...list].sort((a, b) => b._bps - a._bps);
     },
 
+    // setters
     setRunning: (v) => set({ running: v }),
+    setIntervalMs: (v) => set({ intervalMs: v }),
     setExchange: (v) => set({ exchange: v }),
+
+    setPreset: (v) => set({ preset: v }),
     setQuote: (q) => set({ quote: q }),
+    setFetchCandles: (v) => set({ fetchCandles: v }),
+    setRotation: (v) => set({ rotation: v }),
+    setExplain: (v) => set({ explain: v }),
+    setDepthBpsLevels: (v) => set({ depthBpsLevels: v && v.length ? v : [5, 10] }),
+
     setMinBps: (v) => set({ minBps: v }),
     setMinUsd: (v) => set({ minUsd: v }),
     setLimit: (v) => set({ limit: v }),
     setIncludeStables: (v) => set({ includeStables: v }),
     setExcludeLeveraged: (v) => set({ excludeLeveraged: v }),
-    setExplain: (v) => set({ explain: v }),
-    setIntervalMs: (v) => set({ intervalMs: v }),
+
+    setMinDepth5Usd: (v) => set({ minDepth5Usd: v }),
+    setMinDepth10Usd: (v) => set({ minDepth10Usd: v }),
+    setMinTradesPerMin: (v) => set({ minTradesPerMin: v }),
+    setHideUnknownFees: (v) => set({ hideUnknownFees: v }),
 
     refresh: async () => {
       set({ loading: true, error: undefined });
       try {
         const {
           exchange,
+          preset,
           quote,
+          fetchCandles,
+          rotation,
+          explain,
+          depthBpsLevels,
+
           minBps,
           minUsd,
           limit,
           includeStables,
           excludeLeveraged,
-          explain,
+
+          minDepth5Usd,
+          minDepth10Usd,
+          minTradesPerMin,
         } = get();
+
+        const quoteParam: string = quote === "ALL" ? "USDT" : quote;
+
+        // Use snake_case names expected by GetScannerOpts; api.ts maps minBps → min_spread_pct
+        const baseOpts: GetScannerOpts = {
+          preset,
+          quote: quoteParam,
+          fetch_candles: fetchCandles,
+          depth_bps_levels: depthBpsLevels,
+          rotation,
+          explain,
+          limit,
+
+          minBps,
+          min_quote_vol_usd: minUsd,
+          include_stables: includeStables,
+          exclude_leveraged: excludeLeveraged,
+          min_depth5_usd: minDepth5Usd,
+          min_depth10_usd: minDepth10Usd,
+          min_trades_per_min: minTradesPerMin,
+        };
 
         let raw: ApiScannerRow[] = [];
 
         if (exchange === "gate") {
-          raw = await getScannerGateTop({
-            quote,
-            minBps, // server-side filter to reduce payload + flicker
-            minUsd,
-            limit,
-            includeStables,
-            excludeLeveraged,
-            explain,
-          });
+          raw = await getScannerGateTop(baseOpts);
         } else if (exchange === "mexc") {
-          raw = await getScannerMexcTop({
-            quote,
-            minBps,
-            minUsd,
-            limit,
-            includeStables,
-            excludeLeveraged,
-            explain,
-          });
+          raw = await getScannerMexcTop(baseOpts);
         } else {
-          // "all"
-          raw = await getScannerTopAny("all", {
-            quote,
-            minBps,
-            minUsd,
-            limit,
-            includeStables,
-            excludeLeveraged,
-            explain,
-          });
+          raw = await getScannerTopAny("all", baseOpts);
         }
 
         set({
@@ -268,3 +450,17 @@ export const useScannerStore = create<ScannerState>()(
     },
   }))
 );
+
+/** Hydrate from localStorage (once) */
+(() => {
+  const saved = loadPersist();
+  if (saved && Object.keys(saved).length) {
+    useScannerStore.setState(saved as Partial<ScannerState>, false, "scanner/hydrate");
+  }
+})();
+
+/** Persist to localStorage on every relevant change (no selector overload) */
+useScannerStore.subscribe((s: ScannerState) => {
+  savePersist(pickPersist(s));
+});
+

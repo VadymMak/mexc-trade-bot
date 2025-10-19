@@ -3,44 +3,46 @@
 Global constants for the Trade Bot.
 
 This module intentionally contains simple, import-time constants only.
-Runtime tunables should be changed via /api/strategy/params.
+Runtime tunables should be changed via /api/strategy/params or environment.
 """
+from app.config.settings import settings
 
 # ───────────────────────────── WS (public data) ─────────────────────────────
-# MEXC Protobuf Spot v3
-WS_PUBLIC_ENDPOINT = "wss://wbs-api.mexc.com/ws"
+# Endpoint resolved from active provider/mode (can be overridden by WS_BASE_URL_RESOLVED)
+WS_PUBLIC_ENDPOINT = settings.ws_base_url_resolved
 
-# Protobuf channels
+# Protobuf channels (MEXC Spot v3)
 WS_CHANNELS = {
     "BOOK_TICKER": "spot@public.aggre.bookTicker.v3.api.pb",  # best bid/ask
     "DEALS":       "spot@public.aggre.deals.v3.api.pb",       # trades stream
     "DEPTH_LIMIT": "spot@public.limit.depth.v3.api.pb",       # top-N depth
 }
 
-# Update cadence suffix for topics (account-permissions may restrict lower cadences)
-WS_RATE_SUFFIX = "@100ms"  # alternatives: "@10ms" if allowed
+# Topic update cadence suffix (env: WS_RATE_SUFFIX, default @500ms per stability guidance)
+WS_RATE_SUFFIX = settings.ws_rate_suffix or ""  # e.g. "@500ms"; empty → provider default
 
-# MEXC limits / hygiene
-WS_MAX_TOPICS = 30                 # max topics per connection
-WS_PING_INTERVAL_SEC = 20          # heartbeat
-WS_MAX_LIFETIME_SEC = 23 * 3600 + 2700  # ~23h45m to stay under 24h hard limit
+# Hygiene / limits (all come from env via settings with sensible defaults)
+WS_MAX_TOPICS        = settings.ws_max_topics
+WS_PING_INTERVAL_SEC = settings.ws_ping_interval_sec
+WS_MAX_LIFETIME_SEC  = settings.ws_max_lifetime_sec
+
+# SUBSCRIBE throttle (topics per second) — used by ws client to avoid blocks
+WS_SUBSCRIBE_RATE_LIMIT_PER_SEC = settings.ws_subscribe_rate_limit_per_sec
 
 # ───────────────────────────── Strategy defaults ─────────────────────────────
-# NB: These are *defaults*. You can override them at runtime via:
-#     PUT /api/strategy/params  (see Swagger)
+# These are import-time defaults; dynamic runtime values should come from
+# PUT /api/strategy/params or from settings.* where applicable.
 
-# Entry requires at least this spread (in basis points; 1 bps = 0.01%)
-# Was 10; relaxed to 3 so entries can trigger on tighter markets you observed.
+# Entry requires at least this spread (bps). You can still override at runtime.
 MIN_SPREAD_BPS = 3
 
-# Minimum net edge after fees (bps). Paper has no fees; live should subtract maker fee.
-# Was 4; relaxed to 2 to allow entries with moderate edge.
+# Minimum net edge after fees (bps)
 EDGE_FLOOR_BPS = 2
 
 # Window around mid (bps) used for absorption/depth checks
 ABSORPTION_X_BPS = 10
 
-# Trading constraints
-MAX_CONCURRENT_SYMBOLS = 6   # max symbols the strategy will run in parallel
-ORDER_SIZE_USD = 50          # paper notional per order
-TIMEOUT_EXIT_SEC = 25        # force exit if held longer than this
+# Trading constraints (paper defaults)
+MAX_CONCURRENT_SYMBOLS = 6         # max symbols the strategy will run in parallel
+ORDER_SIZE_USD = 50                # paper notional per order
+TIMEOUT_EXIT_SEC = 25              # force exit if held longer than this

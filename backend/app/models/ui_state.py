@@ -23,8 +23,10 @@ from app.models.base import Base
 class UIState(Base):
     """
     Server-side UI state for a workspace.
-    - watchlist/layout/ui_prefs are JSON blobs (SQLite & Postgres friendly)
-    - revision used as ETag/If-Match; increment via bump_revision()
+
+    - watchlist / layout / ui_prefs are JSON blobs (SQLite & Postgres friendly)
+    - revision is used as an optimistic-concurrency token (ETag/If-Match)
+      and can be incremented via bump_revision()
     """
 
     __tablename__ = "ui_state"
@@ -34,10 +36,10 @@ class UIState(Base):
     # Keep workspace_id for easy multi-tenant later
     workspace_id: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
 
-    # JSON fields
+    # JSON fields (use callable default to avoid shared mutable defaults)
     watchlist: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    layout: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
-    ui_prefs: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    layout:    Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    ui_prefs:  Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
     # Monotonic revision for optimistic concurrency / ETag
     revision: Mapped[int] = mapped_column(
@@ -46,8 +48,8 @@ class UIState(Base):
         server_default=text("1"),
     )
 
-    # Active flag (added to fix 'no attribute active' error)
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Active flag (used by config manager persistence)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("0"))
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -75,8 +77,8 @@ class UIState(Base):
             "watchlist": self.watchlist or {},
             "layout": self.layout or {},
             "ui_prefs": self.ui_prefs or {},
-            "revision": int(self.revision) if self.revision is not None else 0,
-            "active": self.active,
+            "revision": int(self.revision) if self.revision is not None else 1,
+            "active": bool(self.active),
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
@@ -86,4 +88,7 @@ class UIState(Base):
         self.revision = max(1, cur + inc)
 
     def __repr__(self) -> str:  # pragma: no cover
-        return f"<UIState ws={self.workspace_id} rev={self.revision} active={self.active} updated_at={self.updated_at}>"
+        return (
+            f"<UIState ws={self.workspace_id} rev={self.revision} "
+            f"active={self.active} updated_at={self.updated_at}>"
+        )

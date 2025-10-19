@@ -1,5 +1,6 @@
 # app/infra/metrics.py
 from __future__ import annotations
+import time
 from prometheus_client import Counter, Histogram, Gauge
 
 # ───────────────────────── WS metrics ─────────────────────────
@@ -112,8 +113,7 @@ strategy_realized_pnl_total = Gauge(
     ["symbol"],
 )
 
-# Count of currently running per-symbol strategy loops.
-# No labels to keep cardinality low.
+# Count of currently running per-symbol strategy loops. (low cardinality)
 strategy_symbols_running = Gauge(
     "strategy_symbols_running",
     "Number of active strategy symbol loops"
@@ -161,3 +161,22 @@ strategy_time_in_book_seconds = Histogram(
     ["symbol"],
     buckets=(0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 8, 10, 20, 30, 60, 120),
 )
+
+# ───────────────────── Process / compatibility helpers ─────────────────────
+# Report process uptime (seconds) for /healthz
+process_uptime_sec = Gauge("process_uptime_sec", "Process uptime in seconds")
+
+_process_start_ts = time.time()
+
+def update_uptime_now() -> None:
+    """Set the process_uptime_sec gauge to current uptime."""
+    try:
+        process_uptime_sec.set(max(0.0, time.time() - _process_start_ts))
+    except Exception:
+        pass
+
+# Compatibility aliases so routers can use shorter names:
+# - health expects: ticks_per_sec, depth_updates_per_sec, cache_hitrate
+ticks_per_sec = ws_ticks_per_sec
+depth_updates_per_sec = ws_depth_updates_per_sec
+cache_hitrate = scanner_cache_hitrate

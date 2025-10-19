@@ -20,24 +20,41 @@ def _now_ms() -> int:
 
 def _is_fallback_candles(m: Metrics, *, atr_sentinel: float, min_atr1m_pct: float) -> bool:
     """
-    Detect placeholder candle stats, supporting two patterns:
-    1) Fixed legacy sentinel (atr ≈ atr_sentinel, spikes=0, pullback≈0.35, grinder≈0.30)
-    2) Router/preset-based placeholder (atr ≈ 0.9 * min_atr1m_pct, spikes=0, pullback≈0.35, grinder≈0.30)
+    Detect placeholder candle stats, supporting three patterns:
+
+    1) Legacy sentinel (old percent-based world):
+       atr ≈ atr_sentinel (e.g. 0.135), spikes=0, pullback≈0.35, grinder≈0.30
+    2) Router clamp to preset minimum:
+       atr ≈ min_atr1m_pct, spikes=0, pullback≈0.35, grinder≈0.30
+    3) Router clamp to ~90% of preset minimum:
+       atr ≈ 0.9 * min_atr1m_pct, spikes=0, pullback≈0.35, grinder≈0.30
     """
-    eps = 1e-9
+    # numerical tolerances scale with preset to work in the fractional domain
+    tol_min = max(1e-6, min_atr1m_pct * 0.05)  # ±5% of preset min or 1e-6
+    tol_legacy = 1e-6
+
     legacy = (
-        isclose(m.atr1m_pct, atr_sentinel, rel_tol=0.0, abs_tol=1e-12)
+        isclose(m.atr1m_pct, atr_sentinel, rel_tol=0.0, abs_tol=tol_legacy)
         and m.spike_count_90m == 0
         and isclose(m.pullback_median_retrace, 0.35, rel_tol=0.0, abs_tol=1e-12)
         and isclose(m.grinder_ratio, 0.30, rel_tol=0.0, abs_tol=1e-12)
     )
-    presetish = (
+
+    clamp_equal = (
         m.spike_count_90m == 0
         and isclose(m.pullback_median_retrace, 0.35, rel_tol=0.0, abs_tol=1e-12)
-        and abs(m.grinder_ratio - 0.30) <= 1e-12
-        and abs(m.atr1m_pct - max(min_atr1m_pct * 0.9, 0.001)) <= max(1e-6, min_atr1m_pct * 0.05 + eps)
+        and isclose(m.grinder_ratio, 0.30, rel_tol=0.0, abs_tol=1e-12)
+        and abs(m.atr1m_pct - min_atr1m_pct) <= tol_min
     )
-    return legacy or presetish
+
+    clamp_90 = (
+        m.spike_count_90m == 0
+        and isclose(m.pullback_median_retrace, 0.35, rel_tol=0.0, abs_tol=1e-12)
+        and isclose(m.grinder_ratio, 0.30, rel_tol=0.0, abs_tol=1e-12)
+        and abs(m.atr1m_pct - (min_atr1m_pct * 0.9)) <= tol_min
+    )
+
+    return legacy or clamp_equal or clamp_90
 
 
 def score_metrics(metrics: Metrics, preset_name: str) -> Tuple[int, List[str], Tier]:
@@ -51,10 +68,10 @@ def score_metrics(metrics: Metrics, preset_name: str) -> Tuple[int, List[str], T
     score: float = 0.0
     stale = False
 
-    # Detect fallback candles (supports both legacy & preset-based defaults)
+    # Detect fallback candles (supports legacy and router clamp patterns)
     fallback_candles = _is_fallback_candles(
         metrics,
-        atr_sentinel=0.135,
+        atr_sentinel=0.135,          # legacy percent-era sentinel retained for safety
         min_atr1m_pct=p.min_atr1m_pct,
     )
     if fallback_candles:
@@ -119,7 +136,7 @@ def score_metrics(metrics: Metrics, preset_name: str) -> Tuple[int, List[str], T
     if metrics.slip_bps_clip <= p.max_slip_bps * 0.7:
         reasons.append("slippage_ok")
 
-    # Volatility (ATR%) — up to 15
+    # Volatility (ATR fraction) — up to 15
     atr_ratio = max(0.0, min(1.0, metrics.atr1m_pct / max(p.min_atr1m_pct * 2.0, 1e-9)))
     score += 15.0 * atr_ratio
     if atr_ratio >= 0.8:

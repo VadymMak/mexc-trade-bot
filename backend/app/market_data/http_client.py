@@ -2,15 +2,43 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from typing import Dict, Any, List, Optional, Tuple, Callable, Awaitable
 import httpx
 
 from app.config.settings import settings
 
+try:
+    from prometheus_client import Counter, Histogram
+except ImportError:
+    Counter = Histogram = None
+
+logger = logging.getLogger(__name__)
+
+if Counter and Histogram:
+    http_requests_total = Counter(
+        "http_requests_total",
+        "Total HTTP requests",
+        ["provider", "symbol", "status"]
+    )
+    http_request_duration_seconds = Histogram(
+        "http_request_duration_seconds",
+        "HTTP request latency",
+        ["provider", "symbol"],
+        buckets=(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0)
+    )
+    http_errors_total = Counter(
+        "http_errors_total",
+        "Total HTTP errors",
+        ["provider", "symbol", "error_type"]
+    )
+else:
+    http_requests_total = http_request_duration_seconds = http_errors_total = None
+
 # --- Базы MEXC ---
 MEXC_V3_BASE = "https://api.mexc.com/api/v3"
 MEXC_V2_BASE = "https://www.mexc.com/open/api/v2"
-
 # --- База Binance ---
 BINANCE_BASE = "https://api.binance.com/api/v3"
 
@@ -21,15 +49,15 @@ def _mk_client(verify: bool, proxy_url: Optional[str], user_agent: str) -> httpx
     - proxy передаём через параметр `proxies=...` в AsyncClient (НЕ в transport)
     - http2=False
     - trust_env=True (подхват системных настроек/сертификатов)
-    - небольшой retries на транспортном уровне
+    - retries/timeout из settings
     """
-    transport = httpx.AsyncHTTPTransport(retries=1)
+    transport = httpx.AsyncHTTPTransport(retries=settings.rest_retry_attempts)  # ⬅️ ИЗМЕНИТЬ
     return httpx.AsyncClient(
         http2=False,
         transport=transport,
         verify=verify,
         trust_env=True,
-        timeout=httpx.Timeout(10.0, connect=6.0, read=8.0),
+        timeout=httpx.Timeout(settings.rest_timeout_sec),
         headers={"User-Agent": user_agent},
         proxies=proxy_url or None,
     )
@@ -78,6 +106,11 @@ class MEXCHTTPClient:
         # коллбек наверх (в твой сервисный слой)
         self._on_update = on_update
 
+        # Счётчик символов, недоступных на текущем провайдере
+        self._unavailable_symbols: set[str] = set()
+
+        self._backoff_max = settings.rest_backoff_max_sec 
+
     # ---------- Detect provider ----------
     async def detect_provider(self) -> None:
         # 1) MEXC v3
@@ -86,10 +119,10 @@ class MEXCHTTPClient:
             r = await c.get(f"{self.mexc_v3_base}/ping")
             r.raise_for_status()
             self.client, self.mode = c, "mexc_v3"
-            print(f"✅ Using MEXC v3: {self.mexc_v3_base}")
+            logger.info(f"✅ Using MEXC v3: {self.mexc_v3_base}")
             return
         except Exception as e:
-            print(f"  ❌ MEXC v3 ping fail: {e}")
+            logger.warning(f"❌ MEXC v3 ping fail: {e}")
             await c.aclose()
 
         # 2) MEXC v2
@@ -98,12 +131,12 @@ class MEXCHTTPClient:
             r = await c.get(f"{self.mexc_v2_base}/common/timestamp")
             if r.status_code == 200:
                 self.client, self.mode = c, "mexc_v2"
-                print(f"✅ Using MEXC v2: {self.mexc_v2_base}")
+                logger.info(f"✅ Using MEXC v2: {self.mexc_v2_base}")
                 return
-            print(f"  ❌ MEXC v2 responded {r.status_code}: {r.text[:120]}")
+            logger.warning(f"❌ MEXC v2 responded {r.status_code}: {r.text[:120]}")
             await c.aclose()
         except Exception as e:
-            print(f"  ❌ MEXC v2 ping fail: {e}")
+            logger.warning(f"❌ MEXC v2 ping fail: {e}")
             await c.aclose()
 
         # 3) Binance
@@ -112,10 +145,10 @@ class MEXCHTTPClient:
             r = await c.get(f"{self.binance_base}/ping")
             r.raise_for_status()
             self.client, self.mode = c, "binance"
-            print(f"✅ Using Binance: {self.binance_base}")
+            logger.info(f"✅ Using Binance: {self.binance_base}")
             return
         except Exception as e:
-            print(f"  ❌ Binance ping fail: {e}")
+            logger.warning(f"❌ Binance ping fail: {e}")
             await c.aclose()
 
         # 4) Диагностика (verify=False) — опционально
@@ -126,10 +159,10 @@ class MEXCHTTPClient:
                 r = await c.get(f"{base}{path}")
                 r.raise_for_status()
                 self.client, self.mode = c, "mexc_v3" if base.endswith("/api/v3") else "mexc_v2"
-                print(f"⚠️ Using {label} WITHOUT TLS verify: {base}")
+                logger.warning(f"⚠️ Using {label} WITHOUT TLS verify: {base}")
                 return
             except Exception as e:
-                print(f"  ❌ {label} (verify=False) ping fail: {e}")
+                logger.warning(f"❌ {label} (verify=False) ping fail: {e}")
                 await c.aclose()
 
         raise RuntimeError("❌ Нет доступного провайдера (MEXC v3/v2 и Binance недоступны). Проверь прокси/VPN/фаервол.")
@@ -227,7 +260,12 @@ class MEXCHTTPClient:
     # ---------- polling per symbol ----------
     async def _poll_symbol(self, symbol: str) -> None:
         assert self.client and self.mode
+        retry_delay = self.interval
         while not self._stop.is_set():
+            start_time = time.time()  
+            status_code = "success"   
+            error_type = None       
+            
             try:
                 if self.mode == "mexc_v3":
                     t, d = await asyncio.gather(
@@ -251,31 +289,67 @@ class MEXCHTTPClient:
                         last, bid, ask = self.normalize_from_binance(book, t24)
                     except httpx.HTTPStatusError as e:
                         if e.response.status_code == 400:
-                            print(f"[{symbol}] ⚠️ Нет в Binance (пропуск).")
+                            self._unavailable_symbols.add(symbol)
+                            logger.warning(f"[{symbol}] ⚠️ Нет в Binance (пропуск). Unavailable: {len(self._unavailable_symbols)}/{len(self.symbols)}")
+                            
+                            status_code = "404"  # ⬅️ ДОБАВИТЬ
+                            error_type = "symbol_not_found"  # ⬅️ ДОБАВИТЬ
+                            
+                            # Если ВСЕ символы недоступны — останавливаем поллинг
+                            if len(self._unavailable_symbols) >= len(self.symbols):
+                                logger.error(f"❌ Все {len(self.symbols)} символов недоступны на {self.mode}. Останавливаем поллинг.")
+                                return
+                            
                             await asyncio.sleep(self.interval)
                             continue
                         raise
+
+                retry_delay = self.interval  # reset backoff on success
+                self._unavailable_symbols.discard(symbol)
 
                 # уведомление вверх
                 if self._on_update:
                     try:
                         await self._on_update(symbol, last, bid, ask)
                     except Exception as cb_err:
-                        print(f"[{symbol}] on_update error: {cb_err}")
+                        logger.error(f"[{symbol}] on_update error: {cb_err}")
+
+                if http_request_duration_seconds:
+                    duration = time.time() - start_time
+                    http_request_duration_seconds.labels(provider=self.mode, symbol=symbol).observe(duration)
+                if http_requests_total:
+                    http_requests_total.labels(provider=self.mode, symbol=symbol, status=status_code).inc()
 
                 # лог для диагностики
                 if bid is not None and ask is not None:
                     spread = ask - bid
-                    print(f"[{symbol}] last={last} bid={bid} ask={ask} spread={spread}")
+                    logger.debug(f"[{symbol}] last={last} bid={bid} ask={ask} spread={spread}")
                 else:
-                    print(f"[{symbol}] last={last} bid={bid} ask={ask}")
+                    logger.debug(f"[{symbol}] last={last} bid={bid} ask={ask}")
 
             except httpx.HTTPStatusError as e:
-                print(f"[{symbol}] HTTP {e.response.status_code}: {e.response.text[:200]}")
+                logger.error(f"[{symbol}] HTTP {e.response.status_code}: {e.response.text[:200]}")
+                status_code = str(e.response.status_code)  # ⬅️ ДОБАВИТЬ
+                error_type = f"http_{e.response.status_code}"  # ⬅️ ДОБАВИТЬ
+                retry_delay = min(retry_delay * settings.rest_retry_backoff_factor, self._backoff_max)
             except Exception as e:
-                print(f"[{symbol}] Error: {e}")
+                logger.error(f"[{symbol}] Error: {e}")
+                status_code = "error"  # ⬅️ ДОБАВИТЬ
+                error_type = type(e).__name__  # ⬅️ ДОБАВИТЬ
+                retry_delay = min(retry_delay * settings.rest_retry_backoff_factor, self._backoff_max)
+            
+            # ⬇️ ДОБАВИТЬ ЭТИ 6 СТРОК (сразу после обоих except блоков):
+            finally:
+                # Record metrics даже при ошибках
+                if error_type and http_errors_total:
+                    http_errors_total.labels(provider=self.mode, symbol=symbol, error_type=error_type).inc()
+                if http_requests_total and status_code != "success":
+                    http_requests_total.labels(provider=self.mode, symbol=symbol, status=status_code).inc() 
 
-            await asyncio.wait_for(self._stop.wait(), timeout=self.interval)
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=retry_delay)  # ⬅️ ИЗМЕНИТЬ self.interval → retry_delay
+            except asyncio.TimeoutError:
+                pass  # normal timeout, continue polling
 
     # ---------- lifecycle ----------
     async def start(self) -> None:
@@ -295,6 +369,9 @@ class MEXCHTTPClient:
                 pass
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        if self._unavailable_symbols:
+            logger.warning(f"⚠️ Stopped with {len(self._unavailable_symbols)} unavailable symbols: {self._unavailable_symbols}")
+        self._unavailable_symbols.clear()
         if self.client:
             try:
                 await self.client.aclose()
@@ -307,7 +384,7 @@ class MEXCHTTPClient:
 # Debug launcher
 if __name__ == "__main__":
     async def _dbg_update(symbol: str, last, bid, ask):
-        print(f"UPDATE {symbol} → last={last} bid={bid} ask={ask}")
+        logger.info(f"UPDATE {symbol} → last={last} bid={bid} ask={ask}")
 
     client = MEXCHTTPClient(settings.symbols, on_update=_dbg_update)
     asyncio.run(client.start())

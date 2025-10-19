@@ -5,7 +5,7 @@ import asyncio
 from typing import Dict, Optional, Protocol, Any
 
 from app.config.settings import settings
-from app.models.base import SessionLocal
+from app.db.session import SessionLocal
 from app.execution.paper_executor import PaperExecutor, PositionTrackerProto
 from app.services.position_tracker import PositionTracker  # concrete tracker
 

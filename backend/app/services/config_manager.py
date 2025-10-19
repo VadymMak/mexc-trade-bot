@@ -4,37 +4,23 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-import os
 from dataclasses import dataclass, asdict
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
-__all__ = ["ConfigManager", "ConfigState", "config_manager"]
+from app.config.settings import settings
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Public contract
-# - ConfigManager is a singleton-like orchestrator that:
-#   * stores active provider/mode
-#   * coordinates safe provider switches (stop strategies → stop streams → reset tracker → start streams)
-#   * exposes GET/POST-friendly state (for /api/config/provider)
-# - It does NOT hard-depend on specific services; instead, it accepts hooks that
-#   will be wired from main.py:
-#     - stop_all_strategies()
-#     - stop_streams()
-#     - start_streams(provider, mode) -> bool (ws_enabled)
-#     - reset_book_tracker()
-#   You can wire existing services/session managers without refactoring them.
-# ──────────────────────────────────────────────────────────────────────────────
+__all__ = ["ConfigManager", "ConfigState", "config_manager"]
 
 logger = logging.getLogger(__name__)
 
-Provider = str  # e.g. "gate" | "mexc" | "binance"
-Mode = str      # e.g. "PAPER" | "DEMO" | "LIVE"
+Provider = str  # "gate" | "mexc" | "binance"
+Mode = str      # "PAPER" | "DEMO" | "LIVE"
 
 
 @dataclass
 class ConfigState:
-    active: Provider
-    mode: Mode
+    active: Provider         # lower-case provider
+    mode: Mode               # UPPER mode
     available: List[Provider]
     ws_enabled: bool
     revision: int
@@ -49,42 +35,42 @@ class ConfigManager:
     Wire hooks from main.py via `set_hooks(...)`.
     """
 
-    # How long we remember idempotency decisions (seconds)
-    _IDEMPOTENCY_TTL = int(os.getenv("IDEMPOTENCY_WINDOW_SEC", "300"))  # Из .env, default 5min
+    # Pull the TTL from settings to keep one source of truth
+    _IDEMPOTENCY_TTL = int(getattr(settings, "idempotency_window_sec", 300))
 
     def __init__(
         self,
-        initial_provider: Provider = os.getenv("ACTIVE_PROVIDER", "mexc").lower(),  # Из .env
-        initial_mode: Mode = os.getenv("ACTIVE_MODE", "DEMO").upper(),  # Из .env
+        initial_provider: Provider = settings.active_provider.lower(),
+        initial_mode: Mode = settings.active_mode.upper(),
         available_providers: Optional[List[Provider]] = None,
     ) -> None:
         self._lock = asyncio.Lock()
         self._ready = asyncio.Event()
 
-        self._available = available_providers or ["gate", "mexc", "binance"]  # Lowercase для consistency с enum
+        # Keep provider list normalized to lowercase and in a stable UI-friendly order
+        self._available = [p.lower() for p in (available_providers or settings.available_providers)]
         self._state = ConfigState(
             active=initial_provider,
             mode=initial_mode,
             available=self._available,
-            ws_enabled=False,
-            revision=int(os.getenv("UI_REVISION_SEED", "1")),  # Из .env
+            ws_enabled=bool(settings.enable_ws),
+            revision=1,  # will be replaced from DB if present
         )
 
-        # Hooks (to be wired in main.py)
+        # Hooks (wired in main.py)
         self._hook_stop_all_strategies: Optional[Callable[[], Awaitable[None]]] = None
         self._hook_stop_streams: Optional[Callable[[], Awaitable[None]]] = None
         self._hook_start_streams: Optional[Callable[[Provider, Mode], Awaitable[bool]]] = None
         self._hook_reset_book_tracker: Optional[Callable[[], None]] = None
 
-        # Idempotency memory: key -> (timestamp, state_dict)
+        # Idempotency cache: key -> (timestamp, state_dict)
         self._idem_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
         # Clients (reload on switch)
-        self._private_client: Optional[Any] = None  # ccxt или custom
-        self._public_client: Optional[Any] = None   # Для REST/WS public
+        self._private_client: Optional[Any] = None
+        self._public_client: Optional[Any] = None
 
     # ─────────────────────────── Wiring / Hooks ────────────────────────────
-
     def set_hooks(
         self,
         *,
@@ -93,15 +79,13 @@ class ConfigManager:
         start_streams: Callable[[Provider, Mode], Awaitable[bool]],
         reset_book_tracker: Callable[[], None],
     ) -> None:
-        """Wire lifecycle hooks from the app."""
         self._hook_stop_all_strategies = stop_all_strategies
         self._hook_stop_streams = stop_streams
         self._hook_start_streams = start_streams
         self._hook_reset_book_tracker = reset_book_tracker
 
     # ─────────────────────────── Initialization ────────────────────────────
-
-    async def init_on_startup(self, db: Any = None) -> None:  # Добавили db для load state из DB
+    async def init_on_startup(self, db: Any = None) -> None:
         """
         Called once from app lifespan. Starts streams for the initial provider/mode.
         Loads persisted state from DB if provided.
@@ -114,50 +98,41 @@ class ConfigManager:
                 self._hook_reset_book_tracker,
             ]
         ):
-            raise RuntimeError(
-                "ConfigManager hooks are not fully wired. Call set_hooks(...) before init_on_startup()."
-            )
+            raise RuntimeError("ConfigManager hooks are not fully wired. Call set_hooks(...) before init_on_startup().")
 
-        # Load persisted state from DB (если есть)
+        # Load persisted state from DB (if any)
         if db:
             try:
-                persisted = self._load_from_db(db)  # Реализуй ниже или в отдельном методе
+                persisted = self._load_from_db(db)
+                # Normalize and overlay
+                persisted["active"] = str(persisted.get("active", self._state.active)).lower()
+                persisted["mode"] = str(persisted.get("mode", self._state.mode)).upper()
+                persisted["ws_enabled"] = bool(persisted.get("ws_enabled", self._state.ws_enabled))
+                persisted["revision"] = int(persisted.get("revision", self._state.revision))
+                persisted["available"] = list(self._available)
                 self._state = ConfigState(**persisted)
-                logger.info("ConfigManager: loaded persisted state from DB: %s", self._state.active)
-            except Exception:
-                logger.warning("ConfigManager: failed to load persisted state (using initial)")
+                logger.info("ConfigManager: loaded persisted state from DB: %s/%s", self._state.active, self._state.mode)
+            except Exception as e:
+                logger.info("ConfigManager: no persisted state found (using initial). %s", e)
 
         async with self._lock:
-            logger.info(
-                "ConfigManager: initializing — provider=%s, mode=%s",
-                self._state.active,
-                self._state.mode,
-            )
-            # Ensure tracker is clean on boot (defensive)
+            logger.info("ConfigManager: initializing — provider=%s, mode=%s", self._state.active, self._state.mode)
             try:
                 self._hook_reset_book_tracker and self._hook_reset_book_tracker()
             except Exception:
                 logger.exception("ConfigManager: reset_book_tracker on startup failed (continuing).")
 
-            # Reload clients для initial (сегрегация)
             self._reload_clients(self._state.active, self._state.mode)
 
-            # Start streams for initial provider/mode
-            ws_enabled = await self._hook_start_streams(self._state.active, self._state.mode)
+            ws_enabled = await self._hook_start_streams(self._state.active, self._state.mode)  # type: ignore[arg-type]
             self._state.ws_enabled = bool(ws_enabled)
             self._ready.set()
-            logger.info(
-                "ConfigManager: initialized — ws_enabled=%s, revision=%s",
-                self._state.ws_enabled,
-                self._state.revision,
-            )
+            logger.info("ConfigManager: initialized — ws_enabled=%s, revision=%s", self._state.ws_enabled, self._state.revision)
 
-            # Save to DB
             if db:
                 self._save_to_db(db)
 
     # ───────────────────────────── Public API ──────────────────────────────
-
     def is_ready(self) -> bool:
         return self._ready.is_set()
 
@@ -169,12 +144,20 @@ class ConfigManager:
             return False
 
     def get_state(self) -> Dict[str, Any]:
+        return dict(self._state.to_dict())
+
+    def state_for_api(self) -> Dict[str, Any]:
         """
-        Return current config state (for GET /api/config/provider).
-        Fast, non-blocking; returns a shallow copy to prevent accidental external mutation.
+        Shape aligned with settings.provider_state() so the /api/config/provider router
+        can return this directly (it may inject 'revision' if needed).
         """
-        d = self._state.to_dict()
-        return dict(d)  # shallow copy
+        return {
+            "active": self._state.active,
+            "mode": self._state.mode,
+            "available": list(self._state.available),
+            "ws_enabled": bool(self._state.ws_enabled),
+            "revision": int(self._state.revision),
+        }
 
     async def switch(
         self,
@@ -182,31 +165,23 @@ class ConfigManager:
         provider: Provider,
         mode: Mode,
         idempotency_key: Optional[str] = None,
-        db: Optional[Any] = None,  # Добавили db для persist
+        db: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
-        Safely switch provider/mode:
-          1) stop strategies
-          2) stop streams
-          3) reset book tracker
-          4) start streams for new provider/mode
-          5) bump revision
-        Returns new state dict (for POST /api/config/provider).
+        Safely switch provider/mode with idempotency and persistence.
         """
-        # Idempotency check (fast path)
+        # Idempotency (fast path)
         if idempotency_key:
             cached = self._idem_cache.get(idempotency_key)
             if cached and (time.time() - cached[0] <= self._IDEMPOTENCY_TTL):
                 logger.info("ConfigManager: idempotent switch hit (%s) — returning cached result.", idempotency_key)
-                return dict(cached[1])  # shallow copy
+                return dict(cached[1])
 
-        # Validate provider/mode
         provider = (provider or "").strip().lower()
         mode = (mode or "").strip().upper()
 
-        if provider not in [p.lower() for p in self._available]:
+        if provider not in self._available:
             raise ValueError(f"Unsupported provider: {provider!r}. Allowed: {self._available}")
-
         if mode not in {"PAPER", "DEMO", "LIVE"}:
             raise ValueError(f"Unsupported mode: {mode!r}. Allowed: PAPER | DEMO | LIVE")
 
@@ -221,18 +196,14 @@ class ConfigManager:
                     self._save_to_db(db)
                 return dict(state)
 
-            logger.info(
-                "ConfigManager: switching provider — %s/%s → %s/%s",
-                self._state.active, self._state.mode, provider, mode
-            )
+            logger.info("ConfigManager: switching provider — %s/%s → %s/%s",
+                        self._state.active, self._state.mode, provider, mode)
             self._ready.clear()
 
             # 1) Stop strategies
             try:
                 if self._hook_stop_all_strategies:
                     await self._hook_stop_all_strategies()
-                else:
-                    raise RuntimeError("stop_all_strategies hook is not set")
             except Exception:
                 logger.exception("ConfigManager: stop_all_strategies failed (continuing).")
 
@@ -240,8 +211,6 @@ class ConfigManager:
             try:
                 if self._hook_stop_streams:
                     await self._hook_stop_streams()
-                else:
-                    raise RuntimeError("stop_streams hook is not set")
             except Exception:
                 logger.exception("ConfigManager: stop_streams failed (continuing).")
 
@@ -249,30 +218,26 @@ class ConfigManager:
             try:
                 if self._hook_reset_book_tracker:
                     self._hook_reset_book_tracker()
-                else:
-                    raise RuntimeError("reset_book_tracker hook is not set")
             except Exception:
                 logger.exception("ConfigManager: reset_book_tracker failed (continuing).")
 
-            # Update target config
+            # Update target state
             self._state.active = provider
             self._state.mode = mode
 
-            # Reload clients (сегрегация: private/public по provider/mode)
+            # Reload clients
             self._reload_clients(provider, mode)
 
-            # 4) Start streams for new provider/mode
+            # 4) Start streams
             ws_enabled = False
             try:
                 if self._hook_start_streams:
                     ws_enabled = await self._hook_start_streams(provider, mode)
-                else:
-                    raise RuntimeError("start_streams hook is not set")
             except Exception:
                 logger.exception("ConfigManager: start_streams failed — WS disabled.")
                 ws_enabled = False
 
-            # 5) Bump revision & mark ready
+            # 5) Finalize
             self._state.ws_enabled = bool(ws_enabled)
             self._state.revision += 1
             self._ready.set()
@@ -280,21 +245,16 @@ class ConfigManager:
             state = self._state.to_dict()
             logger.info("ConfigManager: switched — %s", state)
 
-            # Store idempotent result
             if idempotency_key:
                 self._idem_cache[idempotency_key] = (time.time(), state)
-
-            # Periodically prune cache
             self._prune_idem_cache()
 
-            # Persist to DB
             if db:
                 self._save_to_db(db)
 
             return dict(state)
 
     # ───────────────────────────── Internals ───────────────────────────────
-
     def _prune_idem_cache(self) -> None:
         now = time.time()
         stale_keys = [k for k, (ts, _) in self._idem_cache.items() if now - ts > self._IDEMPOTENCY_TTL]
@@ -302,93 +262,112 @@ class ConfigManager:
             self._idem_cache.pop(k, None)
 
     def _reload_clients(self, provider: Provider, mode: Mode) -> None:
-        """Reload private/public clients based on provider/mode (sandbox/mocks)."""
         try:
-            from app.services.exchange_private import get_private_client  # Импорт здесь, чтобы избежать circular
+            # --- PRIVATE CLIENT: only for LIVE ---
+            if mode == "LIVE":
+                try:
+                    from app.services.exchange_private import get_private_client  # lazy import
+                    self._private_client = get_private_client(
+                        provider,
+                        sandbox=False,   # LIVE → real
+                        mock=False,
+                    )
+                except ValueError as e:
+                    # Typical: missing API keys
+                    logger.warning("ConfigManager: LIVE private client init failed: %s", e)
+                    self._private_client = None
+                except Exception as e:
+                    logger.exception("ConfigManager: unexpected error creating LIVE private client: %s", e)
+                    self._private_client = None
+            else:
+                # PAPER / DEMO: don't require keys; use no private client by default
+                self._private_client = None
+                logger.info("ConfigManager: skipping private client init in %s mode", mode)
 
-            sandbox = (mode == "DEMO")
-            mock_mode = (mode == "PAPER")
-
-            self._private_client = get_private_client(provider, sandbox=sandbox, mock=mock_mode)
-
-            # Public client: custom HTTP clients (no ccxt; use project stubs)
+            # --- PUBLIC CLIENT: optional helper for REST market data (best-effort) ---
             self._public_client = None
             try:
                 if provider == "mexc":
-                    from app.market_data.mexc_http import MexcHttp  # Изменено: предполагаемый класс/функция; поделись файлом для точности
-                    # MEXC public has no separate sandbox URL — always main
+                    from app.market_data.mexc_http import MexcHttp
                     self._public_client = MexcHttp(base_url="https://api.mexc.com")
                 elif provider == "gate":
-                    from app.market_data.http_client import GateHttpClient  # Assume exists
-                    sandbox_url = "https://api.gateio.dtfund.cn" if sandbox else "https://api.gateio.ws"
+                    from app.market_data.http_client import GateHttpClient
+                    sandbox_url = "https://api.gateio.ws"  # ✅ Always use production (faster)
+                    # OLD: sandbox_url = "https://api.gateio.ws" if (mode == "DEMO") else "https://api.gateio.ws"
                     self._public_client = GateHttpClient(base_url=sandbox_url)
                 elif provider == "binance":
-                    from app.market_data.binance_http_stub import BinanceHttpStub  # Stub if not full
-                    sandbox_url = "https://testnet.binance.vision" if sandbox else "https://api.binance.com"
+                    from app.market_data.binance_http_stub import BinanceHttpStub
+                    sandbox_url = "https://testnet.binance.vision" if (mode == "DEMO") else "https://api.binance.com"
                     self._public_client = BinanceHttpStub(base_url=sandbox_url)
                 logger.debug("ConfigManager: loaded public client for %s", provider)
             except ImportError as e:
-                logger.warning("Public client import failed (e.g., %s) — stubbed as None", e)
+                logger.debug("ConfigManager: public client not available (%s) — continuing without.", e)
                 self._public_client = None
             except Exception as e:
-                logger.error("Failed to init public client: %s", e)
+                logger.error("ConfigManager: failed to init public client: %s", e)
                 self._public_client = None
 
             logger.info("ConfigManager: reloaded clients for %s/%s", provider, mode)
         except Exception as e:
-            logger.exception("ConfigManager: client reload failed: %s", e)
+            logger.exception("ConfigManager: client reload failed (unexpected): %s", e)
             self._private_client = None
             self._public_client = None
 
     def _load_from_db(self, db: Any) -> Dict[str, Any]:
-        """Load persisted state from DB (e.g., ui_state table)."""
-        try:
-            from app.models.ui_state import UIState
-            ui = db.query(UIState).first()
-            if ui:
-                prefs = ui.ui_prefs or {}
-                if not isinstance(prefs, dict):
-                    prefs = {}  # Fallback if not dict
-                active = prefs.get("provider", ui.active or "mexc")  # Use model field if prefs empty
-                mode = prefs.get("mode", "DEMO")
-                ws_enabled = prefs.get("ws_enabled", False)
-                return {
-                    "active": active,
-                    "mode": mode,
-                    "ws_enabled": ws_enabled,
-                    "revision": ui.revision
-                }
-            return self._state.to_dict()  # Fallback to initial
-        except Exception as e:
-            logger.warning("Failed to load from DB: %s", e)
-            return self._state.to_dict()
+        """Load persisted state from DB (ui_state). Returns a dict compatible with ConfigState."""
+        from app.models.ui_state import UIState  # local import to avoid circulars
+        ui = db.query(UIState).first()
+        if not ui:
+            raise RuntimeError("no ui_state row yet")
+        prefs = ui.ui_prefs or {}
+        if not isinstance(prefs, dict):
+            prefs = {}
+        active = str(prefs.get("provider", getattr(ui, "active", settings.active_provider.lower()))).lower()
+        mode = str(prefs.get("mode", getattr(ui, "mode", settings.active_mode.upper()))).upper()
+        ws_enabled = bool(prefs.get("ws_enabled", settings.enable_ws))
+        revision = int(getattr(ui, "revision", 1) or 1)
+        return {
+            "active": active,
+            "mode": mode,
+            "ws_enabled": ws_enabled,
+            "revision": revision,
+            "available": list(self._available),
+        }
 
     def _save_to_db(self, db: Any) -> None:
-        """Save state to DB (e.g., update ui_state.revision/active/mode)."""
+        """Save state to DB (ui_state)."""
         try:
             from app.models.ui_state import UIState
             ui = db.query(UIState).first()
             if not ui:
-                ui = UIState(active=False)  # Create with default active
+                ui = UIState()  # avoid passing unexpected kwargs
                 db.add(ui)
+
             prefs = ui.ui_prefs or {}
             if not isinstance(prefs, dict):
                 prefs = {}
+
             prefs.update({
                 "provider": self._state.active,
                 "mode": self._state.mode,
-                "ws_enabled": self._state.ws_enabled
+                "ws_enabled": self._state.ws_enabled,
             })
+
             ui.ui_prefs = prefs
-            ui.active = True  # Set active=True for current state
-            ui.revision = self._state.revision
-            ui.bump_revision()  # Use model method
+            # Persist revision as-is (do not auto-bump here)
+            if hasattr(ui, "revision"):
+                ui.revision = int(self._state.revision)
+
             db.commit()
-            logger.debug("Saved state to DB: %s", self._state.active)
+            logger.debug("ConfigManager: saved state to DB (%s/%s, rev=%s)",
+                         self._state.active, self._state.mode, self._state.revision)
         except Exception as e:
-            logger.error("Failed to save to DB: %s", e)
-            # Не raise, чтобы не ломать switch
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            logger.error("ConfigManager: failed to save to DB: %s", e)
 
 
-# Module-level singleton (import this from other modules)
+# Module-level singleton
 config_manager = ConfigManager()

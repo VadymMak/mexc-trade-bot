@@ -2,36 +2,44 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Literal
 
 from fastapi import APIRouter, Header, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 
 from app.services.config_manager import config_manager
-from app.db.session import get_db  # Добавили для persistence revision/state в DB (если нужно)
+from app.db.session import get_db  # yields SQLAlchemy Session
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
+# Canonical literals used both for request & response typing
+ProviderLiteral = Literal["gate", "mexc", "binance"]
+ModeLiteral = Literal["PAPER", "DEMO", "LIVE"]
+
 
 # ──────────────────────────── Schemas ────────────────────────────
 class ProviderState(BaseModel):
-    active: str = Field(..., description="Current provider: gate | mexc | binance", enum=["gate", "mexc", "binance"])
-    mode: str = Field(..., description="Mode: PAPER | DEMO | LIVE", enum=["PAPER", "DEMO", "LIVE"])
-    available: list[str] = Field(default_factory=lambda: ["gate", "mexc", "binance"], description="List of available providers")
+    active: ProviderLiteral = Field(..., description="Current provider")
+    mode: ModeLiteral = Field(..., description="Mode")
+    available: list[ProviderLiteral] = Field(
+        default_factory=lambda: ["gate", "mexc", "binance"],
+        description="List of available providers",
+    )
     ws_enabled: bool = Field(..., description="Whether WS is enabled for the active provider")
     revision: int = Field(..., description="Incremented each successful switch")
 
 
 class ProviderSwitchIn(BaseModel):
-    provider: str = Field(..., description="Target provider: gate | mexc | binance", enum=["gate", "mexc", "binance"])
-    mode: str = Field(..., description="Target mode: PAPER | DEMO | LIVE", enum=["PAPER", "DEMO", "LIVE"])
+    provider: ProviderLiteral = Field(..., description="Target provider")
+    mode: ModeLiteral = Field(..., description="Target mode")
 
 
 # ─────────────────────────── Debug endpoint ───────────────────────
 @router.get("/__debug", summary="Config router debug")
 async def _config_debug():
+    """Quick health for the router itself."""
     return {"ok": True}
 
 
@@ -39,11 +47,12 @@ async def _config_debug():
 @router.get("/provider", response_model=ProviderState, summary="Get active provider/mode")
 async def get_provider_config() -> ProviderState:
     """
-    Returns current provider configuration and readiness flags.
+    Return current provider configuration and readiness flags.
+    Uses ConfigManager.state_for_api() to guarantee response shape.
     """
     try:
-        logger.info("GET /api/config/provider hit")  # visibility
-        state = config_manager.get_state()  # expected dict-like with keys of ProviderState
+        logger.info("GET /api/config/provider")
+        state = config_manager.state_for_api()
         return ProviderState(**state)
     except Exception as e:
         logger.exception("config/get_provider failed: %s", e)
@@ -58,30 +67,27 @@ async def get_provider_config() -> ProviderState:
 async def switch_provider_config(
     payload: ProviderSwitchIn,
     x_idempotency_key: Optional[str] = Header(default=None, convert_underscores=True, alias="X-Idempotency-Key"),
-    db = Depends(get_db)  # Добавили для DB persistence (revision/ui_state)
+    db=Depends(get_db),
 ) -> ProviderState:
     """
-    Safely switches provider/mode:
+    Safely switch provider/mode:
       1) stop strategies
       2) stop streams
       3) reset book tracker
       4) start streams for new provider/mode
       5) bump revision
 
-    Idempotent when X-Idempotency-Key is provided (checks recent switches within window).
-    Without key: full switch always executed (non-idempotent).
+    Idempotent when X-Idempotency-Key is provided (recent cached result returned).
     """
     try:
-        # Нормализация (уже в pydantic enum, но strip для safety)
         provider = payload.provider.strip().lower()
         mode = payload.mode.strip().upper()
 
-        # Передаём db в manager для persist
         state = await config_manager.switch(
             provider=provider,
             mode=mode,
             idempotency_key=x_idempotency_key,
-            db=db
+            db=db,
         )
         return ProviderState(**state)
     except ValueError as ve:

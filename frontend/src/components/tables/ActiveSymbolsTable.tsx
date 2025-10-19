@@ -69,7 +69,7 @@ const ActiveSymbolsTable: React.FC<Props> = ({
   const toast = useToast();
 
   // stores
-  const positionsBySymbol = useMarket((s) => s.positions); // consumer uses market store positions map if you keep it there
+  const positionsBySymbol = useMarket((s) => s.positions);
   const quotesTick = useMarket((s) => s.quotesTick);
   const quoteOf = useMarket((s) => s.quoteOf);
 
@@ -101,11 +101,12 @@ const ActiveSymbolsTable: React.FC<Props> = ({
   );
 
   const buildRow = (symbol: string): ActiveRowData => {
-    const p: Position | undefined = (positionsBySymbol as Record<string, Position | undefined>)[symbol];
+    const SYM = (symbol || "").toUpperCase();
+    const p: Position | undefined = (positionsBySymbol as Record<string, Position | undefined>)[SYM];
 
     const qty = safeNum(p?.qty, 0);
     const avg = safeNum(p?.avg_price ?? p?.avg, 0);
-    const mark = safeNum(getMarkPrice(symbol), 0);
+    const mark = safeNum(getMarkPrice(SYM), 0);
 
     const upnl =
       mark && avg ? (mark - avg) * qty : safeNum(p?.unrealized_pnl ?? p?.upnl, 0);

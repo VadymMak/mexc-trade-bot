@@ -5,7 +5,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from statistics import median
-from typing import Dict, List, Optional, Tuple, Any, Iterable, Set
+from typing import Dict, List, Optional, Tuple, Iterable, Set
 from contextlib import suppress
 import math
 
@@ -22,39 +22,86 @@ def _is_demo_mode() -> bool:
         m = getattr(settings, "active_mode", None) or getattr(settings, "account_mode", None)
         return str(m).lower() in {"paper", "demo", "test", "testnet"}
     except Exception:
-        # Fallback to older/alternative flags if present
         try:
             return bool(getattr(settings, "is_demo", False))
         except Exception:
             return False
 
+
 def _gate_rest_base() -> str:
-    if _is_demo_mode():
-        return getattr(settings, "gate_testnet_rest_base", None) or "https://api-testnet.gateapi.io/api/v4"
-    return getattr(settings, "gate_rest_base", None) or "https://api.gateio.ws/api/v4"
+    # ✅ TEMPORARY FIX: Always use production API (public, no auth, much faster than testnet)
+    # Production API is stable and doesn't require authentication for public endpoints
+    return "https://api.gateio.ws/api/v4"
+    
+    # Original code (commented out - uncomment when testnet performance improves):
+    # if _is_demo_mode():
+    #     return getattr(settings, "gate_testnet_rest_base", None) or "https://api.gateio.ws/api/v4"
+    # return getattr(settings, "gate_rest_base", None) or "https://api.gateio.ws/api/v4"
+
 
 def _mexc_rest_base() -> str:
     if _is_demo_mode():
         return getattr(settings, "mexc_testnet_rest_base", None) or "https://api.mexc.com"
     return getattr(settings, "mexc_rest_base", None) or "https://api.mexc.com"
 
-def _to_pair(sym: str, quote: str = "USDT") -> str:
-    s = (sym or "").upper().replace("-", "").replace("/", "")
-    q = (quote or "USDT").upper()
-    if s.endswith(q):
-        return f"{s[:-len(q)]}_{q}"
-    if len(s) > len(q):
-        return f"{s[:-len(q)]}_{q}"
-    return s
+
+def _coalesce_symbol(raw: str) -> str:
+    """Remove separators and uppercase: 'eth/usdt', 'eth_usdt' → 'ETHUSDT'."""
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    for sep in (" ", "/", "-", "_"):
+        s = s.replace(sep, "")
+    return s.upper()
+
+
+def _to_pair(sym: str, quote: Optional[str] = None) -> str:
+    """
+    Normalize into 'BASE_QUOTE' with a single underscore.
+    Tries settings.quote first (if provided), then a common quote list.
+    Accepts: 'BTCUSDT', 'BTC_USDT', 'btc/usdt', etc.
+    """
+    s = _coalesce_symbol(sym)
+    # Compose candidate quotes (settings.quote preferred)
+    q_pref = (quote or getattr(settings, "quote", "USDT") or "USDT").upper()
+    common_quotes = [q_pref, "USDT", "USDC", "FDUSD", "BUSD", "USD", "BTC", "ETH"]
+
+    for q in common_quotes:
+        if s.endswith(q) and len(s) > len(q):
+            base = s[: -len(q)]
+            return f"{base}_{q}"
+
+    # If original had underscore, honor it as last resort
+    if "_" in (sym or ""):
+        parts = str(sym).strip().upper().replace("-", "_").replace("/", "_").split("_")
+        if len(parts) == 2 and parts[0] and parts[1]:
+            return f"{parts[0]}_{parts[1]}"
+
+    # Fallback: return as-is but ensure one underscore before preferred quote if possible
+    # Example: 'BTC' → 'BTC_USDT' (using preferred quote)
+    if s and q_pref and not s.endswith(q_pref):
+        return f"{s}_{q_pref}"
+    return f"{s}_{q_pref}" if s and "_" not in s else s
+
 
 def _split_pair(pair: str) -> Tuple[str, str]:
-    if "_" in pair:
-        b, q = pair.split("_", 1)
-        return b.upper(), q.upper()
-    p = pair.upper()
-    for q in ("USDT", "USDC", "FDUSD", "BUSD", "USD", "BTC", "ETH"):
-        if p.endswith(q):
-            return p[:-len(q)], q
+    """
+    Accepts either 'BASE_QUOTE' or concatenated 'BASEQUOTE'. Returns (BASE, QUOTE).
+    Prefers settings.quote if it matches the tail.
+    """
+    if not pair:
+        return "", ""
+
+    p = str(pair).upper().strip()
+    if "_" in p:
+        b, q = p.split("_", 1)
+        return b or "", q or ""
+
+    # No underscore → we need to detect the quote suffix
+    q_pref = (getattr(settings, "quote", "USDT") or "USDT").upper()
+    for q in [q_pref, "USDT", "USDC", "FDUSD", "BUSD", "USD", "BTC", "ETH"]:
+        if p.endswith(q) and len(p) > len(q):
+            return p[: -len(q)], q
     return p, ""
 
 
@@ -105,9 +152,34 @@ class CandlesCache:
         self._stats: Dict[str, Dict[str, float]] = {}         # key: "venue:BASEQUOTE" -> stats
         self.ttl_sec: float = 30.0                            # refresh every 30s
 
+        # hit/miss counters for health/metrics
+        self._hits: int = 0
+        self._misses: int = 0
+
         # background helpers
         self._batch_sem: asyncio.Semaphore = asyncio.Semaphore(8)  # max concurrent REST calls
         self._bg_tasks: Set[asyncio.Task] = set()                  # track spawned tasks to avoid GC
+
+    # ── cache metrics surfaces ──
+    @property
+    def hitrate(self) -> float:
+        denom = self._hits + self._misses
+        return (self._hits / denom) if denom > 0 else 0.0
+
+    def get_cache_hitrate(self) -> float:
+        return self.hitrate
+
+    def get_hitrate(self) -> float:
+        return self.hitrate
+
+    def stats(self) -> Dict[str, float]:
+        """Lightweight stats dict (read-only)."""
+        return {
+            "hitrate": self.hitrate,
+            "hits": float(self._hits),
+            "misses": float(self._misses),
+            "keys": float(len(self._candles)),
+        }
 
     # ---- dict-like helpers ----
     def get(self, symbol: str, venue: str = "gate", default=None):
@@ -115,6 +187,7 @@ class CandlesCache:
         return self._stats.get(key, default)
 
     def __contains__(self, symbol: str) -> bool:
+        # Note: venue-less contains check defaults to gate
         key = self._norm_key(symbol)
         return key in self._stats
 
@@ -126,13 +199,32 @@ class CandlesCache:
     # ---- normalization ----
     def _norm_key(self, symbol: str, venue: str = "gate") -> str:
         # external key: "venue:BASEQUOTE" (no underscore)
-        base, quote = _split_pair(_to_pair(symbol))
+        base, quote = _split_pair(_to_pair(symbol, getattr(settings, "quote", "USDT")))
         return f"{venue}:{base}{quote}"
 
     def _norm_pair(self, symbol: str, venue: str = "gate") -> str:
         # internal candles key: "venue:BASE_QUOTE"
-        base, quote = _split_pair(_to_pair(symbol))
+        base, quote = _split_pair(_to_pair(symbol, getattr(settings, "quote", "USDT")))
         return f"{venue}:{base}_{quote}"
+
+    # ---- preset-based fallback ATR (lazy, no hard dependency at import time) ----
+    @staticmethod
+    def _fallback_atr_fraction() -> float:
+        """
+        Return ~0.9 * min_atr1m_pct from the active preset (defaults to 'balanced').
+        This keeps ATR gating reasonably stable while candles are warming up.
+        """
+        try:
+            # try to get preset name from settings; default to 'balanced'
+            preset_name = str(getattr(settings, "scanner_preset", "balanced") or "balanced").lower()
+            # lazy import to avoid potential circulars at module import time
+            from app.scoring.presets import get_preset
+            p = get_preset(preset_name)
+            # clamp to a sane small floor in case of misconfig
+            return max(0.0005, float(p["min_atr1m_pct"]) * 0.9)
+        except Exception:
+            # sensible default if presets unavailable
+            return 0.00135  # ≈ 0.9 * 0.0015 (0.135% of price)
 
     # ---- REST fetch ----
     async def _fetch_gate_candles_1m(self, pair: str, limit: int = 300) -> List[Candle1m]:
@@ -142,7 +234,8 @@ class CandlesCache:
         We parse into Candle1m(o,h,l,c,v) and convert t to seconds.
         """
         base_url = _gate_rest_base()
-        async with httpx.AsyncClient(base_url=base_url, headers={"Accept": "application/json"}, timeout=8.0) as cli:
+        timeout = httpx.Timeout(connect=5.0, read=8.0, write=3.0)
+        async with httpx.AsyncClient(base_url=base_url, headers={"Accept": "application/json"}, timeout=timeout) as cli:
             r = await cli.get(
                 "/spot/candlesticks",
                 params={"currency_pair": pair, "interval": "1m", "limit": max(50, min(300, int(limit)))},
@@ -167,7 +260,8 @@ class CandlesCache:
         MEXC returns list of: [otime_ms, o_str, h_str, l_str, c_str, v_base_str, ...]
         """
         base_url = _mexc_rest_base()
-        async with httpx.AsyncClient(base_url=base_url, headers={"Accept": "application/json"}, timeout=8.0) as cli:
+        timeout = httpx.Timeout(connect=5.0, read=8.0, write=3.0)
+        async with httpx.AsyncClient(base_url=base_url, headers={"Accept": "application/json"}, timeout=timeout) as cli:
             r = await cli.get(
                 "/api/v3/klines",
                 params={"symbol": symbol.upper(), "interval": "1m", "limit": max(50, min(1000, int(limit)))},
@@ -189,13 +283,19 @@ class CandlesCache:
 
     async def get_1m(self, symbol: str, venue: str = "gate", *, quote_hint: Optional[str] = None, limit: int = 300) -> List[Candle1m]:
         """
-        symbol: "BTCUSDT" | "BTC_USDT"
+        symbol: "BTCUSDT" | "BTC_USDT" | "BTC/USDT"
         venue: "gate" | "mexc"
         returns ascending candles (max 300 for Gate, 1000 for MEXC)
         """
         pair_key = self._norm_pair(symbol, venue)
         now = time.monotonic()
         need_fetch = pair_key not in self._candles or (now - self._ts_fetch.get(pair_key, 0.0)) > self.ttl_sec
+
+        # bump hit/miss before the network call
+        if need_fetch:
+            self._misses += 1
+        else:
+            self._hits += 1
 
         if need_fetch:
             try:
@@ -226,7 +326,7 @@ class CandlesCache:
             c = candles[i]
             trs.append(_true_range(prev_c, c.h, c.l))
         atr = sum(trs) / float(window)
-        return _safe_div(atr, candles[-1].c, 0.0)
+        return _safe_div(atr, candles[-1].c, 0.0)  # FRACTION (e.g., 0.0042)
 
     def calc_spike_count_90m(self, candles: List[Candle1m]) -> int:
         """
@@ -264,11 +364,11 @@ class CandlesCache:
             wick_ratio = (upper + lower) / rng
             if (body / atr_abs) > 0.8 and wick_ratio < 0.2:
                 g += 1
-        return g / float(len(take))
+        return g / float(len(take)) if take else 0.0
 
     def calc_retrace_median(self, candles: List[Candle1m], lookback: int = 180, swing_k: int = 3) -> float:
         """
-        Very lightweight impulse/retrace heuristic:
+        Lightweight impulse/retrace heuristic:
         - find local extrema using k-bar swing
         - impulses = move from extrema[i] to extrema[i+1]
         - retrace depth = |correction| / |impulse|
@@ -298,7 +398,7 @@ class CandlesCache:
         return float(median(retraces[-10:])) if retraces else 0.35
 
     def calc_range_stable_pct(self, candles: List[Candle1m], window: int = 60) -> float:
-        """std(close) / mean(close) * 100 < 0.1% for stable range."""
+        """std(close) / mean(close) * 100 (percentage std over last window)."""
         if len(candles) < window:
             return 0.0
         take = candles[-window:]
@@ -306,7 +406,7 @@ class CandlesCache:
         mean_c = sum(closes) / len(closes)
         if mean_c <= 0:
             return 0.0
-        std_c = (sum((c - mean_c)**2 for c in closes) / len(closes))**0.5
+        std_c = (sum((c - mean_c) ** 2 for c in closes) / len(closes)) ** 0.5
         pct_std = (std_c / mean_c) * 100.0
         return pct_std
 
@@ -320,16 +420,14 @@ class CandlesCache:
         mean_v = sum(vols) / len(vols)
         if mean_v <= 0:
             return 0
-        std_v = (sum((v - mean_v)**2 for v in vols) / len(vols))**0.5
+        std_v = (sum((v - mean_v) ** 2 for v in vols) / len(vols)) ** 0.5
         ratio = std_v / mean_v
         score = max(0, min(100, 100 - (ratio * 100)))  # invert: low ratio → high score
         return int(score) if ratio < 0.3 else int(score * 0.7)  # bonus for stable
 
     def calc_dca_potential_from_retrace(self, candles: List[Candle1m], retrace_med: float) -> int:
         """dca_pot proxy: low retrace → high potential (e.g., if med <0.3 → 80+)."""
-        # Base on median retrace: lower = better for DCA (less deep pullbacks)
-        base_score = max(0, min(100, int(100 - (retrace_med * 100 * 2))))  # Scale: 0.5 retrace → 0 score
-        # Bonus if recent range stable
+        base_score = max(0, min(100, int(100 - (retrace_med * 100 * 2))))  # 0.5 retrace → 0 score
         pct_std = self.calc_range_stable_pct(candles)
         if pct_std < 0.1:
             base_score += 20
@@ -338,98 +436,102 @@ class CandlesCache:
     # ───────────── compute & expose stats ─────────────
 
     async def compute_metrics_gate(self, symbol: str) -> Dict[str, float]:
-        """
-        Pull candles and compute full feature set for Gate tiering.
-        symbol: "BTCUSDT" | "BTC_USDT"
-        """
+        """Pull candles and compute full feature set for Gate tiering."""
         candles = await self.get_1m(symbol, venue="gate", limit=300)
         key = self._norm_key(symbol, "gate")
 
         if not candles:
             stats = {
-                "atr1m_pct": 0.0,
+                "atr1m_pct": float(self._fallback_atr_fraction()),
                 "spike_count_90m": 0,
                 "pullback_median_retrace": 0.35,
                 "grinder_ratio": 0.30,
                 "imbalance_sigma_hits_60m": 0,
-                # New metrics
                 "range_stable_pct": 0.0,
                 "vol_pattern": 0,
                 "dca_potential": 0,
+                "bars_1m": 0,
+                "last_candle_ts": 0,
             }
             self._stats[key] = stats
             return stats
 
-        atr_pct = self.calc_atr_pct(candles)
+        atr_pct = self.calc_atr_pct(candles)                  # FRACTION
         spike_90 = self.calc_spike_count_90m(candles)
         grinder = self.calc_grinder_ratio(candles)
         retr_med = self.calc_retrace_median(candles)
-
-        # New metrics
         range_stable = self.calc_range_stable_pct(candles)
         vol_pat = self.calc_vol_pattern_from_v(candles)
         dca_pot = self.calc_dca_potential_from_retrace(candles, retr_med)
 
         stats = {
-            "atr1m_pct": float(atr_pct),
+            "atr1m_pct": float(atr_pct),                      # FRACTION, not percent
             "spike_count_90m": int(spike_90),
             "pullback_median_retrace": float(retr_med),
             "grinder_ratio": float(grinder),
-            "imbalance_sigma_hits_60m": 0,  # placeholder (not computed yet)
-            # New metrics
+            "imbalance_sigma_hits_60m": 0,                    # placeholder
             "range_stable_pct": float(range_stable),
             "vol_pattern": float(vol_pat),
             "dca_potential": float(dca_pot),
+            "bars_1m": int(len(candles)),
+            "last_candle_ts": int(candles[-1].ts),
         }
         self._stats[key] = stats
         return stats
 
     async def compute_metrics_mexc(self, symbol: str) -> Dict[str, float]:
-        """
-        Pull candles and compute full feature set for MEXC tiering.
-        symbol: "BTCUSDT" | "BTC_USDT"
-        """
+        """Pull candles and compute full feature set for MEXC tiering."""
         candles = await self.get_1m(symbol, venue="mexc", limit=300)
         key = self._norm_key(symbol, "mexc")
 
         if not candles:
             stats = {
-                "atr1m_pct": 0.0,
+                "atr1m_pct": float(self._fallback_atr_fraction()),
                 "spike_count_90m": 0,
                 "pullback_median_retrace": 0.35,
                 "grinder_ratio": 0.30,
                 "imbalance_sigma_hits_60m": 0,
-                # New metrics
                 "range_stable_pct": 0.0,
                 "vol_pattern": 0,
                 "dca_potential": 0,
+                "bars_1m": 0,
+                "last_candle_ts": 0,
             }
             self._stats[key] = stats
             return stats
 
-        atr_pct = self.calc_atr_pct(candles)
+        atr_pct = self.calc_atr_pct(candles)                  # FRACTION
         spike_90 = self.calc_spike_count_90m(candles)
         grinder = self.calc_grinder_ratio(candles)
         retr_med = self.calc_retrace_median(candles)
-
-        # New metrics
         range_stable = self.calc_range_stable_pct(candles)
         vol_pat = self.calc_vol_pattern_from_v(candles)
         dca_pot = self.calc_dca_potential_from_retrace(candles, retr_med)
 
         stats = {
-            "atr1m_pct": float(atr_pct),
+            "atr1m_pct": float(atr_pct),                      # FRACTION, not percent
             "spike_count_90m": int(spike_90),
             "pullback_median_retrace": float(retr_med),
             "grinder_ratio": float(grinder),
-            "imbalance_sigma_hits_60m": 0,  # placeholder (not computed yet)
-            # New metrics
+            "imbalance_sigma_hits_60m": 0,
             "range_stable_pct": float(range_stable),
             "vol_pattern": float(vol_pat),
             "dca_potential": float(dca_pot),
+            "bars_1m": int(len(candles)),
+            "last_candle_ts": int(candles[-1].ts),
         }
         self._stats[key] = stats
         return stats
+
+    async def compute_metrics(self, symbol: str, venue: str = "gate") -> Dict[str, float]:
+        """
+        Generic dispatcher (compat helper): compute_metrics(symbol, venue)
+        Falls back to Gate if venue-specific implementation is missing.
+        """
+        compute_method = f"compute_metrics_{venue}"
+        if hasattr(self, compute_method):
+            return await getattr(self, compute_method)(symbol)
+        return await self.compute_metrics_gate(symbol)
 
     async def get_stats(self, symbol: str, venue: str = "gate", refresh: bool = True) -> Dict[str, float]:
         """
@@ -438,15 +540,12 @@ class CandlesCache:
         key = self._norm_key(symbol, venue)
         if not refresh and key in self._stats:
             return self._stats[key]
-        # Dynamic compute based on venue
         compute_method = f"compute_metrics_{venue}"
         if hasattr(self, compute_method):
             compute_func = getattr(self, compute_method)
             return await compute_func(symbol)
-        # Fallback to gate
         return await self.compute_metrics_gate(symbol)
 
-    # Optional async alias used by some routers
     async def aget_stats(self, symbol: str, venue: str = "gate", refresh: bool = True) -> Dict[str, float]:
         return await self.get_stats(symbol, venue, refresh=refresh)
 
@@ -457,7 +556,6 @@ class CandlesCache:
             async with self._batch_sem:
                 await self.get_stats(symbol, venue=venue, refresh=True)
         except Exception:
-            # swallow to avoid crashing background tasks
             pass
 
     def touch_symbols(self, symbols: Iterable[str], venue: str = "gate", *, concurrency: int = 8) -> None:
@@ -466,16 +564,14 @@ class CandlesCache:
         Safe to call from routers after you know the shortlist.
         """
         try:
-            # adjust runtime concurrency
-            if concurrency > 0 and getattr(self._batch_sem, "_value", None) != concurrency:
-                self._batch_sem = asyncio.Semaphore(concurrency)
+            if concurrency and concurrency > 0:
+                self._batch_sem = asyncio.Semaphore(int(concurrency))
         except Exception:
             pass
 
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # called from sync context without a running loop → skip
             return
 
         for sym in symbols:

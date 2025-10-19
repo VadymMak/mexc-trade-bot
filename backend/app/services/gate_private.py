@@ -37,7 +37,7 @@ def _gate_conf() -> Dict[str, str]:
             "key": getattr(settings, "gate_testnet_api_key", None) or _env("GATE_TESTNET_API_KEY", ""),
             "sec": getattr(settings, "gate_testnet_api_secret", None) or _env("GATE_TESTNET_API_SECRET", ""),
             "base": (getattr(settings, "gate_testnet_rest_base", None)
-                     or _env("GATE_TESTNET_REST_BASE", "https://api-testnet.gateapi.io/api/v4")).rstrip("/"),
+                     or _env("GATE_TESTNET_REST_BASE", "https://api.gateio.ws/api/v4")).rstrip("/"),
         }
     return {
         "key": getattr(settings, "gate_api_key", None) or _env("GATE_API_KEY", ""),

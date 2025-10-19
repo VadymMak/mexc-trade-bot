@@ -1,54 +1,82 @@
 from __future__ import annotations
 
-from typing import TypedDict, Dict, Iterable
+from typing import TypedDict, Dict, Iterable, List, Optional
 
 
-class Preset(TypedDict):
-    # Liquidity / friction
+class Preset(TypedDict, total=False):
+    # ---- Liquidity / friction (yours) ----
     min_usd_per_min: float         # minimum traded USD per minute
     min_trades_per_min: int        # minimum trades per minute
     max_spread_bps: float          # (ask-bid)/mid must be <= this, in bps
     max_slip_bps: float            # simulated clip slippage must be <= this, in bps
 
-    # Volatility / shape
-    min_atr1m_pct: float           # ATR(20) on 1m / last close must be >=
+    # ---- Volatility / shape (yours) ----
+    # IMPORTANT: atr1m_pct is a FRACTION (e.g., 0.0015 = 0.15%), not percent.
+    min_atr1m_pct: float           # ATR(20) on 1m / last close must be >= (fraction)
     min_spike_count_90m: int       # spike candles required in the last 90m (soft-scored)
     max_grinder_ratio: float       # hard gate: > -> Excluded
     target_grinder_ratio: float    # soft target: above it -> score penalty
 
-    # Order book / tape
+    # ---- Order book / tape (yours) ----
     min_depth5_usd: float          # depth within ±5 bps must be >=
     min_depth10_usd: float         # depth within ±10 bps must be >=
     min_imbalance_hits_60m: int    # OB imbalance spikes in last 60m (0 to ignore)
 
-    # Data quality
+    # ---- Data quality (yours) ----
     max_stale_sec: int             # if metrics.stale_sec > this -> stale penalty (not hard exclude)
 
-    # Tiering thresholds
+    # ---- Tiering thresholds (yours) ----
     tier_a_min_score: int
     tier_b_min_score: int
+
+    # ---- Scanner kwargs (consumed by scan_gate_quote / scan_mexc_quote) ----
+    min_quote_vol_usd: float
+    min_spread_pct: float          # optional; set to 0.0 if unused to avoid KeyError
+    depth_levels_bps: List[int]
+    min_median_trade_usd: float
+    min_vol_pattern: float
+    max_atr_proxy: float
+    activity_ratio: float
+    liquidity_test: bool
+    symbols: Optional[List[str]]
 
 
 # ---------- Presets ----------
 CONSERVATIVE: Preset = {
+    # liquidity / friction
     "min_usd_per_min": 5_000.0,
     "min_trades_per_min": 5,
     "max_spread_bps": 6.0,
     "max_slip_bps": 6.0,
 
-    "min_atr1m_pct": 0.20,
+    # volatility / shape (FRACTIONS, not percent)
+    "min_atr1m_pct": 0.0020,  # 0.20%
     "min_spike_count_90m": 6,
     "max_grinder_ratio": 0.60,
     "target_grinder_ratio": 0.40,
 
+    # order book / tape
     "min_depth5_usd": 10_000.0,
     "min_depth10_usd": 15_000.0,
     "min_imbalance_hits_60m": 2,
 
+    # data quality
     "max_stale_sec": 10,
 
+    # tiering
     "tier_a_min_score": 70,
     "tier_b_min_score": 45,
+
+    # ---- scanner kwargs (used) ----
+    "min_quote_vol_usd": 100_000.0,
+    "min_spread_pct": 0.0,        # keep 0.0 if not gating by spread%
+    "depth_levels_bps": [5, 10],
+    "min_median_trade_usd": 5.0,
+    "min_vol_pattern": 60.0,
+    "max_atr_proxy": 5.0,
+    "activity_ratio": 0.15,
+    "liquidity_test": True,
+    "symbols": None,
 }
 
 BALANCED: Preset = {
@@ -57,7 +85,8 @@ BALANCED: Preset = {
     "max_spread_bps": 8.0,
     "max_slip_bps": 8.0,
 
-    "min_atr1m_pct": 0.15,
+    # FRACTIONS
+    "min_atr1m_pct": 0.0015,  # 0.15%
     "min_spike_count_90m": 5,
     "max_grinder_ratio": 0.65,
     "target_grinder_ratio": 0.45,
@@ -70,6 +99,17 @@ BALANCED: Preset = {
 
     "tier_a_min_score": 65,
     "tier_b_min_score": 40,
+
+    # scanner kwargs
+    "min_quote_vol_usd": 50_000.0,
+    "min_spread_pct": 0.0,
+    "depth_levels_bps": [5, 10],
+    "min_median_trade_usd": 0.0,
+    "min_vol_pattern": 0.0,
+    "max_atr_proxy": float("inf"),
+    "activity_ratio": 0.10,
+    "liquidity_test": False,
+    "symbols": None,
 }
 
 AGGRESSIVE: Preset = {
@@ -78,7 +118,8 @@ AGGRESSIVE: Preset = {
     "max_spread_bps": 10.0,
     "max_slip_bps": 10.0,
 
-    "min_atr1m_pct": 0.10,
+    # FRACTIONS
+    "min_atr1m_pct": 0.0010,  # 0.10%
     "min_spike_count_90m": 3,
     "max_grinder_ratio": 0.70,
     "target_grinder_ratio": 0.50,
@@ -91,6 +132,17 @@ AGGRESSIVE: Preset = {
 
     "tier_a_min_score": 60,
     "tier_b_min_score": 35,
+
+    # scanner kwargs
+    "min_quote_vol_usd": 10_000.0,
+    "min_spread_pct": 0.0,
+    "depth_levels_bps": [5, 10],
+    "min_median_trade_usd": 0.0,
+    "min_vol_pattern": 0.0,
+    "max_atr_proxy": float("inf"),
+    "activity_ratio": 0.0,
+    "liquidity_test": False,
+    "symbols": None,
 }
 
 _PRESETS: Dict[str, Preset] = {
@@ -122,7 +174,6 @@ class PresetObj(dict):
 
 def available_presets() -> Dict[str, Preset]:
     """Return a read-only mapping of canonical preset names to definitions."""
-    # return a shallow copy to prevent mutation
     return dict(_PRESETS)
 
 
