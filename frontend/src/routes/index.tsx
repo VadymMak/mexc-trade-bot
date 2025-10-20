@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import Dashboard from "@/pages/Dashboard";
 import LiquidityScanner from "@/pages/LiquidityScanner";
 import TradingBoard from "@/pages/TradingBoard";
+import TradeLog from "@/pages/TradeLog";
 
 const basename = import.meta.env.BASE_URL || "/";
 
@@ -12,8 +13,8 @@ const router = createBrowserRouter(
 
     // Dashboard вынесен на отдельный путь
     { path: "/dashboard", element: <Dashboard /> },
-
     { path: "/scanner", element: <LiquidityScanner /> },
+    { path: "/trades", element: <TradeLog /> },
     { path: "/trade", element: <Navigate to="/" replace /> }, // редирект для старого пути
 
     // 404

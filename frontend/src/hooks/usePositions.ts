@@ -62,12 +62,23 @@ export function usePositions(options?: UsePositionsOptions): UsePositionsResult 
   const inflightRef = useRef<Promise<void> | null>(null);
 
   const refresh = useCallback(async (): Promise<void> => {
-    if (!providerReady) return; // не дёргаем API до готовности провайдера
-    if (inflightRef.current) return inflightRef.current;
+    console.log("🔄 [usePositions] refresh() called, providerReady:", providerReady);
+    
+    if (!providerReady) {
+      console.warn("🔒 [usePositions] Provider not ready");
+      return;
+    }
+    
+    if (inflightRef.current) {
+      console.log("⏳ [usePositions] Request already in flight");
+      return inflightRef.current;
+    }
+
+    console.log("📡 [usePositions] Calling loadAll with symbols:", symbolsRef.current);
 
     const task = loadAll(symbolsRef.current)
-      .catch(() => {
-        /* ошибки уже обрабатываются в сторе */
+      .catch((err) => {
+        console.error("❌ [usePositions] loadAll failed:", err);
       })
       .finally(() => {
         inflightRef.current = null;

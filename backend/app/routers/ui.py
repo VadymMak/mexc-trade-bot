@@ -332,7 +332,7 @@ def put_watchlist(
     _require_ui_state_enabled()
     # защита bulk — если тут symbols, тоже уважаем лимит
     syms = payload.data.get("symbols")
-    if isinstance(syms, list) and len(syms) > settings.max_watchlist_bulk:
+    if isinstance(syms, list) and len(syms) > 50:
         raise HTTPException(
             status_code=400,
             detail=f"Too many symbols in bulk. Max allowed: {settings.max_watchlist_bulk}",

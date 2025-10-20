@@ -11,7 +11,7 @@ type BootPayload = {
 };
 
 // Primary and fallback endpoints (keep if your backend differs)
-const BOOT_URL = "/api/ui/state";
+const BOOT_URL = "/api/ui/snapshot?include=positions,orders,fills";;
 const FALLBACK_URL = "/api/ui/snapshot?include=orders,fills";
 
 function isOrderArray(a: unknown): a is OrderItem[] {

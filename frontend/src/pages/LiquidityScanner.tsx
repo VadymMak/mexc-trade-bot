@@ -293,6 +293,16 @@ const storeSetHideUnknownFees = useScannerStore((s) => s.setHideUnknownFees);
     sortedData.slice(0, 10).forEach((r) => window.open(toVenueLink(ex, r.symbol), "_blank"));
   }, [sortedData, exchange]);
 
+   const onStartOne = useCallback(async (symbol: string) => {
+    try {
+      await apiStartSymbols([symbol]);
+      alert(`✅ ${symbol} added to strategy`);
+    } catch (e) {
+      console.error(e);
+      alert(`❌ Failed to add ${symbol}`);
+    }
+  }, []);
+
   const exportCSV = useCallback(() => {
     const headers = ['Symbol', 'Mid', 'Spread (bps)', ...depthLevels.map(b => `Depth@${b}bps`), '$/min', 'Daily $'];
     const csvRows = sortedData.map(r => {
@@ -656,6 +666,7 @@ const storeSetHideUnknownFees = useScannerStore((s) => s.setHideUnknownFees);
                 <SortableHeader column="daily_notional_usd">Daily $</SortableHeader>
                 <SortableHeader column="imbalance">Imbalance</SortableHeader>
                 <th className="px-4 py-3 text-right">WS lag, ms</th>
+                <th className="px-4 py-3 text-center">Actions</th>
                 <th className="px-4 py-3 text-right">Links</th>
               </tr>
             </thead>
@@ -828,6 +839,24 @@ const storeSetHideUnknownFees = useScannerStore((s) => s.setHideUnknownFees);
                       ) : (
                         '—'
                       )}
+                    </td>
+
+                    {/* 👇 NEW ACTION BUTTON CELL */}
+                    <td className="px-4 py-3">
+                      <div className="flex justify-center">
+                        <button
+                          onClick={() => onStartOne(r.symbol)}
+                          disabled={r.spread_bps_ui === 0}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                            r.spread_bps_ui === 0
+                              ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                              : 'bg-emerald-600 hover:bg-emerald-700 text-white hover:shadow-md'
+                          }`}
+                          title={r.spread_bps_ui === 0 ? 'Skip: spread is 0' : 'Add to strategy'}
+                        >
+                          {r.spread_bps_ui === 0 ? '✗ Skip' : '✓ Add'}
+                        </button>
+                      </div>
                     </td>
 
                     <td className="px-4 py-3">

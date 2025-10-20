@@ -69,6 +69,7 @@ def _mount_subrouters(root: APIRouter) -> None:
 
     # New: Scanner (Gate/MEXC spread & liquidity finder)
     from app.routers.scanner import router as scanner_router
+    from app.routers.trades import router as trades_router
 
     root.include_router(market_router)
     root.include_router(strategy_router)
@@ -78,6 +79,7 @@ def _mount_subrouters(root: APIRouter) -> None:
     root.include_router(config_router)      # /api/config/...
     root.include_router(pnl_router)         # /api/pnl/...
     root.include_router(portfolio_router)   # /api/portfolio/...
+    root.include_router(trades_router)
 
     # Attach metrics only to the scanner router to avoid global cardinality.
     root.include_router(

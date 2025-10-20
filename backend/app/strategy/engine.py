@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime
 from dataclasses import dataclass, asdict, fields as dc_fields
 from typing import Dict, Optional, Protocol, List, Tuple
+import uuid  # For generating unique trade IDs
+from app.models.trades import Trade
+from app.db.session import SessionLocal
 
 from app.config.constants import (
     MIN_SPREAD_BPS,
@@ -77,8 +81,10 @@ class SymbolState:
     last_entry_ts: int = 0
     last_exit_ts: int = 0
     last_error: str = ""
-    # local cooldown reset on (re)start
     cooldown_reset_at_ms: int = 0
+    # Trade logging
+    current_trade_id: Optional[str] = None  # ← ДОБАВЛЕНО
+    current_trade_db_id: Optional[int] = None  # ← ДОБАВЛЕНО
 
 
 # ───────────────────────────── Strategy engine ─────────────────────────────
@@ -292,6 +298,13 @@ class StrategyEngine:
                         await asyncio.sleep(poll_ms / 1000)
                         continue
 
+                    # 🔍 DEBUG: Print what we see every 10 seconds
+                    if not hasattr(st, '_last_debug') or (now - st._last_debug) > 10:
+                        st._last_debug = now
+                        print(f"[STRAT:{sym}] 🔍 bid={bid:.6f} ask={ask:.6f} mid={mid:.6f} "
+                              f"spread_bps={spread_bps:.2f} imb={imb:.3f} "
+                              f"min_spread={p.min_spread_bps} edge_floor={p.edge_floor_bps}")
+
                     # debug bypass for demo/testnets
                     if p.debug_force_entry:
                         qty_units = max(0.0, p.order_size_usd / bid)
@@ -330,6 +343,38 @@ class StrategyEngine:
                                 entry_px = bid
                                 entry_ts = now
                                 st.last_entry_ts = int(entry_ts * 1000)
+                                
+                                # ═══ LOGGING: Create trade entry ═══
+                                trade_id = f"{sym}_{uuid.uuid4().hex[:8]}"
+                                st.current_trade_id = trade_id
+                                try:
+                                    db = SessionLocal()
+                                    trade = Trade.create_entry(
+                                        trade_id=trade_id,
+                                        symbol=sym,
+                                        entry_time=datetime.fromtimestamp(entry_ts),
+                                        entry_price=bid,
+                                        entry_qty=qty_units,
+                                        entry_side="BUY",
+                                        entry_fee=0.0,  # TODO: calculate actual fee
+                                        spread_bps=spread_bps,
+                                        imbalance=imb,
+                                        depth_5bps=abs_bid_usd + abs_ask_usd,
+                                        strategy_tag="mm_entry",
+                                        exchange="MEXC"
+                                    )
+                                    db.add(trade)
+                                    db.commit()
+                                    st.current_trade_db_id = trade.id
+                                    db.close()
+                                except Exception as e:
+                                    print(f"[STRAT:{sym}] ⚠️ Failed to log entry: {e}")
+                                    try:
+                                        db.close()
+                                    except:
+                                        pass
+                                # ═══════════════════════════════════
+                                
                                 if _METRICS_OK:
                                     try:
                                         strategy_entries_total.labels(sym).inc()
@@ -364,6 +409,32 @@ class StrategyEngine:
                         in_pos = False
                         last_exit_ts_ms = time.time() * 1000
                         st.last_exit_ts = int(last_exit_ts_ms)
+                        
+                        # ═══ LOGGING: Close trade ═══
+                        if st.current_trade_db_id:
+                            try:
+                                db = SessionLocal()
+                                trade = db.query(Trade).filter(Trade.id == st.current_trade_db_id).first()
+                                if trade:
+                                    trade.close_trade(
+                                        exit_time=datetime.fromtimestamp(now),
+                                        exit_price=exit_price,
+                                        exit_qty=qty_units,
+                                        exit_side="SELL",
+                                        exit_reason=reason,
+                                        exit_fee=0.0  # TODO: calculate actual fee
+                                    )
+                                    db.commit()
+                                db.close()
+                                st.current_trade_db_id = None
+                                st.current_trade_id = None
+                            except Exception as e:
+                                print(f"[STRAT:{sym}] ⚠️ Failed to log exit: {e}")
+                                try:
+                                    db.close()
+                                except:
+                                    pass
+                        # ═════════════════════════════
 
                         if _METRICS_OK:
                             try:

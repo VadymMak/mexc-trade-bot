@@ -508,6 +508,54 @@ async def on_partial_depth(
 
 
 async def get_quote(symbol: str) -> Dict[str, Any]:
+    sym = (symbol or "").upper()
+    
+    # 🔥 PRIORITY 1: Try price_poller first (our new primary source)
+    try:
+        from app.services.price_poller import get_poller
+        poller = get_poller()
+        price_data = poller.get_price(sym)
+        
+        if price_data:
+            bid = price_data.get("bid", 0.0)
+            ask = price_data.get("ask", 0.0)
+            mid = price_data.get("mid", 0.0)
+            
+            # Build minimal quote
+            quote = {
+                "symbol": sym,
+                "bid": bid,
+                "ask": ask,
+                "mid": mid,
+                "bidQty": 0.0,  # Poller doesn't have sizes
+                "askQty": 0.0,
+                "ts_ms": int(price_data.get("timestamp", 0) * 1000),
+            }
+            
+            # Try to get depth/imbalance from cache (if available)
+            try:
+                raw = await book_tracker.get_quote(sym)
+                if raw:
+                    # Merge depth data from cache
+                    if "bids" in raw:
+                        quote["bids"] = raw["bids"]
+                    if "asks" in raw:
+                        quote["asks"] = raw["asks"]
+                    if "bidQty" in raw and raw["bidQty"] > 0:
+                        quote["bidQty"] = raw["bidQty"]
+                    if "askQty" in raw and raw["askQty"] > 0:
+                        quote["askQty"] = raw["askQty"]
+            except:
+                pass
+            
+            # Apply _with_derived to add spread_bps, imbalance, absorption
+            return _with_derived(quote)
+            
+    except Exception as e:
+        # Silently fall back to cache
+        pass
+    
+    # 🔥 FALLBACK: Use internal cache (legacy/backup)
     raw = await book_tracker.get_quote(symbol)
     return _with_derived(raw) if raw else {}
 

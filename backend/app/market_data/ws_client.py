@@ -412,9 +412,12 @@ class MEXCWebSocketClient:
 
     # ───────────── lifecycle ─────────────
     async def run(self) -> None:
-        """Main run loop with connection lifecycle management."""
+        print("🛑 WebSocket FORCE DISABLED - exiting immediately", file=sys.stderr)
+        logger.warning("🛑 WebSocket client disabled by configuration")
+        return  # ← FORCE EXIT HERE
+
         if not PROTO_AVAILABLE or EnvelopeModule is None:
-            logger.error("❌ Protobuf decoders not available — cannot run WS client.")
+            print("❌ Protobuf decoders not available — cannot run WS client.", file=sys.stderr)
             return
         if not self.symbols:
             logger.warning("⚠️ No symbols to subscribe — WS client not started.")

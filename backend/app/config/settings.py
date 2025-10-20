@@ -465,6 +465,7 @@ class Settings(BaseSettings):
     max_exposure_usd: float = Field(default=float(os.getenv("MAX_EXPOSURE_USD", "1000")))
     idempotency_window_sec: int = 300
     idempotency_max_size: int = 10000  # ← This is probably missing or named differently
+    max_watchlist_bulk: int = 50
 
     # =============================================================================
     # Idempotency

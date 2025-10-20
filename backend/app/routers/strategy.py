@@ -10,6 +10,7 @@ from app.execution.router import exec_router
 from app.strategy.engine import StrategyEngine, StrategyParams
 from app.services import book_tracker as bt_service
 from app.services.book_tracker import ensure_symbols_subscribed
+from app.services.price_poller import get_poller
 
 # Metrics are optional; keep imports guarded
 try:
@@ -128,11 +129,30 @@ async def start_symbols(
     _enforce_bulk_limit(syms)
 
     async def _do() -> Dict[str, Any]:
-        # warm up market data (best-effort)
+        # Start price poller as primary data source
+        poller = get_poller()
+        if not poller.running:
+            # Collect all symbols we might need
+            all_syms = syms.copy()
+            try:
+                # Add any already-running symbols
+                quotes = await bt_service.get_all_quotes()
+                for q in quotes:
+                    sym = q.get("symbol")
+                    if sym and sym not in all_syms:
+                        all_syms.append(sym)
+            except:
+                pass
+            await poller.start(all_syms)
+        else:
+            print(f"ℹ️ Poller already running, adding symbols: {syms}")
+        
+        # Try WebSocket as optional enhancement (don't block if fails)
         try:
             await ensure_symbols_subscribed(syms)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ WebSocket subscription failed (OK, using REST): {e}")
+        
         await _engine.start_symbols(syms)
         return {"ok": True, "started": syms, "running": syms}
 

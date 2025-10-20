@@ -36,7 +36,7 @@ export default function PageToolbar() {
 
   return (
     <div className="flex items-center gap-2">
-      <NavLink to="/trade" className={linkStyle}>
+      <NavLink to="/" className={linkStyle}>
         Trading
       </NavLink>
       <NavLink to="/dashboard" className={linkStyle}>
@@ -44,6 +44,9 @@ export default function PageToolbar() {
       </NavLink>
       <NavLink to="/scanner" className={linkStyle}>
         Scanner
+      </NavLink>
+      <NavLink to="/trades" className={linkStyle}>
+        Trades
       </NavLink>
 
       {location.pathname.startsWith("/trade") && (

@@ -233,7 +233,10 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
   loadAll: async (symbols?: string[]) => {
     try {
       // 🔒 не бомбим API, если провайдер ещё не готов (устраняет 500 на старте)
-      if (!providerReady()) return;
+      if (!providerReady()) {
+        console.warn("🔒 [positions] Provider not ready, skipping loadAll");
+        return;
+      }
 
       set({ loading: true, error: null });
 
@@ -244,6 +247,8 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
         qs = `?${params.toString()}`;
       }
 
+      console.log("📡 [positions] Fetching /api/exec/positions" + qs);
+      
       const res = await fetch(`/api/exec/positions${qs}`, {
         method: "GET",
         headers: { Accept: "application/json" },
@@ -251,8 +256,9 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
 
       if (!res.ok) {
         const text = await res.text();
-        // не бросаем исключение наверх — сохраняем сообщение и выходим
-        set({ error: `GET /api/exec/positions failed: ${res.status} ${text}` });
+        const errorMsg = `GET /api/exec/positions failed: ${res.status} ${text}`;
+        console.error("❌ [positions]", errorMsg);
+        set({ error: errorMsg });
         return;
       }
 
@@ -261,11 +267,15 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
         ? (data.filter((x) => x && typeof x === "object") as Position[])
         : [];
 
+      console.log("✅ [positions] Loaded", list.length, "positions:", list);
+
       set({ positionsBySymbol: toMap(list) });
+      
+      console.log("✅ [positions] Store updated, positionsBySymbol:", get().positionsBySymbol);
     } catch (err) {
-      set({
-        error: err instanceof Error ? err.message : "Failed to load positions",
-      });
+      const errorMsg = err instanceof Error ? err.message : "Failed to load positions";
+      console.error("❌ [positions] Exception:", errorMsg);
+      set({ error: errorMsg });
     } finally {
       set({ loading: false });
     }

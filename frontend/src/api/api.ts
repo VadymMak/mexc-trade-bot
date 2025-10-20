@@ -337,6 +337,8 @@ type GetScannerOptsCompat = GetScannerOpts & {
   minTradesPerMin?: number;
 };
 
+
+
 function normalizeScannerRows(rows: ScannerRow[]): ScannerRow[] {
   return rows.map((r) => {
     const bid = Number(r.bid || 0);
@@ -348,6 +350,7 @@ function normalizeScannerRows(rows: ScannerRow[]): ScannerRow[] {
         ? (spreadAbs / ((ask + bid) * 0.5)) * 100
         : undefined);
     const spreadBps = r.spread_bps ?? (typeof spreadPct === "number" ? spreadPct * 100 : undefined);
+    const depth_at_bps = normalizeDepthAtBps(r.depth_at_bps);
     return {
       ...r,
       symbol: String(r.symbol || "").toUpperCase(),
@@ -356,8 +359,29 @@ function normalizeScannerRows(rows: ScannerRow[]): ScannerRow[] {
       spread_abs: spreadAbs,
       spread_pct: spreadPct,
       spread_bps: spreadBps,
+      depth_at_bps,
     };
   });
+}
+
+function normalizeDepthAtBps(raw: unknown): Record<number, { bid_usd?: number; ask_usd?: number }> | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const result: Record<number, { bid_usd?: number; ask_usd?: number }> = {};
+  
+  for (const [key, val] of Object.entries(raw)) {
+    const bps = Number(key);
+    if (!Number.isFinite(bps)) continue;
+    
+    if (val && typeof val === "object") {
+      const v = val as Record<string, unknown>;
+      result[bps] = {
+        bid_usd: typeof v.bid_usd === "number" ? v.bid_usd : undefined,
+        ask_usd: typeof v.ask_usd === "number" ? v.ask_usd : undefined,
+      };
+    }
+  }
+  
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function buildScannerParams(opts: GetScannerOptsCompat): URLSearchParams {

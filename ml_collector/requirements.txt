@@ -1,0 +1,3 @@
+# Minimal dependencies for ML data collector
+websockets==12.0
+python-dotenv==1.0.0
