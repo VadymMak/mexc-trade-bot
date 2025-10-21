@@ -19,6 +19,7 @@ from app.config.constants import (
 )
 from app.services import book_tracker as bt_service
 from app.services.book_tracker import ensure_symbols_subscribed
+from app.strategy.risk import get_risk_manager
 
 # Metrics are optional; guard imports so the engine never crashes without them
 try:
@@ -334,7 +335,42 @@ class StrategyEngine:
                         depth_ok = (abs_ask_usd >= p.order_size_usd)
                     edge_ok = (spread_bps >= p.edge_floor_bps)
 
-                    if base_ok and depth_ok and edge_ok:
+                    # ═══════════════════════════════════════════════════════
+                    # RISK CHECKS BEFORE ENTRY
+                    # ═══════════════════════════════════════════════════════
+                    risk_ok = True
+                    try:
+                        risk_manager = get_risk_manager()
+                        
+                        # Check if trading is allowed
+                        if not risk_manager.can_trade():
+                            risk_ok = False
+                            # Check every 30 seconds if we should log halt reason
+                            if not hasattr(st, '_last_halt_log') or (now - st._last_halt_log) > 30:
+                                st._last_halt_log = now
+                                print(f"[STRAT:{sym}] ⚠️ Trading halted: {risk_manager.state.halt_reason or 'unknown'}")
+                        
+                        # Check symbol-specific cooldown
+                        elif risk_manager.is_symbol_on_cooldown(sym):
+                            risk_ok = False
+                            remaining = risk_manager.state.get_cooldown_remaining_seconds(sym)
+                            if not hasattr(st, '_last_cooldown_log') or (now - st._last_cooldown_log) > 30:
+                                st._last_cooldown_log = now
+                                print(f"[STRAT:{sym}] ⏸️ Cooldown active: {remaining:.0f}s remaining")
+                        
+                        # Check if we can open new position
+                        elif not await risk_manager.can_open_position(sym, p.order_size_usd):
+                            risk_ok = False
+                            if not hasattr(st, '_last_limit_log') or (now - st._last_limit_log) > 30:
+                                st._last_limit_log = now
+                                print(f"[STRAT:{sym}] 🚫 Position limit reached or exposure too high")
+                    
+                    except Exception as e:
+                        print(f"[STRAT:{sym}] ⚠️ Risk check failed: {e}")
+                        risk_ok = False
+                    # ═══════════════════════════════════════════════════════
+
+                    if base_ok and depth_ok and edge_ok and risk_ok:
                         qty_units = max(0.0, p.order_size_usd / bid)
                         if qty_units > 0.0:
                             oid = await self._exec.place_maker(sym, "BUY", price=bid, qty=qty_units, tag="mm_entry")
@@ -451,6 +487,28 @@ class StrategyEngine:
                             f"[STRAT:{sym}] EXIT SELL qty={qty_units:.6f} @ {exit_price} [{reason}] "
                             f"(pnl_bps={pnl_bps:.2f}, held={elapsed_s:.2f}s)"
                         )
+
+                        # ═══════════════════════════════════════════════════════
+                        # TRACK TRADE RESULT IN RISK MANAGER
+                        # ═══════════════════════════════════════════════════════
+                        try:
+                            risk_manager = get_risk_manager()
+                            
+                            # Calculate P&L in USD
+                            pnl_usd = (exit_price - entry_px) * qty_units if entry_px > 0 else 0.0
+                            
+                            # Track the trade result
+                            await risk_manager.track_trade_result(
+                                symbol=sym,
+                                pnl_usd=pnl_usd
+                            )
+                            
+                            # Log result
+                            print(f"[STRAT:{sym}] 📊 Trade tracked: pnl_usd=${pnl_usd:.2f}, win={pnl_usd > 0}")
+                        
+                        except Exception as e:
+                            print(f"[STRAT:{sym}] ⚠️ Failed to track trade: {e}")
+                        # ═══════════════════════════════════════════════════════
 
                 await asyncio.sleep(poll_ms / 1000)
 

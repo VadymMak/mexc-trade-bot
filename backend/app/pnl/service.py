@@ -416,13 +416,101 @@ class PnlService:
         scope: Optional[repo.Scope] = None,
         now: Optional[datetime] = None,
     ) -> PnlSummary:
+        from app.models.trades import Trade
+        
         start_utc, end_utc = period_window(period, tz=tz, now=now)
-        total_usd, by_exchange, by_symbol = repo.aggregate_summary(db, start_utc, end_utc, scope)
+        
+        # ═══════════════════════════════════════════════════════════
+        # НОВАЯ ЛОГИКА: Читаем из trades таблицы
+        # ═══════════════════════════════════════════════════════════
+        
+        # Базовый запрос к закрытым сделкам
+        query = db.query(Trade).filter(
+            Trade.entry_time >= start_utc,
+            Trade.entry_time < end_utc,
+            Trade.status == 'CLOSED',
+            Trade.exit_time.isnot(None)
+        )
+        
+        # Применить scope фильтры если указаны
+        if scope:
+            if 'exchange' in scope:
+                query = query.filter(Trade.exchange == scope['exchange'])
+            if 'account_id' in scope:
+                query = query.filter(Trade.account_id == scope['account_id'])
+            if 'symbol' in scope:
+                query = query.filter(Trade.symbol == scope['symbol'])
+        
+        # Получить все сделки
+        trades = query.all()
+        
+        # Подсчитать общий P&L (GROSS - до вычета комиссий)
+        total_usd = 0.0
+        for t in trades:
+            if t.entry_price and t.exit_price and t.entry_qty:
+                # Для лонгов (BUY → SELL)
+                if t.entry_side == "BUY":
+                    pnl_per_unit = t.exit_price - t.entry_price
+                else:
+                    # Для шортов (SELL → BUY)
+                    pnl_per_unit = t.entry_price - t.exit_price
+                
+                gross_pnl = pnl_per_unit * t.entry_qty
+                total_usd += gross_pnl
+        
+        # Группировка по биржам
+        by_exchange = {}
+        for t in trades:
+            ex = t.exchange or 'UNKNOWN'
+            if ex not in by_exchange:
+                by_exchange[ex] = 0.0
+            
+            # Рассчитать gross P&L для этой сделки
+            if t.entry_price and t.exit_price and t.entry_qty:
+                if t.entry_side == "BUY":
+                    pnl_per_unit = t.exit_price - t.entry_price
+                else:
+                    pnl_per_unit = t.entry_price - t.exit_price
+                
+                gross_pnl = pnl_per_unit * t.entry_qty
+                by_exchange[ex] += gross_pnl
+        
+        # Преобразовать в формат списка
+        by_exchange_list = [
+            {"exchange": ex, "total_usd": usd}
+            for ex, usd in by_exchange.items()
+        ]
+        
+        # Группировка по символам
+        by_symbol_dict = {}
+        for t in trades:
+            key = (t.exchange or 'UNKNOWN', t.symbol)
+            if key not in by_symbol_dict:
+                by_symbol_dict[key] = 0.0
+            
+            # Рассчитать gross P&L для этой сделки
+            if t.entry_price and t.exit_price and t.entry_qty:
+                if t.entry_side == "BUY":
+                    pnl_per_unit = t.exit_price - t.entry_price
+                else:
+                    pnl_per_unit = t.entry_price - t.exit_price
+                
+                gross_pnl = pnl_per_unit * t.entry_qty
+                by_symbol_dict[key] += gross_pnl
+        
+        # Преобразовать в формат списка
+        by_symbol_list = [
+            {"exchange": ex, "symbol": sym, "total_usd": usd}
+            for (ex, sym), usd in by_symbol_dict.items()
+        ]
+        
+        # ═══════════════════════════════════════════════════════════
+        
         return PnlSummary(
             period=period,
             total_usd=total_usd,
-            by_exchange=by_exchange,
-            by_symbol=by_symbol,
+            by_exchange=by_exchange_list,
+            by_symbol=by_symbol_list,
         )
 
     def get_symbol_detail(

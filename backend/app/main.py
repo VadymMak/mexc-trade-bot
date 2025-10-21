@@ -26,6 +26,7 @@ from app.services.book_tracker import on_book_ticker
 from app.services.config_manager import config_manager
 from app.db.session import SessionLocal
 from app.db.engine import engine, apply_migrations
+from app.services.scheduler import get_scheduler
 
 # Ensure DB schema exists on startup (dev convenience; Alembic in prod)
 from app.models.base import Base
@@ -334,10 +335,39 @@ async def lifespan(app: FastAPI):
 #     except Exception as e:
 #         print(f"⚠️ ML logger init failed (non-critical): {e}")
 
+# ────────────────────── Telegram Service ──────────────────────
+    try:
+        from app.services.telegram_bot import get_telegram_service
+        telegram = get_telegram_service()
+        if telegram.is_enabled():
+            test_result = await telegram.test_connection()
+            if test_result:
+                print("✅ Telegram bot connected and ready")
+            else:
+                print("⚠️ Telegram bot initialized but test failed")
+        else:
+            print("ℹ️ Telegram alerts disabled")
+    except Exception as e:
+        print(f"⚠️ Telegram init failed (non-critical): {e}")
+
+# ────────────────────── Task Scheduler ──────────────────────
+    scheduler = None
+    try:
+        scheduler = get_scheduler()
+        await scheduler.start()
+        print("✅ Task scheduler started (daily reports, risk resets)")
+    except Exception as e:
+        print(f"⚠️ Task scheduler start failed (non-critical): {e}")
+
     print("🚀 Application startup complete (managed by ConfigManager).")
     try:
         yield
     finally:
+        # Stop scheduler
+        if scheduler:
+            with suppress(Exception):
+                await scheduler.stop()
+        
         with suppress(Exception):
             await idempotency_mgr.stop()
         with suppress(Exception):

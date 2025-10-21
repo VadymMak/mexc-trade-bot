@@ -10081,3 +10081,2176 @@
 2025-10-20 13:06:00,963 [INFO] [OK] Subscribed to WLFIUSDT
 2025-10-20 13:06:00,963 [INFO] [OK] Subscribed to UCNUSDT
 2025-10-20 13:06:00,963 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:07:16,221 [INFO] [OK] Database ready: ..\backend\mexc.db
+2025-10-20 13:07:16,221 [INFO] ============================================================
+2025-10-20 13:07:16,221 [INFO] ML DATA COLLECTOR STARTED
+2025-10-20 13:07:16,221 [INFO] Symbols: WLFIUSDT, UCNUSDT, HBARUSDT
+2025-10-20 13:07:16,221 [INFO] Database: ..\backend\mexc.db
+2025-10-20 13:07:16,221 [INFO] Interval: 2s
+2025-10-20 13:07:16,221 [INFO] ============================================================
+2025-10-20 13:07:16,221 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:07:16,264 [INFO] Starting collection loop...
+2025-10-20 13:07:18,513 [INFO] [OK] WebSocket connected
+2025-10-20 13:07:18,527 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:07:18,527 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:07:18,527 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:07:49,945 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:07:50,637 [INFO] [OK] WebSocket connected
+2025-10-20 13:07:50,637 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:07:50,637 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:07:50,637 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:08:23,439 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:08:24,605 [INFO] [OK] WebSocket connected
+2025-10-20 13:08:24,605 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:08:24,605 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:08:24,605 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:08:59,884 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:09:00,593 [INFO] [OK] WebSocket connected
+2025-10-20 13:09:00,593 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:09:00,593 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:09:00,593 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:09:33,130 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:09:33,839 [INFO] [OK] WebSocket connected
+2025-10-20 13:09:33,839 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:09:33,839 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:09:33,839 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:10:05,628 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:10:06,431 [INFO] [OK] WebSocket connected
+2025-10-20 13:10:06,431 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:10:06,431 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:10:06,431 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:10:38,280 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:10:38,950 [INFO] [OK] WebSocket connected
+2025-10-20 13:10:38,959 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:10:38,959 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:10:38,959 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:11:13,181 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:11:13,842 [INFO] [OK] WebSocket connected
+2025-10-20 13:11:13,842 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:11:13,842 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:11:13,842 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:11:45,659 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:11:46,367 [INFO] [OK] WebSocket connected
+2025-10-20 13:11:46,371 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:11:46,371 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:11:46,371 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:12:18,478 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:12:19,573 [INFO] [OK] WebSocket connected
+2025-10-20 13:12:19,573 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:12:19,573 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:12:19,573 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:12:53,156 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:12:53,799 [INFO] [OK] WebSocket connected
+2025-10-20 13:12:53,799 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:12:53,799 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:12:53,799 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:13:25,668 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:13:26,826 [INFO] [OK] WebSocket connected
+2025-10-20 13:13:26,826 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:13:26,826 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:13:26,826 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:14:00,675 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:14:01,386 [INFO] [OK] WebSocket connected
+2025-10-20 13:14:01,386 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:14:01,386 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:14:01,386 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:14:33,308 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:14:34,440 [INFO] [OK] WebSocket connected
+2025-10-20 13:14:34,440 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:14:34,440 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:14:34,440 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:15:08,516 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:15:09,694 [INFO] [OK] WebSocket connected
+2025-10-20 13:15:09,695 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:15:09,695 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:15:09,695 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:15:43,516 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:15:44,219 [INFO] [OK] WebSocket connected
+2025-10-20 13:15:44,227 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:15:44,227 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:15:44,227 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:16:18,322 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:16:19,074 [INFO] [OK] WebSocket connected
+2025-10-20 13:16:19,082 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:16:19,082 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:16:19,082 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:16:53,213 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:16:53,953 [INFO] [OK] WebSocket connected
+2025-10-20 13:16:53,953 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:16:53,953 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:16:53,953 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:17:28,316 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:17:28,982 [INFO] [OK] WebSocket connected
+2025-10-20 13:17:28,983 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:17:28,983 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:17:28,983 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:18:03,211 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:18:05,004 [INFO] [OK] WebSocket connected
+2025-10-20 13:18:05,020 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:18:05,020 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:18:05,020 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:18:35,711 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:18:36,800 [INFO] [OK] WebSocket connected
+2025-10-20 13:18:36,800 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:18:36,800 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:18:36,800 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:19:08,546 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:19:09,320 [INFO] [OK] WebSocket connected
+2025-10-20 13:19:09,320 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:19:09,320 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:19:09,321 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:19:40,739 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:19:41,532 [INFO] [OK] WebSocket connected
+2025-10-20 13:19:41,532 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:19:41,532 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:19:41,532 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:20:15,737 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:20:16,462 [INFO] [OK] WebSocket connected
+2025-10-20 13:20:16,462 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:20:16,462 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:20:16,462 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:20:48,583 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:20:49,326 [INFO] [OK] WebSocket connected
+2025-10-20 13:20:49,326 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:20:49,326 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:20:49,326 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:21:23,370 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:21:24,648 [INFO] [OK] WebSocket connected
+2025-10-20 13:21:24,650 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:21:24,650 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:21:24,650 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:21:58,575 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:21:59,693 [INFO] [OK] WebSocket connected
+2025-10-20 13:21:59,693 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:21:59,693 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:21:59,693 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:22:33,350 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:22:34,070 [INFO] [OK] WebSocket connected
+2025-10-20 13:22:34,070 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:22:34,070 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:22:34,070 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:23:05,025 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:23:05,688 [INFO] [OK] WebSocket connected
+2025-10-20 13:23:05,688 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:23:05,688 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:23:05,688 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:23:40,030 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:23:40,676 [INFO] [OK] WebSocket connected
+2025-10-20 13:23:40,676 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:23:40,676 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:23:40,676 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:24:15,032 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:24:16,153 [INFO] [OK] WebSocket connected
+2025-10-20 13:24:16,153 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:24:16,153 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:24:16,153 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:24:48,383 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:24:49,148 [INFO] [OK] WebSocket connected
+2025-10-20 13:24:49,148 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:24:49,148 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:24:49,148 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:25:23,610 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:25:24,323 [INFO] [OK] WebSocket connected
+2025-10-20 13:25:24,323 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:25:24,323 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:25:24,323 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:25:55,912 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:25:57,045 [INFO] [OK] WebSocket connected
+2025-10-20 13:25:57,045 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:25:57,045 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:25:57,045 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:26:28,636 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:26:29,326 [INFO] [OK] WebSocket connected
+2025-10-20 13:26:29,326 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:26:29,342 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:26:29,342 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:27:03,629 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:27:04,368 [INFO] [OK] WebSocket connected
+2025-10-20 13:27:04,368 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:27:04,368 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:27:04,368 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:27:35,819 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:27:36,483 [INFO] [OK] WebSocket connected
+2025-10-20 13:27:36,483 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:27:36,483 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:27:36,483 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:28:08,639 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:28:09,379 [INFO] [OK] WebSocket connected
+2025-10-20 13:28:09,379 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:28:09,379 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:28:09,379 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:28:43,430 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:28:44,087 [INFO] [OK] WebSocket connected
+2025-10-20 13:28:44,087 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:28:44,087 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:28:44,087 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:29:18,374 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:29:19,695 [INFO] [OK] WebSocket connected
+2025-10-20 13:29:19,695 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:29:19,695 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:29:19,695 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:29:53,383 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:29:54,194 [INFO] [OK] WebSocket connected
+2025-10-20 13:29:54,194 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:29:54,194 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:29:54,194 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:30:28,500 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:30:29,968 [INFO] [OK] WebSocket connected
+2025-10-20 13:30:29,968 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:30:29,968 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:30:29,968 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:31:00,884 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:31:01,678 [INFO] [OK] WebSocket connected
+2025-10-20 13:31:01,678 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:31:01,678 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:31:01,678 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:31:33,368 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:31:34,799 [INFO] [OK] WebSocket connected
+2025-10-20 13:31:34,799 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:31:34,799 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:31:34,799 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:32:05,870 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:32:07,669 [INFO] [OK] WebSocket connected
+2025-10-20 13:32:07,669 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:32:07,669 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:32:07,669 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:32:40,899 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:32:41,975 [INFO] [OK] WebSocket connected
+2025-10-20 13:32:41,975 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:32:41,975 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:32:41,975 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:33:15,122 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:33:16,321 [INFO] [OK] WebSocket connected
+2025-10-20 13:33:16,322 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:33:16,322 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:33:16,322 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:33:50,150 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:33:51,258 [INFO] [OK] WebSocket connected
+2025-10-20 13:33:51,258 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:33:51,258 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:33:51,258 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:34:25,944 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:34:26,710 [INFO] [OK] WebSocket connected
+2025-10-20 13:34:26,710 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:34:26,710 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:34:26,710 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:34:58,707 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:34:59,394 [INFO] [OK] WebSocket connected
+2025-10-20 13:34:59,394 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:34:59,394 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:34:59,394 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:35:33,423 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:35:34,590 [INFO] [OK] WebSocket connected
+2025-10-20 13:35:34,590 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:35:34,591 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:35:34,591 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:36:05,932 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:36:07,057 [INFO] [OK] WebSocket connected
+2025-10-20 13:36:07,057 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:36:07,057 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:36:07,057 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:36:38,748 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:36:40,041 [INFO] [OK] WebSocket connected
+2025-10-20 13:36:40,041 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:36:40,041 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:36:40,041 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:37:15,216 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:37:15,846 [INFO] [OK] WebSocket connected
+2025-10-20 13:37:15,846 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:37:15,846 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:37:15,846 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:37:50,940 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:37:52,231 [INFO] [OK] WebSocket connected
+2025-10-20 13:37:52,231 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:37:52,231 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:37:52,231 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:38:23,561 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:38:25,275 [INFO] [OK] WebSocket connected
+2025-10-20 13:38:25,275 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:38:25,275 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:38:25,275 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:39:00,219 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:39:00,878 [INFO] [OK] WebSocket connected
+2025-10-20 13:39:00,878 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:39:00,878 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:39:00,878 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:39:35,975 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:39:37,183 [INFO] [OK] WebSocket connected
+2025-10-20 13:39:37,183 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:39:37,183 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:39:37,183 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:40:11,026 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:40:12,328 [INFO] [OK] WebSocket connected
+2025-10-20 13:40:12,328 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:40:12,328 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:40:12,328 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:40:43,537 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:40:44,669 [INFO] [OK] WebSocket connected
+2025-10-20 13:40:44,669 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:40:44,669 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:40:44,669 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:41:20,267 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:41:22,693 [INFO] [OK] WebSocket connected
+2025-10-20 13:41:22,693 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:41:22,693 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:41:22,693 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:41:53,573 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:41:55,713 [INFO] [OK] WebSocket connected
+2025-10-20 13:41:55,713 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:41:55,713 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:41:55,713 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:42:28,554 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:42:29,206 [INFO] [OK] WebSocket connected
+2025-10-20 13:42:29,206 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:42:29,206 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:42:29,206 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:43:03,560 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:43:04,668 [INFO] [OK] WebSocket connected
+2025-10-20 13:43:04,668 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:43:04,668 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:43:04,668 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:43:40,258 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:43:41,528 [INFO] [OK] WebSocket connected
+2025-10-20 13:43:41,528 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:43:41,528 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:43:41,528 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:44:15,271 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:44:16,058 [INFO] [OK] WebSocket connected
+2025-10-20 13:44:16,058 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:44:16,058 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:44:16,058 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:44:48,560 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:44:49,725 [INFO] [OK] WebSocket connected
+2025-10-20 13:44:49,725 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:44:49,726 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:44:49,726 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:45:23,561 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:45:24,782 [INFO] [OK] WebSocket connected
+2025-10-20 13:45:24,782 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:45:24,782 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:45:24,782 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:45:55,308 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:45:56,680 [INFO] [OK] WebSocket connected
+2025-10-20 13:45:56,680 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:45:56,680 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:45:56,680 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:46:30,326 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:46:31,562 [INFO] [OK] WebSocket connected
+2025-10-20 13:46:31,562 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:46:31,562 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:46:31,562 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:47:03,560 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:47:04,891 [INFO] [OK] WebSocket connected
+2025-10-20 13:47:04,891 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:47:04,891 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:47:04,891 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:47:38,610 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:47:39,413 [INFO] [OK] WebSocket connected
+2025-10-20 13:47:39,413 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:47:39,413 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:47:39,413 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:48:10,336 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:48:11,174 [INFO] [OK] WebSocket connected
+2025-10-20 13:48:11,174 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:48:11,174 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:48:11,174 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:48:43,583 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:48:44,387 [INFO] [OK] WebSocket connected
+2025-10-20 13:48:44,387 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:48:44,387 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:48:44,387 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:49:16,078 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:49:16,889 [INFO] [OK] WebSocket connected
+2025-10-20 13:49:16,889 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:49:16,889 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:49:16,889 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:49:48,646 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:49:49,818 [INFO] [OK] WebSocket connected
+2025-10-20 13:49:49,818 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:49:49,818 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:49:49,818 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:50:23,855 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:50:25,135 [INFO] [OK] WebSocket connected
+2025-10-20 13:50:25,135 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:50:25,135 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:50:25,135 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:50:56,091 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:50:56,860 [INFO] [OK] WebSocket connected
+2025-10-20 13:50:56,860 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:50:56,860 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:50:56,860 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:51:30,360 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:51:31,224 [INFO] [OK] WebSocket connected
+2025-10-20 13:51:31,224 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:51:31,224 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:51:31,224 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:52:05,394 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:52:07,616 [INFO] [OK] WebSocket connected
+2025-10-20 13:52:07,616 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:52:07,616 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:52:07,616 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:52:38,628 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:52:39,868 [INFO] [OK] WebSocket connected
+2025-10-20 13:52:39,868 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:52:39,868 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:52:39,868 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:53:11,140 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:53:11,808 [INFO] [OK] WebSocket connected
+2025-10-20 13:53:11,823 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:53:11,823 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:53:11,823 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:53:43,912 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:53:44,738 [INFO] [OK] WebSocket connected
+2025-10-20 13:53:44,746 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:53:44,746 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:53:44,746 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:54:18,691 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:54:19,919 [INFO] [OK] WebSocket connected
+2025-10-20 13:54:19,919 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:54:19,919 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:54:19,919 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:54:51,147 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:54:52,434 [INFO] [OK] WebSocket connected
+2025-10-20 13:54:52,450 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:54:52,450 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:54:52,450 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:55:23,931 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:55:24,707 [INFO] [OK] WebSocket connected
+2025-10-20 13:55:24,707 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:55:24,707 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:55:24,717 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:55:58,915 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:55:59,572 [INFO] [OK] WebSocket connected
+2025-10-20 13:55:59,572 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:55:59,572 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:55:59,572 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:56:30,429 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:56:31,148 [INFO] [OK] WebSocket connected
+2025-10-20 13:56:31,148 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:56:31,148 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:56:31,148 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:57:03,986 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:57:05,076 [INFO] [OK] WebSocket connected
+2025-10-20 13:57:05,076 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:57:05,076 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:57:05,076 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:57:38,929 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:57:40,636 [INFO] [OK] WebSocket connected
+2025-10-20 13:57:40,636 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:57:40,636 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:57:40,637 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:58:13,705 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:58:14,403 [INFO] [OK] WebSocket connected
+2025-10-20 13:58:14,403 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:58:14,403 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:58:14,404 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:58:46,193 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:58:46,957 [INFO] [OK] WebSocket connected
+2025-10-20 13:58:46,957 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:58:46,957 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:58:46,957 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:59:18,709 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:59:19,864 [INFO] [OK] WebSocket connected
+2025-10-20 13:59:19,865 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:59:19,865 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:59:19,865 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 13:59:53,721 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 13:59:54,356 [INFO] [OK] WebSocket connected
+2025-10-20 13:59:54,356 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 13:59:54,356 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 13:59:54,356 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:00:28,746 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:00:29,965 [INFO] [OK] WebSocket connected
+2025-10-20 14:00:29,965 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:00:29,965 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:00:29,965 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:01:01,219 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:01:02,382 [INFO] [OK] WebSocket connected
+2025-10-20 14:01:02,382 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:01:02,382 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:01:02,382 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:01:33,989 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:01:34,689 [INFO] [OK] WebSocket connected
+2025-10-20 14:01:34,689 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:01:34,689 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:01:34,689 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:02:08,744 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:02:09,855 [INFO] [OK] WebSocket connected
+2025-10-20 14:02:09,855 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:02:09,855 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:02:09,855 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:02:40,501 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:02:41,585 [INFO] [OK] WebSocket connected
+2025-10-20 14:02:41,585 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:02:41,585 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:02:41,585 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:03:15,500 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:03:16,655 [INFO] [OK] WebSocket connected
+2025-10-20 14:03:16,655 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:03:16,655 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:03:16,655 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:03:50,517 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:03:52,701 [INFO] [OK] WebSocket connected
+2025-10-20 14:03:52,701 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:03:52,701 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:03:52,701 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:04:25,535 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:04:26,308 [INFO] [OK] WebSocket connected
+2025-10-20 14:04:26,308 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:04:26,308 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:04:26,308 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:05:01,257 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:05:02,440 [INFO] [OK] WebSocket connected
+2025-10-20 14:05:02,440 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:05:02,440 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:05:02,440 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:05:35,538 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:05:36,185 [INFO] [OK] WebSocket connected
+2025-10-20 14:05:36,185 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:05:36,185 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:05:36,185 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:06:09,029 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:06:10,300 [INFO] [OK] WebSocket connected
+2025-10-20 14:06:10,300 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:06:10,300 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:06:10,300 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:06:43,798 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:06:44,995 [INFO] [OK] WebSocket connected
+2025-10-20 14:06:44,995 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:06:44,995 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:06:44,995 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:07:19,064 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:07:19,737 [INFO] [OK] WebSocket connected
+2025-10-20 14:07:19,737 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:07:19,737 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:07:19,737 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:07:53,801 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:07:55,005 [INFO] [OK] WebSocket connected
+2025-10-20 14:07:55,005 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:07:55,005 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:07:55,005 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:08:26,302 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:08:27,475 [INFO] [OK] WebSocket connected
+2025-10-20 14:08:27,475 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:08:27,475 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:08:27,491 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:09:00,591 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:09:01,240 [INFO] [OK] WebSocket connected
+2025-10-20 14:09:01,240 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:09:01,240 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:09:01,240 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:09:34,058 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:09:34,811 [INFO] [OK] WebSocket connected
+2025-10-20 14:09:34,811 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:09:34,811 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:09:34,811 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:10:09,053 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:10:09,842 [INFO] [OK] WebSocket connected
+2025-10-20 14:10:09,842 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:10:09,842 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:10:09,842 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:10:44,075 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:10:44,862 [INFO] [OK] WebSocket connected
+2025-10-20 14:10:44,862 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:10:44,862 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:10:44,862 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:11:18,838 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:11:19,568 [INFO] [OK] WebSocket connected
+2025-10-20 14:11:19,568 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:11:19,568 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:11:19,568 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:11:50,628 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:11:51,720 [INFO] [OK] WebSocket connected
+2025-10-20 14:11:51,721 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:11:51,721 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:11:51,721 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:12:23,863 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:12:24,473 [INFO] [OK] WebSocket connected
+2025-10-20 14:12:24,473 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:12:24,473 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:12:24,473 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:12:58,858 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:12:59,532 [INFO] [OK] WebSocket connected
+2025-10-20 14:12:59,532 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:12:59,532 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:12:59,532 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:13:31,352 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:13:32,514 [INFO] [OK] WebSocket connected
+2025-10-20 14:13:32,514 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:13:32,515 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:13:32,515 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:14:03,907 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:14:05,050 [INFO] [OK] WebSocket connected
+2025-10-20 14:14:05,065 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:14:05,065 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:14:05,065 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:14:36,421 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:14:37,247 [INFO] [OK] WebSocket connected
+2025-10-20 14:14:37,247 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:14:37,247 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:14:37,248 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:15:10,696 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:15:11,513 [INFO] [OK] WebSocket connected
+2025-10-20 14:15:11,514 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:15:11,514 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:15:11,514 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:15:45,704 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:15:47,154 [INFO] [OK] WebSocket connected
+2025-10-20 14:15:47,154 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:15:47,154 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:15:47,154 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:16:21,415 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:16:22,055 [INFO] [OK] WebSocket connected
+2025-10-20 14:16:22,055 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:16:22,055 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:16:22,055 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:16:53,930 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:16:55,670 [INFO] [OK] WebSocket connected
+2025-10-20 14:16:55,670 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:16:55,670 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:16:55,670 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:17:28,924 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:17:29,605 [INFO] [OK] WebSocket connected
+2025-10-20 14:17:29,605 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:17:29,605 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:17:29,605 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:18:00,739 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:18:01,549 [INFO] [OK] WebSocket connected
+2025-10-20 14:18:01,549 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:18:01,549 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:18:01,549 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:18:34,157 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:18:35,286 [INFO] [OK] WebSocket connected
+2025-10-20 14:18:35,286 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:18:35,286 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:18:35,286 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:19:06,421 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:19:07,259 [INFO] [OK] WebSocket connected
+2025-10-20 14:19:07,259 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:19:07,259 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:19:07,259 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:19:38,969 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:19:40,163 [INFO] [OK] WebSocket connected
+2025-10-20 14:19:40,163 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:19:40,163 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:19:40,163 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:20:13,944 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:20:15,169 [INFO] [OK] WebSocket connected
+2025-10-20 14:20:15,169 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:20:15,169 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:20:15,169 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:20:49,007 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:20:50,186 [INFO] [OK] WebSocket connected
+2025-10-20 14:20:50,186 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:20:50,186 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:20:50,186 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:21:20,765 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:21:21,535 [INFO] [OK] WebSocket connected
+2025-10-20 14:21:21,535 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:21:21,535 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:21:21,535 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:21:53,987 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:21:54,743 [INFO] [OK] WebSocket connected
+2025-10-20 14:21:54,743 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:21:54,743 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:21:54,743 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:22:25,791 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:22:26,970 [INFO] [OK] WebSocket connected
+2025-10-20 14:22:26,971 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:22:26,971 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:22:26,971 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:23:00,771 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:23:01,966 [INFO] [OK] WebSocket connected
+2025-10-20 14:23:01,982 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:23:01,982 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:23:01,982 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:23:35,788 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:23:37,076 [INFO] [OK] WebSocket connected
+2025-10-20 14:23:37,076 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:23:37,076 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:23:37,076 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:24:09,003 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:24:09,778 [INFO] [OK] WebSocket connected
+2025-10-20 14:24:09,778 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:24:09,778 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:24:09,778 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:24:44,011 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:24:45,138 [INFO] [OK] WebSocket connected
+2025-10-20 14:24:45,138 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:24:45,138 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:24:45,138 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:25:19,222 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:25:19,943 [INFO] [OK] WebSocket connected
+2025-10-20 14:25:19,943 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:25:19,943 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:25:19,943 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:25:51,497 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:25:52,728 [INFO] [OK] WebSocket connected
+2025-10-20 14:25:52,728 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:25:52,728 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:25:52,728 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:26:24,036 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:26:25,228 [INFO] [OK] WebSocket connected
+2025-10-20 14:26:25,228 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:26:25,228 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:26:25,228 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:26:56,517 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:26:57,809 [INFO] [OK] WebSocket connected
+2025-10-20 14:26:57,809 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:26:57,809 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:26:57,809 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:27:29,234 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:27:30,385 [INFO] [OK] WebSocket connected
+2025-10-20 14:27:30,385 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:27:30,385 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:27:30,385 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:28:04,100 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:28:04,892 [INFO] [OK] WebSocket connected
+2025-10-20 14:28:04,892 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:28:04,892 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:28:04,892 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:28:36,554 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:28:37,324 [INFO] [OK] WebSocket connected
+2025-10-20 14:28:37,324 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:28:37,324 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:28:37,324 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:29:09,097 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:29:10,435 [INFO] [OK] WebSocket connected
+2025-10-20 14:29:10,435 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:29:10,435 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:29:10,435 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:29:44,249 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:29:45,471 [INFO] [OK] WebSocket connected
+2025-10-20 14:29:45,486 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:29:45,486 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:29:45,486 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:30:16,574 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:30:17,445 [INFO] [OK] WebSocket connected
+2025-10-20 14:30:17,445 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:30:17,445 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:30:17,445 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:30:49,646 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:30:50,416 [INFO] [OK] WebSocket connected
+2025-10-20 14:30:50,416 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:30:50,416 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:30:50,416 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:31:24,080 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:31:25,305 [INFO] [OK] WebSocket connected
+2025-10-20 14:31:25,305 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:31:25,305 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:31:25,305 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:31:56,598 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:31:57,833 [INFO] [OK] WebSocket connected
+2025-10-20 14:31:57,847 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:31:57,847 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:31:57,847 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:32:31,587 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:32:32,801 [INFO] [OK] WebSocket connected
+2025-10-20 14:32:32,801 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:32:32,801 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:32:32,801 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:33:05,912 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:33:06,750 [INFO] [OK] WebSocket connected
+2025-10-20 14:33:06,750 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:33:06,750 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:33:06,750 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:33:40,892 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:33:41,601 [INFO] [OK] WebSocket connected
+2025-10-20 14:33:41,601 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:33:41,601 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:33:41,601 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:34:16,621 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:34:17,447 [INFO] [OK] WebSocket connected
+2025-10-20 14:34:17,447 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:34:17,447 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:34:17,447 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:34:50,926 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:34:52,115 [INFO] [OK] WebSocket connected
+2025-10-20 14:34:52,120 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:34:52,120 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:34:52,120 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:35:24,172 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:35:25,460 [INFO] [OK] WebSocket connected
+2025-10-20 14:35:25,460 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:35:25,460 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:35:25,460 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:35:56,662 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:35:57,946 [INFO] [OK] WebSocket connected
+2025-10-20 14:35:57,946 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:35:57,946 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:35:57,946 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:36:29,828 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:36:31,124 [INFO] [OK] WebSocket connected
+2025-10-20 14:36:31,124 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:36:31,124 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:36:31,124 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:37:05,969 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:37:07,238 [INFO] [OK] WebSocket connected
+2025-10-20 14:37:07,238 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:37:07,238 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:37:07,238 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:37:39,117 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:37:39,939 [INFO] [OK] WebSocket connected
+2025-10-20 14:37:39,939 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:37:39,940 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:37:39,940 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:38:14,124 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:38:15,445 [INFO] [OK] WebSocket connected
+2025-10-20 14:38:15,445 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:38:15,445 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:38:15,447 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:38:49,163 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:38:50,410 [INFO] [OK] WebSocket connected
+2025-10-20 14:38:50,410 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:38:50,410 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:38:50,410 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:39:25,970 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:39:26,686 [INFO] [OK] WebSocket connected
+2025-10-20 14:39:26,686 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:39:26,686 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:39:26,686 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:39:59,219 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:40:00,004 [INFO] [OK] WebSocket connected
+2025-10-20 14:40:00,004 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:40:00,004 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:40:00,004 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:40:31,004 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:40:31,711 [INFO] [OK] WebSocket connected
+2025-10-20 14:40:31,711 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:40:31,711 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:40:31,711 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:41:06,701 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:41:07,439 [INFO] [OK] WebSocket connected
+2025-10-20 14:41:07,440 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:41:07,440 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:41:07,440 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:41:39,410 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:41:40,612 [INFO] [OK] WebSocket connected
+2025-10-20 14:41:40,612 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:41:40,612 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:41:40,612 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:42:14,252 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:42:15,024 [INFO] [OK] WebSocket connected
+2025-10-20 14:42:15,024 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:42:15,024 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:42:15,024 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:42:46,014 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:42:46,860 [INFO] [OK] WebSocket connected
+2025-10-20 14:42:46,860 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:42:46,860 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:42:46,860 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:43:19,392 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:43:20,583 [INFO] [OK] WebSocket connected
+2025-10-20 14:43:20,583 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:43:20,583 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:43:20,583 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:43:56,047 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:43:56,894 [INFO] [OK] WebSocket connected
+2025-10-20 14:43:56,895 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:43:56,895 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:43:56,895 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:44:29,186 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:44:29,955 [INFO] [OK] WebSocket connected
+2025-10-20 14:44:29,955 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:44:29,955 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:44:29,955 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:45:04,432 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:45:05,170 [INFO] [OK] WebSocket connected
+2025-10-20 14:45:05,170 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:45:05,170 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:45:05,170 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:45:36,075 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:45:36,871 [INFO] [OK] WebSocket connected
+2025-10-20 14:45:36,871 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:45:36,871 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:45:36,871 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:46:09,456 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:46:10,343 [INFO] [OK] WebSocket connected
+2025-10-20 14:46:10,343 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:46:10,343 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:46:10,343 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:46:44,427 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:46:45,163 [INFO] [OK] WebSocket connected
+2025-10-20 14:46:45,163 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:46:45,163 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:46:45,163 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:47:19,311 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:47:20,110 [INFO] [OK] WebSocket connected
+2025-10-20 14:47:20,110 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:47:20,110 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:47:20,110 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:47:54,229 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:47:54,965 [INFO] [OK] WebSocket connected
+2025-10-20 14:47:54,965 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:47:54,965 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:47:54,965 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:48:29,302 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:48:30,458 [INFO] [OK] WebSocket connected
+2025-10-20 14:48:30,458 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:48:30,458 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:48:30,458 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:49:04,349 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:49:05,115 [INFO] [OK] WebSocket connected
+2025-10-20 14:49:05,115 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:49:05,116 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:49:05,116 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:49:36,785 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:49:37,529 [INFO] [OK] WebSocket connected
+2025-10-20 14:49:37,529 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:49:37,529 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:49:37,529 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:50:09,275 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:50:10,519 [INFO] [OK] WebSocket connected
+2025-10-20 14:50:10,520 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:50:10,520 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:50:10,520 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:50:46,132 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:50:46,886 [INFO] [OK] WebSocket connected
+2025-10-20 14:50:46,886 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:50:46,886 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:50:46,886 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:51:19,360 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:51:20,127 [INFO] [OK] WebSocket connected
+2025-10-20 14:51:20,127 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:51:20,127 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:51:20,127 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:51:54,261 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:51:55,468 [INFO] [OK] WebSocket connected
+2025-10-20 14:51:55,469 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:51:55,469 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:51:55,469 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:52:29,285 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:52:29,917 [INFO] [OK] WebSocket connected
+2025-10-20 14:52:29,919 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:52:29,919 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:52:29,920 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:53:01,841 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:53:03,005 [INFO] [OK] WebSocket connected
+2025-10-20 14:53:03,005 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:53:03,005 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:53:03,005 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:53:34,358 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:53:35,456 [INFO] [OK] WebSocket connected
+2025-10-20 14:53:35,456 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:53:35,456 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:53:35,456 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:54:09,403 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:54:10,324 [INFO] [OK] WebSocket connected
+2025-10-20 14:54:10,324 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:54:10,324 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:54:10,324 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:54:44,393 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:54:45,557 [INFO] [OK] WebSocket connected
+2025-10-20 14:54:45,557 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:54:45,557 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:54:45,557 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:55:21,166 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:55:21,878 [INFO] [OK] WebSocket connected
+2025-10-20 14:55:21,879 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:55:21,879 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:55:21,879 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:55:54,314 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:55:55,691 [INFO] [OK] WebSocket connected
+2025-10-20 14:55:55,691 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:55:55,691 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:55:55,691 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:56:29,399 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:56:30,684 [INFO] [OK] WebSocket connected
+2025-10-20 14:56:30,684 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:56:30,684 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:56:30,684 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:57:01,898 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:57:02,704 [INFO] [OK] WebSocket connected
+2025-10-20 14:57:02,719 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:57:02,719 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:57:02,719 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:57:34,413 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:57:35,548 [INFO] [OK] WebSocket connected
+2025-10-20 14:57:35,549 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:57:35,549 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:57:35,549 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:58:09,559 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:58:10,370 [INFO] [OK] WebSocket connected
+2025-10-20 14:58:10,386 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:58:10,386 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:58:10,386 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:58:46,207 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:58:47,425 [INFO] [OK] WebSocket connected
+2025-10-20 14:58:47,425 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:58:47,425 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:58:47,425 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:59:21,218 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:59:22,321 [INFO] [OK] WebSocket connected
+2025-10-20 14:59:22,321 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:59:22,321 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:59:22,321 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 14:59:56,223 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 14:59:56,937 [INFO] [OK] WebSocket connected
+2025-10-20 14:59:56,937 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 14:59:56,937 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 14:59:56,937 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:00:31,263 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:00:36,208 [INFO] [OK] WebSocket connected
+2025-10-20 15:00:36,208 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:00:36,208 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:00:36,208 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:01:09,588 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:01:10,433 [INFO] [OK] WebSocket connected
+2025-10-20 15:01:10,433 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:01:10,433 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:01:10,433 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:01:44,366 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:01:45,024 [INFO] [OK] WebSocket connected
+2025-10-20 15:01:45,024 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:01:45,024 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:01:45,024 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:02:19,579 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:02:20,665 [INFO] [OK] WebSocket connected
+2025-10-20 15:02:20,665 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:02:20,665 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:02:20,681 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:02:51,934 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:02:52,704 [INFO] [OK] WebSocket connected
+2025-10-20 15:02:52,704 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:02:52,704 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:02:52,719 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:03:26,307 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:03:27,476 [INFO] [OK] WebSocket connected
+2025-10-20 15:03:27,476 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:03:27,477 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:03:27,477 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:03:59,506 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:04:00,290 [INFO] [OK] WebSocket connected
+2025-10-20 15:04:00,290 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:04:00,290 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:04:00,290 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:04:34,403 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:04:35,537 [INFO] [OK] WebSocket connected
+2025-10-20 15:04:35,537 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:04:35,537 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:04:35,537 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:05:06,962 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:05:07,623 [INFO] [OK] WebSocket connected
+2025-10-20 15:05:07,623 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:05:07,623 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:05:07,623 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:05:39,524 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:05:40,764 [INFO] [OK] WebSocket connected
+2025-10-20 15:05:40,764 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:05:40,764 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:05:40,764 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:06:12,000 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:06:12,859 [INFO] [OK] WebSocket connected
+2025-10-20 15:06:12,859 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:06:12,859 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:06:12,860 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:06:44,640 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:06:45,478 [INFO] [OK] WebSocket connected
+2025-10-20 15:06:45,478 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:06:45,478 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:06:45,478 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:07:19,659 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:07:20,908 [INFO] [OK] WebSocket connected
+2025-10-20 15:07:20,908 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:07:20,908 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:07:20,908 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:07:54,429 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:07:55,626 [INFO] [OK] WebSocket connected
+2025-10-20 15:07:55,626 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:07:55,626 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:07:55,626 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:08:29,448 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:08:30,253 [INFO] [OK] WebSocket connected
+2025-10-20 15:08:30,253 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:08:30,254 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:08:30,254 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:09:01,341 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:09:02,190 [INFO] [OK] WebSocket connected
+2025-10-20 15:09:02,190 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:09:02,191 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:09:02,191 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:09:37,042 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:09:37,888 [INFO] [OK] WebSocket connected
+2025-10-20 15:09:37,888 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:09:37,888 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:09:37,888 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:10:09,588 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:10:10,336 [INFO] [OK] WebSocket connected
+2025-10-20 15:10:10,336 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:10:10,336 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:10:10,336 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:10:44,712 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:10:45,529 [INFO] [OK] WebSocket connected
+2025-10-20 15:10:45,529 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:10:45,529 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:10:45,529 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:11:19,472 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:11:20,272 [INFO] [OK] WebSocket connected
+2025-10-20 15:11:20,272 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:11:20,272 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:11:20,272 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:11:54,609 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:11:55,364 [INFO] [OK] WebSocket connected
+2025-10-20 15:11:55,364 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:11:55,364 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:11:55,364 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:12:29,599 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:12:30,291 [INFO] [OK] WebSocket connected
+2025-10-20 15:12:30,293 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:12:30,293 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:12:30,293 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:13:04,543 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:13:05,365 [INFO] [OK] WebSocket connected
+2025-10-20 15:13:05,365 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:13:05,365 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:13:05,365 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:13:39,876 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:13:40,738 [INFO] [OK] WebSocket connected
+2025-10-20 15:13:40,738 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:13:40,738 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:13:40,738 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:14:12,094 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:14:12,894 [INFO] [OK] WebSocket connected
+2025-10-20 15:14:12,894 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:14:12,894 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:14:12,894 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:14:46,431 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:14:47,202 [INFO] [OK] WebSocket connected
+2025-10-20 15:14:47,202 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:14:47,202 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:14:47,202 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:15:19,494 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:15:20,887 [INFO] [OK] WebSocket connected
+2025-10-20 15:15:20,887 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:15:20,887 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:15:20,887 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:15:51,451 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:15:52,257 [INFO] [OK] WebSocket connected
+2025-10-20 15:15:52,257 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:15:52,257 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:15:52,257 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:16:24,698 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:16:25,989 [INFO] [OK] WebSocket connected
+2025-10-20 15:16:25,989 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:16:25,989 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:16:25,989 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:16:59,517 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:17:00,721 [INFO] [OK] WebSocket connected
+2025-10-20 15:17:00,721 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:17:00,721 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:17:00,721 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:17:34,528 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:17:35,587 [INFO] [OK] WebSocket connected
+2025-10-20 15:17:35,587 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:17:35,587 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:17:35,587 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:18:09,524 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:18:10,796 [INFO] [OK] WebSocket connected
+2025-10-20 15:18:10,796 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:18:10,796 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:18:10,796 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:18:42,144 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:18:43,403 [INFO] [OK] WebSocket connected
+2025-10-20 15:18:43,403 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:18:43,403 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:18:43,403 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:19:14,697 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:19:15,628 [INFO] [OK] WebSocket connected
+2025-10-20 15:19:15,628 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:19:15,628 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:19:15,628 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:19:49,530 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:19:50,356 [INFO] [OK] WebSocket connected
+2025-10-20 15:19:50,356 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:19:50,356 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:19:50,356 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:20:24,719 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:20:25,613 [INFO] [OK] WebSocket connected
+2025-10-20 15:20:25,613 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:20:25,613 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:20:25,613 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:20:59,805 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:21:00,761 [INFO] [OK] WebSocket connected
+2025-10-20 15:21:00,761 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:21:00,761 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:21:00,761 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:21:34,800 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:21:35,524 [INFO] [OK] WebSocket connected
+2025-10-20 15:21:35,524 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:21:35,524 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:21:35,524 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:22:09,833 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:22:11,003 [INFO] [OK] WebSocket connected
+2025-10-20 15:22:11,003 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:22:11,003 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:22:11,003 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:22:44,557 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:22:45,246 [INFO] [OK] WebSocket connected
+2025-10-20 15:22:45,246 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:22:45,246 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:22:45,247 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:23:16,511 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:23:17,207 [INFO] [OK] WebSocket connected
+2025-10-20 15:23:17,208 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:23:17,208 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:23:17,208 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:23:49,734 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:23:50,405 [INFO] [OK] WebSocket connected
+2025-10-20 15:23:50,405 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:23:50,405 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:23:50,405 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:24:24,851 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:24:25,663 [INFO] [OK] WebSocket connected
+2025-10-20 15:24:25,663 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:24:25,663 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:24:25,663 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:24:59,848 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:25:00,656 [INFO] [OK] WebSocket connected
+2025-10-20 15:25:00,656 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:25:00,656 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:25:00,656 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:25:32,219 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:25:33,521 [INFO] [OK] WebSocket connected
+2025-10-20 15:25:33,521 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:25:33,521 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:25:33,521 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:26:04,797 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:26:05,702 [INFO] [OK] WebSocket connected
+2025-10-20 15:26:05,702 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:26:05,702 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:26:05,702 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:26:39,805 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:26:40,744 [INFO] [OK] WebSocket connected
+2025-10-20 15:26:40,744 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:26:40,744 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:26:40,744 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:27:14,794 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:27:16,068 [INFO] [OK] WebSocket connected
+2025-10-20 15:27:16,068 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:27:16,068 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:27:16,068 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:27:49,820 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:27:51,131 [INFO] [OK] WebSocket connected
+2025-10-20 15:27:51,131 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:27:51,131 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:27:51,131 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:28:21,599 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:28:22,821 [INFO] [OK] WebSocket connected
+2025-10-20 15:28:22,821 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:28:22,821 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:28:22,821 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:28:57,255 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:28:58,152 [INFO] [OK] WebSocket connected
+2025-10-20 15:28:58,152 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:28:58,152 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:28:58,152 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:29:32,236 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:29:33,451 [INFO] [OK] WebSocket connected
+2025-10-20 15:29:33,452 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:29:33,452 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:29:33,452 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:30:06,618 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:30:07,869 [INFO] [OK] WebSocket connected
+2025-10-20 15:30:07,869 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:30:07,869 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:30:07,869 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:30:40,030 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:30:41,237 [INFO] [OK] WebSocket connected
+2025-10-20 15:30:41,237 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:30:41,237 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:30:41,237 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:31:14,908 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:31:15,835 [INFO] [OK] WebSocket connected
+2025-10-20 15:31:15,835 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:31:15,835 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:31:15,835 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:31:49,847 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:31:51,078 [INFO] [OK] WebSocket connected
+2025-10-20 15:31:51,078 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:31:51,078 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:31:51,078 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:32:25,450 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:32:26,722 [INFO] [OK] WebSocket connected
+2025-10-20 15:32:26,722 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:32:26,722 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:32:26,722 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:33:01,654 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:33:02,509 [INFO] [OK] WebSocket connected
+2025-10-20 15:33:02,509 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:33:02,509 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:33:02,509 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:33:36,695 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:33:40,481 [INFO] [OK] WebSocket connected
+2025-10-20 15:33:40,481 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:33:40,481 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:33:40,481 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:34:14,877 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:34:16,763 [INFO] [OK] WebSocket connected
+2025-10-20 15:34:16,763 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:34:16,763 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:34:16,763 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:34:49,961 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:34:51,213 [INFO] [OK] WebSocket connected
+2025-10-20 15:34:51,213 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:34:51,213 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:34:51,213 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:35:24,954 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:35:25,749 [INFO] [OK] WebSocket connected
+2025-10-20 15:35:25,749 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:35:25,749 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:35:25,749 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:35:57,335 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:35:58,579 [INFO] [OK] WebSocket connected
+2025-10-20 15:35:58,580 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:35:58,580 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:35:58,581 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:36:32,338 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:36:33,177 [INFO] [OK] WebSocket connected
+2025-10-20 15:36:33,177 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:36:33,177 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:36:33,177 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:37:07,350 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:37:08,593 [INFO] [OK] WebSocket connected
+2025-10-20 15:37:08,598 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:37:08,598 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:37:08,598 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:37:42,360 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:37:43,197 [INFO] [OK] WebSocket connected
+2025-10-20 15:37:43,197 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:37:43,197 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:37:43,197 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:38:14,913 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:38:16,144 [INFO] [OK] WebSocket connected
+2025-10-20 15:38:16,144 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:38:16,144 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:38:16,144 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:38:46,722 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:38:47,960 [INFO] [OK] WebSocket connected
+2025-10-20 15:38:47,960 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:38:47,960 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:38:47,960 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:39:19,944 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:39:21,240 [INFO] [OK] WebSocket connected
+2025-10-20 15:39:21,240 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:39:21,240 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:39:21,240 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:39:51,716 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:39:52,987 [INFO] [OK] WebSocket connected
+2025-10-20 15:39:52,987 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:39:52,987 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:39:52,987 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:40:24,998 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:40:26,283 [INFO] [OK] WebSocket connected
+2025-10-20 15:40:26,283 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:40:26,283 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:40:26,283 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:40:59,961 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:41:01,182 [INFO] [OK] WebSocket connected
+2025-10-20 15:41:01,182 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:41:01,182 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:41:01,182 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:41:34,961 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:41:35,758 [INFO] [OK] WebSocket connected
+2025-10-20 15:41:35,758 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:41:35,774 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:41:35,774 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:42:09,982 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:42:11,235 [INFO] [OK] WebSocket connected
+2025-10-20 15:42:11,236 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:42:11,236 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:42:11,236 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:42:44,777 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:42:46,098 [INFO] [OK] WebSocket connected
+2025-10-20 15:42:46,098 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:42:46,098 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:42:46,098 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:43:17,425 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:43:18,819 [INFO] [OK] WebSocket connected
+2025-10-20 15:43:18,819 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:43:18,819 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:43:18,819 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:43:52,412 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:43:53,314 [INFO] [OK] WebSocket connected
+2025-10-20 15:43:53,314 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:43:53,314 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:43:53,314 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:44:24,990 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:44:26,219 [INFO] [OK] WebSocket connected
+2025-10-20 15:44:26,219 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:44:26,219 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:44:26,219 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:44:56,794 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:44:58,064 [INFO] [OK] WebSocket connected
+2025-10-20 15:44:58,064 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:44:58,064 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:44:58,064 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:45:29,821 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:45:31,047 [INFO] [OK] WebSocket connected
+2025-10-20 15:45:31,047 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:45:31,047 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:45:31,047 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:46:01,807 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:46:03,084 [INFO] [OK] WebSocket connected
+2025-10-20 15:46:03,084 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:46:03,084 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:46:03,084 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:46:36,815 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:46:37,652 [INFO] [OK] WebSocket connected
+2025-10-20 15:46:37,652 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:46:37,652 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:46:37,652 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:47:10,034 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:47:11,311 [INFO] [OK] WebSocket connected
+2025-10-20 15:47:11,320 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:47:11,320 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:47:11,320 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:47:42,471 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:47:43,332 [INFO] [OK] WebSocket connected
+2025-10-20 15:47:43,332 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:47:43,332 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:47:43,332 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:48:17,473 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:48:18,521 [INFO] [OK] WebSocket connected
+2025-10-20 15:48:18,521 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:48:18,521 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:48:18,521 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:48:52,471 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:48:53,273 [INFO] [OK] WebSocket connected
+2025-10-20 15:48:53,273 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:48:53,273 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:48:53,273 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:49:27,495 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:49:28,317 [INFO] [OK] WebSocket connected
+2025-10-20 15:49:28,317 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:49:28,317 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:49:28,317 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:50:01,870 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:50:02,820 [INFO] [OK] WebSocket connected
+2025-10-20 15:50:02,820 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:50:02,820 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:50:02,820 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:50:37,503 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:50:38,325 [INFO] [OK] WebSocket connected
+2025-10-20 15:50:38,325 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:50:38,325 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:50:38,325 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:51:09,863 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:51:11,104 [INFO] [OK] WebSocket connected
+2025-10-20 15:51:11,104 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:51:11,104 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:51:11,104 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:51:41,892 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:51:42,863 [INFO] [OK] WebSocket connected
+2025-10-20 15:51:42,863 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:51:42,863 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:51:42,863 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:52:14,869 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:52:16,225 [INFO] [OK] WebSocket connected
+2025-10-20 15:52:16,226 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:52:16,226 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:52:16,226 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:52:49,882 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:52:51,109 [INFO] [OK] WebSocket connected
+2025-10-20 15:52:51,109 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:52:51,109 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:52:51,109 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:53:25,127 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:53:26,008 [INFO] [OK] WebSocket connected
+2025-10-20 15:53:26,008 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:53:26,009 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:53:26,009 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:53:59,880 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:54:01,222 [INFO] [OK] WebSocket connected
+2025-10-20 15:54:01,223 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:54:01,223 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:54:01,223 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:54:31,914 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:54:33,255 [INFO] [OK] WebSocket connected
+2025-10-20 15:54:33,255 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:54:33,255 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:54:33,255 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:55:06,918 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:55:07,725 [INFO] [OK] WebSocket connected
+2025-10-20 15:55:07,731 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:55:07,731 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:55:07,731 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:55:40,160 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:55:40,936 [INFO] [OK] WebSocket connected
+2025-10-20 15:55:40,937 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:55:40,937 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:55:40,937 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:56:14,907 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:56:15,701 [INFO] [OK] WebSocket connected
+2025-10-20 15:56:15,702 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:56:15,702 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:56:15,702 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:56:50,177 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:56:50,930 [INFO] [OK] WebSocket connected
+2025-10-20 15:56:50,931 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:56:50,931 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:56:50,932 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:57:22,589 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:57:23,414 [INFO] [OK] WebSocket connected
+2025-10-20 15:57:23,414 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:57:23,414 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:57:23,414 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:57:55,200 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:57:55,984 [INFO] [OK] WebSocket connected
+2025-10-20 15:57:55,984 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:57:55,985 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:57:55,985 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:58:26,961 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:58:27,798 [INFO] [OK] WebSocket connected
+2025-10-20 15:58:27,798 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:58:27,798 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:58:27,798 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:59:00,183 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:59:01,470 [INFO] [OK] WebSocket connected
+2025-10-20 15:59:01,472 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:59:01,472 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:59:01,472 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 15:59:36,969 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 15:59:38,247 [INFO] [OK] WebSocket connected
+2025-10-20 15:59:38,247 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 15:59:38,247 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 15:59:38,247 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:00:11,966 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:00:12,745 [INFO] [OK] WebSocket connected
+2025-10-20 16:00:12,745 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:00:12,745 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:00:12,745 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:00:44,958 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:00:45,733 [INFO] [OK] WebSocket connected
+2025-10-20 16:00:45,733 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:00:45,733 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:00:45,733 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:01:16,972 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:01:18,288 [INFO] [OK] WebSocket connected
+2025-10-20 16:01:18,288 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:01:18,288 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:01:18,288 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:01:52,017 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:01:53,266 [INFO] [OK] WebSocket connected
+2025-10-20 16:01:53,266 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:01:53,266 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:01:53,266 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:02:24,979 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:02:25,851 [INFO] [OK] WebSocket connected
+2025-10-20 16:02:25,851 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:02:25,851 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:02:25,851 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:02:56,970 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:02:57,740 [INFO] [OK] WebSocket connected
+2025-10-20 16:02:57,740 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:02:57,740 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:02:57,740 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:03:30,238 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:03:31,603 [INFO] [OK] WebSocket connected
+2025-10-20 16:03:31,603 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:03:31,603 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:03:31,603 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:04:05,223 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:04:06,484 [INFO] [OK] WebSocket connected
+2025-10-20 16:04:06,484 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:04:06,484 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:04:06,484 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:04:37,684 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:04:38,928 [INFO] [OK] WebSocket connected
+2025-10-20 16:04:38,928 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:04:38,928 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:04:38,928 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:05:10,248 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:05:11,487 [INFO] [OK] WebSocket connected
+2025-10-20 16:05:11,487 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:05:11,487 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:05:11,487 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:05:45,263 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:05:46,545 [INFO] [OK] WebSocket connected
+2025-10-20 16:05:46,545 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:05:46,545 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:05:46,545 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:06:18,325 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:06:19,129 [INFO] [OK] WebSocket connected
+2025-10-20 16:06:19,129 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:06:19,129 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:06:19,129 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:06:52,041 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:06:53,301 [INFO] [OK] WebSocket connected
+2025-10-20 16:06:53,301 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:06:53,301 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:06:53,301 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:07:25,008 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:07:26,274 [INFO] [OK] WebSocket connected
+2025-10-20 16:07:26,274 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:07:26,274 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:07:26,274 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:07:57,063 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:07:57,872 [INFO] [OK] WebSocket connected
+2025-10-20 16:07:57,872 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:07:57,872 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:07:57,872 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:08:32,092 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:08:33,302 [INFO] [OK] WebSocket connected
+2025-10-20 16:08:33,302 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:08:33,302 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:08:33,302 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:09:07,730 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:09:08,976 [INFO] [OK] WebSocket connected
+2025-10-20 16:09:08,976 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:09:08,976 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:09:08,976 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:09:42,759 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:09:43,961 [INFO] [OK] WebSocket connected
+2025-10-20 16:09:43,961 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:09:43,961 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:09:43,961 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:10:15,301 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:10:16,097 [INFO] [OK] WebSocket connected
+2025-10-20 16:10:16,097 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:10:16,097 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:10:16,097 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:10:50,335 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:10:51,125 [INFO] [OK] WebSocket connected
+2025-10-20 16:10:51,125 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:10:51,125 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:10:51,125 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:11:22,765 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:11:23,533 [INFO] [OK] WebSocket connected
+2025-10-20 16:11:23,533 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:11:23,533 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:11:23,533 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:11:57,128 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:11:57,965 [INFO] [OK] WebSocket connected
+2025-10-20 16:11:57,965 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:11:57,965 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:11:57,965 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:12:30,313 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:12:31,549 [INFO] [OK] WebSocket connected
+2025-10-20 16:12:31,550 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:12:31,550 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:12:31,550 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:13:05,079 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:13:05,902 [INFO] [OK] WebSocket connected
+2025-10-20 16:13:05,902 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:13:05,902 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:13:05,902 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:13:40,337 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:13:41,139 [INFO] [OK] WebSocket connected
+2025-10-20 16:13:41,139 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:13:41,139 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:13:41,139 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:14:15,088 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:14:15,902 [INFO] [OK] WebSocket connected
+2025-10-20 16:14:15,902 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:14:15,902 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:14:15,902 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:14:47,772 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:14:49,031 [INFO] [OK] WebSocket connected
+2025-10-20 16:14:49,031 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:14:49,031 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:14:49,031 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:15:20,100 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:15:20,973 [INFO] [OK] WebSocket connected
+2025-10-20 16:15:20,975 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:15:20,975 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:15:20,975 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:15:52,865 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:15:53,676 [INFO] [OK] WebSocket connected
+2025-10-20 16:15:53,685 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:15:53,685 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:15:53,685 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:16:27,841 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:16:29,081 [INFO] [OK] WebSocket connected
+2025-10-20 16:16:29,081 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:16:29,081 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:16:29,081 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:17:00,379 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:17:01,167 [INFO] [OK] WebSocket connected
+2025-10-20 16:17:01,167 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:17:01,167 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:17:01,167 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:17:32,181 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:17:32,844 [INFO] [OK] WebSocket connected
+2025-10-20 16:17:32,846 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:17:32,846 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:17:32,846 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:18:07,896 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:18:08,689 [INFO] [OK] WebSocket connected
+2025-10-20 16:18:08,689 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:18:08,689 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:18:08,689 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:18:42,843 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:18:44,097 [INFO] [OK] WebSocket connected
+2025-10-20 16:18:44,097 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:18:44,097 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:18:44,097 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:19:17,833 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:19:18,639 [INFO] [OK] WebSocket connected
+2025-10-20 16:19:18,639 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:19:18,639 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:19:18,639 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:19:50,141 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:19:51,374 [INFO] [OK] WebSocket connected
+2025-10-20 16:19:51,374 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:19:51,374 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:19:51,374 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:20:25,440 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:20:26,680 [INFO] [OK] WebSocket connected
+2025-10-20 16:20:26,680 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:20:26,680 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:20:26,680 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:21:02,203 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:21:03,027 [INFO] [OK] WebSocket connected
+2025-10-20 16:21:03,027 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:21:03,027 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:21:03,027 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:21:37,246 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:21:39,317 [INFO] [OK] WebSocket connected
+2025-10-20 16:21:39,317 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:21:39,317 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:21:39,317 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:22:10,162 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:22:10,943 [INFO] [OK] WebSocket connected
+2025-10-20 16:22:10,943 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:22:10,943 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:22:10,943 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:22:45,171 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:22:45,963 [INFO] [OK] WebSocket connected
+2025-10-20 16:22:45,963 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:22:45,963 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:22:45,963 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:23:20,442 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:23:21,787 [INFO] [OK] WebSocket connected
+2025-10-20 16:23:21,787 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:23:21,787 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:23:21,787 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:23:55,464 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:23:56,301 [INFO] [OK] WebSocket connected
+2025-10-20 16:23:56,301 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:23:56,301 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:23:56,301 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:24:30,227 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:24:31,036 [INFO] [OK] WebSocket connected
+2025-10-20 16:24:31,036 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:24:31,036 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:24:31,036 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:25:05,480 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:25:06,283 [INFO] [OK] WebSocket connected
+2025-10-20 16:25:06,283 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:25:06,283 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:25:06,283 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:25:37,260 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:25:38,545 [INFO] [OK] WebSocket connected
+2025-10-20 16:25:38,545 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:25:38,545 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:25:38,545 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:26:10,204 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:26:10,989 [INFO] [OK] WebSocket connected
+2025-10-20 16:26:10,989 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:26:10,989 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:26:10,989 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:26:45,484 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:26:47,099 [INFO] [OK] WebSocket connected
+2025-10-20 16:26:47,099 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:26:47,099 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:26:47,099 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:27:20,220 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:27:21,043 [INFO] [OK] WebSocket connected
+2025-10-20 16:27:21,043 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:27:21,043 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:27:21,043 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:27:52,958 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:27:54,260 [INFO] [OK] WebSocket connected
+2025-10-20 16:27:54,260 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:27:54,260 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:27:54,260 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:28:27,965 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:28:28,755 [INFO] [OK] WebSocket connected
+2025-10-20 16:28:28,755 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:28:28,755 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:28:28,755 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:29:02,947 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:29:03,768 [INFO] [OK] WebSocket connected
+2025-10-20 16:29:03,768 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:29:03,768 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:29:03,768 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:29:37,973 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:29:39,228 [INFO] [OK] WebSocket connected
+2025-10-20 16:29:39,229 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:29:39,229 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:29:39,229 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:30:10,255 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:30:11,553 [INFO] [OK] WebSocket connected
+2025-10-20 16:30:11,553 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:30:11,553 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:30:11,553 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:30:45,556 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:30:46,829 [INFO] [OK] WebSocket connected
+2025-10-20 16:30:46,829 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:30:46,829 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:30:46,829 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:31:20,248 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:31:21,569 [INFO] [OK] WebSocket connected
+2025-10-20 16:31:21,569 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:31:21,569 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:31:21,569 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:31:53,015 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:31:54,287 [INFO] [OK] WebSocket connected
+2025-10-20 16:31:54,287 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:31:54,287 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:31:54,287 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:32:27,346 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:32:28,579 [INFO] [OK] WebSocket connected
+2025-10-20 16:32:28,579 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:32:28,579 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:32:28,579 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:33:00,280 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:33:01,074 [INFO] [OK] WebSocket connected
+2025-10-20 16:33:01,074 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:33:01,074 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:33:01,074 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:33:35,532 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:33:36,382 [INFO] [OK] WebSocket connected
+2025-10-20 16:33:36,382 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:33:36,382 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:33:36,382 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:34:10,277 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:34:11,080 [INFO] [OK] WebSocket connected
+2025-10-20 16:34:11,080 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:34:11,080 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:34:11,080 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:34:45,292 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:34:46,115 [INFO] [OK] WebSocket connected
+2025-10-20 16:34:46,115 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:34:46,119 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:34:46,119 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:35:17,372 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:35:18,193 [INFO] [OK] WebSocket connected
+2025-10-20 16:35:18,193 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:35:18,193 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:35:18,193 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:35:50,292 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:35:51,551 [INFO] [OK] WebSocket connected
+2025-10-20 16:35:51,551 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:35:51,551 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:35:51,551 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:36:23,073 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:36:24,315 [INFO] [OK] WebSocket connected
+2025-10-20 16:36:24,315 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:36:24,315 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:36:24,315 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:36:57,379 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:36:58,627 [INFO] [OK] WebSocket connected
+2025-10-20 16:36:58,627 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:36:58,627 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:36:58,627 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:37:30,322 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:37:31,210 [INFO] [OK] WebSocket connected
+2025-10-20 16:37:31,210 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:37:31,210 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:37:31,210 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:38:02,426 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:38:03,678 [INFO] [OK] WebSocket connected
+2025-10-20 16:38:03,690 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:38:03,690 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:38:03,690 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:38:35,321 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:38:36,600 [INFO] [OK] WebSocket connected
+2025-10-20 16:38:36,600 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:38:36,600 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:38:36,600 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:39:08,099 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:39:08,961 [INFO] [OK] WebSocket connected
+2025-10-20 16:39:08,961 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:39:08,961 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:39:08,961 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:39:40,676 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:39:41,913 [INFO] [OK] WebSocket connected
+2025-10-20 16:39:41,913 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:39:41,913 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:39:41,913 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:40:15,663 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:40:16,478 [INFO] [OK] WebSocket connected
+2025-10-20 16:40:16,478 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:40:16,478 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:40:16,478 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:40:50,654 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:40:51,914 [INFO] [OK] WebSocket connected
+2025-10-20 16:40:51,914 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:40:51,914 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:40:51,914 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:41:22,448 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:41:23,256 [INFO] [OK] WebSocket connected
+2025-10-20 16:41:23,256 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:41:23,256 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:41:23,256 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:41:55,625 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:41:56,854 [INFO] [OK] WebSocket connected
+2025-10-20 16:41:56,854 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:41:56,854 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:41:56,854 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:42:30,696 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:42:31,487 [INFO] [OK] WebSocket connected
+2025-10-20 16:42:31,487 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:42:31,487 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:42:31,487 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:43:05,702 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:43:06,512 [INFO] [OK] WebSocket connected
+2025-10-20 16:43:06,512 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:43:06,512 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:43:06,512 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:43:40,648 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:43:41,471 [INFO] [OK] WebSocket connected
+2025-10-20 16:43:41,471 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:43:41,471 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:43:41,471 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:44:15,366 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:44:16,152 [INFO] [OK] WebSocket connected
+2025-10-20 16:44:16,152 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:44:16,152 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:44:16,152 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:44:48,154 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:44:49,363 [INFO] [OK] WebSocket connected
+2025-10-20 16:44:49,363 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:44:49,363 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:44:49,363 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:45:22,506 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:45:23,351 [INFO] [OK] WebSocket connected
+2025-10-20 16:45:23,351 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:45:23,351 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:45:23,351 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:45:57,508 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:45:58,737 [INFO] [OK] WebSocket connected
+2025-10-20 16:45:58,737 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:45:58,737 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:45:58,737 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:46:32,527 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:46:34,807 [INFO] [OK] WebSocket connected
+2025-10-20 16:46:34,815 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:46:34,815 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:46:34,815 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:47:05,740 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:47:07,024 [INFO] [OK] WebSocket connected
+2025-10-20 16:47:07,024 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:47:07,024 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:47:07,024 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:47:40,675 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:47:41,915 [INFO] [OK] WebSocket connected
+2025-10-20 16:47:41,916 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:47:41,916 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:47:41,916 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:48:15,773 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:48:17,128 [INFO] [OK] WebSocket connected
+2025-10-20 16:48:17,128 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:48:17,128 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:48:17,128 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:48:50,424 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:48:51,172 [INFO] [OK] WebSocket connected
+2025-10-20 16:48:51,172 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:48:51,172 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:48:51,172 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:49:25,432 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:49:26,266 [INFO] [OK] WebSocket connected
+2025-10-20 16:49:26,266 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:49:26,266 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:49:26,266 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:50:00,790 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:50:02,071 [INFO] [OK] WebSocket connected
+2025-10-20 16:50:02,071 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:50:02,071 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:50:02,071 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:50:35,796 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:50:37,053 [INFO] [OK] WebSocket connected
+2025-10-20 16:50:37,053 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:50:37,053 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:50:37,053 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:51:07,580 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:51:08,822 [INFO] [OK] WebSocket connected
+2025-10-20 16:51:08,822 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:51:08,822 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:51:08,822 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:51:40,745 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:51:41,551 [INFO] [OK] WebSocket connected
+2025-10-20 16:51:41,551 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:51:41,551 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:51:41,562 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:52:12,610 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:52:13,943 [INFO] [OK] WebSocket connected
+2025-10-20 16:52:13,954 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:52:13,954 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:52:13,954 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:52:45,479 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:52:46,284 [INFO] [OK] WebSocket connected
+2025-10-20 16:52:46,284 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:52:46,284 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:52:46,284 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:53:20,815 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:53:21,600 [INFO] [OK] WebSocket connected
+2025-10-20 16:53:21,609 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:53:21,609 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:53:21,609 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:53:52,611 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:53:53,426 [INFO] [OK] WebSocket connected
+2025-10-20 16:53:53,426 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:53:53,426 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:53:53,426 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:54:28,247 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:54:29,472 [INFO] [OK] WebSocket connected
+2025-10-20 16:54:29,472 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:54:29,472 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:54:29,472 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:55:00,860 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:55:02,089 [INFO] [OK] WebSocket connected
+2025-10-20 16:55:02,089 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:55:02,089 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:55:02,089 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:55:32,624 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:55:33,405 [INFO] [OK] WebSocket connected
+2025-10-20 16:55:33,405 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:55:33,405 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:55:33,405 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:56:05,483 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:56:06,344 [INFO] [OK] WebSocket connected
+2025-10-20 16:56:06,344 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:56:06,344 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:56:06,344 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:56:40,481 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:56:41,893 [INFO] [OK] WebSocket connected
+2025-10-20 16:56:41,893 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:56:41,893 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:56:41,893 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:57:15,795 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:57:16,638 [INFO] [OK] WebSocket connected
+2025-10-20 16:57:16,638 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:57:16,638 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:57:16,638 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:57:47,676 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:57:49,076 [INFO] [OK] WebSocket connected
+2025-10-20 16:57:49,076 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:57:49,076 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:57:49,083 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:58:20,519 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:58:21,789 [INFO] [OK] WebSocket connected
+2025-10-20 16:58:21,789 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:58:21,789 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:58:21,789 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:58:55,520 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:58:56,300 [INFO] [OK] WebSocket connected
+2025-10-20 16:58:56,300 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:58:56,300 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:58:56,300 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 16:59:30,530 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 16:59:31,374 [INFO] [OK] WebSocket connected
+2025-10-20 16:59:31,374 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 16:59:31,374 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 16:59:31,374 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:00:05,829 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:00:07,119 [INFO] [OK] WebSocket connected
+2025-10-20 17:00:07,119 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:00:07,119 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:00:07,119 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:00:40,828 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:00:41,579 [INFO] [OK] WebSocket connected
+2025-10-20 17:00:41,579 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:00:41,579 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:00:41,579 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:01:12,739 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:01:14,017 [INFO] [OK] WebSocket connected
+2025-10-20 17:01:14,017 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:01:14,017 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:01:14,017 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:01:48,370 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:01:49,200 [INFO] [OK] WebSocket connected
+2025-10-20 17:01:49,200 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:01:49,200 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:01:49,200 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:02:20,588 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:02:21,417 [INFO] [OK] WebSocket connected
+2025-10-20 17:02:21,417 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:02:21,417 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:02:21,417 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:02:55,560 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:02:56,863 [INFO] [OK] WebSocket connected
+2025-10-20 17:02:56,863 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:02:56,863 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:02:56,863 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:03:27,950 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:03:29,179 [INFO] [OK] WebSocket connected
+2025-10-20 17:03:29,179 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:03:29,179 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:03:29,179 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:04:02,744 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:04:04,036 [INFO] [OK] WebSocket connected
+2025-10-20 17:04:04,036 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:04:04,036 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:04:04,037 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:04:35,963 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:04:36,967 [INFO] [OK] WebSocket connected
+2025-10-20 17:04:36,967 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:04:36,967 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:04:36,967 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:05:10,883 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:05:11,711 [INFO] [OK] WebSocket connected
+2025-10-20 17:05:11,711 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:05:11,711 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:05:11,711 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:05:45,891 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:05:46,725 [INFO] [OK] WebSocket connected
+2025-10-20 17:05:46,725 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:05:46,725 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:05:46,725 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:06:17,788 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:06:18,585 [INFO] [OK] WebSocket connected
+2025-10-20 17:06:18,585 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:06:18,585 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:06:18,585 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:06:53,402 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:06:54,651 [INFO] [OK] WebSocket connected
+2025-10-20 17:06:54,651 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:06:54,651 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:06:54,651 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:07:25,995 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:07:26,731 [INFO] [OK] WebSocket connected
+2025-10-20 17:07:26,731 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:07:26,731 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:07:26,731 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:08:00,921 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:08:02,268 [INFO] [OK] WebSocket connected
+2025-10-20 17:08:02,268 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:08:02,268 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:08:02,268 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:08:35,909 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:08:37,255 [INFO] [OK] WebSocket connected
+2025-10-20 17:08:37,255 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:08:37,255 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:08:37,255 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:09:08,458 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:09:09,675 [INFO] [OK] WebSocket connected
+2025-10-20 17:09:09,675 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:09:09,675 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:09:09,675 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:09:43,458 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:09:44,398 [INFO] [OK] WebSocket connected
+2025-10-20 17:09:44,398 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:09:44,398 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:09:44,398 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:10:16,032 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:10:17,287 [INFO] [OK] WebSocket connected
+2025-10-20 17:10:17,288 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:10:17,288 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:10:17,288 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:10:48,483 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:10:49,888 [INFO] [OK] WebSocket connected
+2025-10-20 17:10:49,888 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:10:49,888 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:10:49,888 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:11:20,636 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:11:21,437 [INFO] [OK] WebSocket connected
+2025-10-20 17:11:21,437 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:11:21,437 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:11:21,437 [INFO] [OK] Subscribed to HBARUSDT
+2025-10-20 17:11:53,499 [INFO] Connecting to wss://wbs.mexc.com/ws...
+2025-10-20 17:11:54,317 [INFO] [OK] WebSocket connected
+2025-10-20 17:11:54,317 [INFO] [OK] Subscribed to WLFIUSDT
+2025-10-20 17:11:54,317 [INFO] [OK] Subscribed to UCNUSDT
+2025-10-20 17:11:54,317 [INFO] [OK] Subscribed to HBARUSDT

@@ -1,6 +1,15 @@
 # app/config/settings.py
 import os
 from typing import List, Any, Tuple, Optional
+from pathlib import Path
+from dotenv import load_dotenv
+
+# ═══ ЗАГРУЗКА .env ФАЙЛА ═══
+# Найти .env относительно этого файла (backend/.env)
+env_path = Path(__file__).parent.parent.parent / '.env'
+load_dotenv(env_path, override=False)
+print(f"🔧 Settings: loaded .env from {env_path} (exists: {env_path.exists()})")
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, AliasChoices
 

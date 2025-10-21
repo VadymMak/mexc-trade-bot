@@ -71,15 +71,8 @@ const TradeHistoryTable: React.FC<Props> = ({
     );
   };
 
-  if (loading) {
-    return (
-      <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-8 text-center">
-        <p className="text-zinc-400">Загрузка трейдов...</p>
-      </div>
-    );
-  }
-
-  if (trades.length === 0) {
+  // ✅ КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Показываем пустое состояние, но НЕ при loading
+  if (trades.length === 0 && !loading) {
     return (
       <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 p-8 text-center">
         <p className="text-zinc-400">Нет трейдов за выбранный период</p>
@@ -88,92 +81,121 @@ const TradeHistoryTable: React.FC<Props> = ({
   }
 
   return (
-    <div className="rounded-2xl border border-zinc-800/60 bg-zinc-900/40 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-zinc-800/50 text-zinc-400">
-            <tr>
-              <SortableHeader field="entry_time">Entry Time</SortableHeader>
-              <SortableHeader field="symbol">Symbol</SortableHeader>
-              <th className="px-4 py-2 text-left">Side</th>
-              <th className="px-4 py-2 text-right">Entry Price</th>
-              <th className="px-4 py-2 text-right">Exit Price</th>
-              <th className="px-4 py-2 text-right">Qty</th>
-              <SortableHeader field="pnl_usd" align="text-right">P&L USD</SortableHeader>
-              <SortableHeader field="pnl_percent" align="text-right">P&L %</SortableHeader>
-              <th className="px-4 py-2 text-right">Fee</th>
-              <SortableHeader field="hold_duration_sec" align="text-right">Duration</SortableHeader>
-              <th className="px-4 py-2 text-center">Exit</th>
-              <th className="px-4 py-2 text-center">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-800">
-            {trades.map((trade) => {
-              const pnlColor = trade.pnl_usd > 0 
-                ? "text-emerald-400" 
-                : trade.pnl_usd < 0 
-                ? "text-rose-400" 
-                : "text-zinc-400";
+    <div className="relative rounded-2xl border border-zinc-800/60 bg-zinc-900/40 overflow-hidden">
+      {/* ✅ ИНДИКАТОР ОБНОВЛЕНИЯ (поверх таблицы) */}
+      {loading && (
+        <div className="absolute top-4 right-4 z-10">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800/95 border border-zinc-700 shadow-lg">
+            <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+            <span className="text-xs text-zinc-300 font-medium">Updating...</span>
+          </div>
+        </div>
+      )}
 
-              const statusColor = trade.status === "CLOSED" 
-                ? "text-zinc-400" 
-                : "text-amber-400";
+      {/* ✅ ТАБЛИЦА (с плавным затемнением при обновлении) */}
+      <div className={`overflow-x-auto transition-opacity duration-200 ${
+        loading ? 'opacity-60' : 'opacity-100'
+      }`}>
+        {trades.length === 0 ? (
+          // Skeleton при первой загрузке
+          <div className="p-8">
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, idx) => (
+                <div key={idx} className="flex gap-4">
+                  <div className="h-4 w-24 bg-zinc-800 rounded animate-pulse"></div>
+                  <div className="h-4 w-32 bg-zinc-800 rounded animate-pulse"></div>
+                  <div className="h-4 w-20 bg-zinc-800 rounded animate-pulse"></div>
+                  <div className="h-4 w-28 bg-zinc-800 rounded animate-pulse"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-zinc-800/50 text-zinc-400">
+              <tr>
+                <SortableHeader field="entry_time">Entry Time</SortableHeader>
+                <SortableHeader field="symbol">Symbol</SortableHeader>
+                <th className="px-4 py-2 text-left">Side</th>
+                <th className="px-4 py-2 text-right">Entry Price</th>
+                <th className="px-4 py-2 text-right">Exit Price</th>
+                <th className="px-4 py-2 text-right">Qty</th>
+                <SortableHeader field="pnl_usd" align="text-right">P&L USD</SortableHeader>
+                <SortableHeader field="pnl_percent" align="text-right">P&L %</SortableHeader>
+                <th className="px-4 py-2 text-right">Fee</th>
+                <SortableHeader field="hold_duration_sec" align="text-right">Duration</SortableHeader>
+                <th className="px-4 py-2 text-center">Exit</th>
+                <th className="px-4 py-2 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {trades.map((trade) => {
+                const pnlColor = trade.pnl_usd > 0 
+                  ? "text-emerald-400" 
+                  : trade.pnl_usd < 0 
+                  ? "text-rose-400" 
+                  : "text-zinc-400";
 
-              return (
-                <tr key={trade.id} className="hover:bg-zinc-800/40">
-                  <td className="px-4 py-2 text-zinc-300 text-xs">
-                    {formatDateTime(trade.entry_time)}
-                  </td>
-                  <td className="px-4 py-2 font-medium text-zinc-200">
-                    {trade.symbol}
-                  </td>
-                  <td className="px-4 py-2 text-zinc-300">
-                    {trade.entry_side}
-                  </td>
-                  <td className="px-4 py-2 text-right text-zinc-300">
-                    {formatNumber(trade.entry_price, 8)}
-                  </td>
-                  <td className="px-4 py-2 text-right text-zinc-300">
-                    {trade.exit_price ? formatNumber(trade.exit_price, 8) : "—"}
-                  </td>
-                  <td className="px-4 py-2 text-right text-zinc-300">
-                    {formatNumber(trade.entry_qty, 4)}
-                  </td>
-                  <td className={`px-4 py-2 text-right font-medium ${pnlColor}`}>
-                    {formatNumber(trade.pnl_usd, 4)}
-                  </td>
-                  <td className={`px-4 py-2 text-right ${pnlColor}`}>
-                    {formatNumber(trade.pnl_percent, 2)}%
-                  </td>
-                  <td className="px-4 py-2 text-right text-zinc-400">
-                    {formatNumber(trade.total_fee, 4)}
-                  </td>
-                  <td className="px-4 py-2 text-right text-zinc-300">
-                    {formatDuration(trade.hold_duration_sec)}
-                  </td>
-                  <td className="px-4 py-2 text-center">
-                    {trade.exit_reason ? (
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        trade.exit_reason === "TP" 
-                          ? "bg-emerald-900/40 text-emerald-400" 
-                          : trade.exit_reason === "SL" 
-                          ? "bg-rose-900/40 text-rose-400" 
-                          : "bg-amber-900/40 text-amber-400"
-                      }`}>
-                        {trade.exit_reason}
-                      </span>
-                    ) : (
-                      <span className="text-zinc-500">—</span>
-                    )}
-                  </td>
-                  <td className={`px-4 py-2 text-center text-xs ${statusColor}`}>
-                    {trade.status}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                const statusColor = trade.status === "CLOSED" 
+                  ? "text-zinc-400" 
+                  : "text-amber-400";
+
+                return (
+                  <tr key={trade.id} className="hover:bg-zinc-800/40 transition-colors">
+                    <td className="px-4 py-2 text-zinc-300 text-xs">
+                      {formatDateTime(trade.entry_time)}
+                    </td>
+                    <td className="px-4 py-2 font-medium text-zinc-200">
+                      {trade.symbol}
+                    </td>
+                    <td className="px-4 py-2 text-zinc-300">
+                      {trade.entry_side}
+                    </td>
+                    <td className="px-4 py-2 text-right text-zinc-300">
+                      {formatNumber(trade.entry_price, 8)}
+                    </td>
+                    <td className="px-4 py-2 text-right text-zinc-300">
+                      {trade.exit_price ? formatNumber(trade.exit_price, 8) : "—"}
+                    </td>
+                    <td className="px-4 py-2 text-right text-zinc-300">
+                      {formatNumber(trade.entry_qty, 4)}
+                    </td>
+                    <td className={`px-4 py-2 text-right font-medium ${pnlColor}`}>
+                      {formatNumber(trade.pnl_usd, 4)}
+                    </td>
+                    <td className={`px-4 py-2 text-right ${pnlColor}`}>
+                      {formatNumber(trade.pnl_percent, 2)}%
+                    </td>
+                    <td className="px-4 py-2 text-right text-zinc-400">
+                      {formatNumber(trade.total_fee, 4)}
+                    </td>
+                    <td className="px-4 py-2 text-right text-zinc-300">
+                      {formatDuration(trade.hold_duration_sec)}
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      {trade.exit_reason ? (
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          trade.exit_reason === "TP" 
+                            ? "bg-emerald-900/40 text-emerald-400" 
+                            : trade.exit_reason === "SL" 
+                            ? "bg-rose-900/40 text-rose-400" 
+                            : "bg-amber-900/40 text-amber-400"
+                        }`}>
+                          {trade.exit_reason}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-500">—</span>
+                      )}
+                    </td>
+                    <td className={`px-4 py-2 text-center text-xs ${statusColor}`}>
+                      {trade.status}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
