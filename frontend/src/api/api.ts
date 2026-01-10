@@ -21,6 +21,13 @@ import type {
   ScannerTopTieredResponse,
 } from "@/types";
 
+export type {
+  StrategyParams,
+  StrategyStartResponse,
+  StrategyStopResponse,
+  StopAllResponse,
+};
+
 /* ───────── helpers ───────── */
 function idem(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);

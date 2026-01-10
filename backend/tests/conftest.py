@@ -54,7 +54,7 @@ def app():
     # Optional: tweak settings to avoid 503 from harmless warnings during tests
     try:
         from app.config.settings import settings
-        settings.enable_ws = False
+        settings.enable_ws = True
         settings.health_ws_lag_ms_warn = 999_999
     except Exception:
         pass

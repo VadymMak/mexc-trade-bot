@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mexc-bot-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Provider Settings
+      - PROVIDER=${PROVIDER:-MEXC}
+      - MODE=${MODE:-DEMO}
+      
+      # API Keys (from .env file)
+      - MEXC_API_KEY=${MEXC_API_KEY:-}
+      - MEXC_API_SECRET=${MEXC_API_SECRET:-}
+      
+      # WebSocket
+      - ENABLE_WS=${ENABLE_WS:-True}
+      
+      # Database
+      - DB_PATH=/app/data/mexc.db
+      
+      # Telegram
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      
+      # Capital & Risk
+      - MAX_CAPITAL_USD=${MAX_CAPITAL_USD:-1000}
+      - MAX_POSITION_SIZE_USD=${MAX_POSITION_SIZE_USD:-200}
+      - MAX_POSITIONS=${MAX_POSITIONS:-5}
+      
+      # Strategy
+      - ORDER_SIZE_USD=${ORDER_SIZE_USD:-50}
+      - TAKE_PROFIT_BPS=${TAKE_PROFIT_BPS:-2.0}
+      - STOP_LOSS_BPS=${STOP_LOSS_BPS:--3.0}
+      - TIMEOUT_EXIT_SEC=${TIMEOUT_EXIT_SEC:-30}
+      
+      # Allocation
+      - ALLOCATION_MODE=${ALLOCATION_MODE:-smart}
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+    volumes:
+      # Persistent data
+      - ./data:/app/data
+      - ./logs:/app/logs
+      
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    networks:
+      - mexc-network
+
+networks:
+  mexc-network:
+    driver: bridge
+
+volumes:
+  data:
+  logs:

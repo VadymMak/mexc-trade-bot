@@ -4,6 +4,7 @@ import { useProvider } from "@/store/provider";
 import type { Provider, Mode } from "@/types"; // ← types live in /types now
 import { useToast } from "@/hooks/useToast";
 import { getErrorMessage } from "@/lib/errors";
+import LiveModeConfirmDialog from "@/components/modals/LiveModeConfirmDialog";
 
 const PROVIDER_LABELS: Record<Provider, string> = {
   gate: "Gate",
@@ -32,6 +33,8 @@ function ProviderSwitch() {
   // Local controlled state to avoid “jumping” while user picks values
   const [provSel, setProvSel] = useState<Provider | "">("");
   const [modeSel, setModeSel] = useState<Mode | "">("");
+  const [showLiveConfirm, setShowLiveConfirm] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<{ provider: Provider; mode: Mode } | null>(null);
 
   // One-time provider load on mount if store is empty
   const didInit = useRef(false);
@@ -81,6 +84,16 @@ function ProviderSwitch() {
         toast.info("Already using this provider & mode");
         return;
       }
+      
+      // If switching TO LIVE mode (and current mode is NOT LIVE) → show confirmation
+      const switchingToLive = modeSel === "LIVE" && mode !== "LIVE";
+      if (switchingToLive) {
+        setPendingSwitch({ provider: provSel as Provider, mode: modeSel as Mode });
+        setShowLiveConfirm(true);
+        return; // Wait for user confirmation
+      }
+      
+      // Otherwise, switch immediately
       await switchTo(provSel as Provider, modeSel as Mode);
       toast.success(
         `Switched to ${PROVIDER_LABELS[provSel as Provider]} • ${MODE_LABELS[modeSel as Mode]}`
@@ -88,7 +101,36 @@ function ProviderSwitch() {
     } catch (e) {
       toast.error(getErrorMessage(e), "HTTP Error");
     }
-  }, [provSel, modeSel, unchanged, switchTo, toast]);
+  }, [provSel, modeSel, unchanged, mode, switchTo, toast]);
+
+  const handleConfirmLive = useCallback(async () => {
+    if (!pendingSwitch) return;
+    
+    setShowLiveConfirm(false);
+    
+    try {
+      await switchTo(pendingSwitch.provider, pendingSwitch.mode);
+      toast.success(
+        `Switched to ${PROVIDER_LABELS[pendingSwitch.provider]} • ${MODE_LABELS[pendingSwitch.mode]}`,
+        "⚠️ LIVE MODE ACTIVE"
+      );
+      setPendingSwitch(null);
+    } catch (e) {
+      toast.error(getErrorMessage(e), "HTTP Error");
+      // Reset selections on error
+      setProvSel(active || "");
+      setModeSel(mode || "");
+      setPendingSwitch(null);
+    }
+  }, [pendingSwitch, switchTo, toast, active, mode]);
+
+  const handleCancelLive = useCallback(() => {
+    setShowLiveConfirm(false);
+    setPendingSwitch(null);
+    // Reset selections to current values
+    setProvSel(active || "");
+    setModeSel(mode || "");
+  }, [active, mode]);
 
   return (
     <div className="flex items-center gap-3">
@@ -154,6 +196,13 @@ function ProviderSwitch() {
           {getErrorMessage(error)}
         </div>
       ) : null}
+      
+      {/* LIVE Mode Confirmation Dialog */}
+      <LiveModeConfirmDialog
+        open={showLiveConfirm}
+        onConfirm={handleConfirmLive}
+        onCancel={handleCancelLive}
+      />
     </div>
   );
 }

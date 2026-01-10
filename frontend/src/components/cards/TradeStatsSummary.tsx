@@ -23,9 +23,9 @@ const TradeStatsSummary: React.FC<Props> = ({ stats, loading = false }) => {
       color: stats.win_rate >= 50 ? "text-emerald-400" : "text-rose-400",
     },
     {
-      label: "Gross P&L",
-      value: `$${formatNumber(stats.gross_profit, 2)}`,
-      color: stats.gross_profit >= 0 ? "text-emerald-400" : "text-rose-400",
+        label: "Trading P&L",  // ← Changed label
+        value: `$${formatNumber(stats.trading_pnl, 2)}`,  // ← Changed field
+        color: stats.trading_pnl >= 0 ? "text-emerald-400" : "text-rose-400",  // ← Changed field
     },
     {
       label: "Trading Fees",

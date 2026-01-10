@@ -472,6 +472,134 @@ class Settings(BaseSettings):
     exec_cancel_timeout_sec: int = Field(default=int(os.getenv("EXEC_CANCEL_TIMEOUT_SEC", "10")))
     exec_tp_pct: float = Field(default=float(os.getenv("EXEC_TP_PCT", "0.1")))
     max_exposure_usd: float = Field(default=float(os.getenv("MAX_EXPOSURE_USD", "1000")))
+    # ════════════════════════════════════════════════════════════════
+    # POSITION SIZING & SMART EXECUTOR (Phase 2)
+    # ════════════════════════════════════════════════════════════════
+    
+    # Target position size (базовый размер входа)
+    TARGET_POSITION_SIZE_USD: float = Field(
+        default=float(os.getenv("TARGET_POSITION_SIZE_USD", "50.0")),
+        validation_alias=AliasChoices("TARGET_POSITION_SIZE_USD", "target_position_size_usd"),
+        description="Target position size per trade (USD). Recommended: $50-200"
+    )
+    
+    # Maximum position per symbol
+    MAX_PER_SYMBOL_USD: float = Field(
+        default=float(os.getenv("MAX_PER_SYMBOL_USD", "300.0")),
+        validation_alias=AliasChoices("MAX_PER_SYMBOL_USD", "max_per_symbol_usd"),
+        description="Maximum total position per symbol (USD)"
+    )
+    
+    # Smart Executor - Order splitting
+    SMART_EXECUTOR_ENABLED: bool = Field(
+        default=os.getenv("SMART_EXECUTOR_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
+        validation_alias=AliasChoices("SMART_EXECUTOR_ENABLED", "smart_executor_enabled"),
+        description="Enable smart order execution with splitting"
+    )
+    
+    SPLIT_LARGE_ORDERS: bool = Field(
+        default=os.getenv("SPLIT_LARGE_ORDERS", "true").lower() in {"1", "true", "yes", "on"},
+        validation_alias=AliasChoices("SPLIT_LARGE_ORDERS", "split_large_orders"),
+        description="Automatically split orders larger than MM capacity"
+    )
+    
+    MAX_ORDER_SIZE_USD: float = Field(
+        default=float(os.getenv("MAX_ORDER_SIZE_USD", "50.0")),
+        validation_alias=AliasChoices("MAX_ORDER_SIZE_USD", "max_order_size_usd"),
+        description="Maximum size of single order before splitting (USD)"
+    )
+    
+    MIN_SPLIT_DELAY_SEC: float = Field(
+        default=float(os.getenv("MIN_SPLIT_DELAY_SEC", "0.8")),
+        validation_alias=AliasChoices("MIN_SPLIT_DELAY_SEC", "min_split_delay_sec"),
+        description="Minimum delay between split orders (seconds)"
+    )
+    
+    MAX_SPLIT_DELAY_SEC: float = Field(
+        default=float(os.getenv("MAX_SPLIT_DELAY_SEC", "1.2")),
+        validation_alias=AliasChoices("MAX_SPLIT_DELAY_SEC", "max_split_delay_sec"),
+        description="Maximum delay between split orders (seconds)"
+    )
+    
+    # MM Detection integration
+    MM_DETECTION_ENABLED: bool = Field(
+        default=os.getenv("MM_DETECTION_ENABLED", "true").lower() in {"1", "true", "yes", "on"},
+        validation_alias=AliasChoices("MM_DETECTION_ENABLED", "mm_detection_enabled"),
+        description="Enable Market Maker detection for adaptive sizing"
+    )
+    
+    MM_MIN_CONFIDENCE: float = Field(
+        default=float(os.getenv("MM_MIN_CONFIDENCE", "0.7")),
+        validation_alias=AliasChoices("MM_MIN_CONFIDENCE", "mm_min_confidence"),
+        description="Minimum MM confidence to use adaptive sizing (0.0-1.0)"
+    )
+    
+    AVOID_MM_DEPARTURE: bool = Field(
+        default=os.getenv("AVOID_MM_DEPARTURE", "true").lower() in {"1", "true", "yes", "on"},
+        validation_alias=AliasChoices("AVOID_MM_DEPARTURE", "avoid_mm_departure"),
+        description="Avoid scaring away Market Maker with large orders"
+    )
+    
+    # Position Sizing Mode
+    POSITION_SIZING_MODE: str = Field(
+        default=os.getenv("POSITION_SIZING_MODE", "conservative").lower(),
+        validation_alias=AliasChoices("POSITION_SIZING_MODE", "position_sizing_mode"),
+        description="Sizing strategy: 'conservative', 'balanced', or 'aggressive'"
+    )
+    # ======== Trading Schedule (Time Windows) ========
+    trading_schedule_enabled: bool = Field(
+        default=os.getenv("TRADING_SCHEDULE_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+        validation_alias=AliasChoices("TRADING_SCHEDULE_ENABLED", "trading_schedule_enabled"),
+        description="Enable trading time windows (only trade during specified hours)"
+    )
+    
+    trading_start_time: str = Field(
+        default=os.getenv("TRADING_START_TIME", "10:00"),
+        validation_alias=AliasChoices("TRADING_START_TIME", "trading_start_time"),
+        description="Trading window start time (HH:MM format, 24-hour, local timezone)"
+    )
+    
+    trading_end_time: str = Field(
+        default=os.getenv("TRADING_END_TIME", "20:00"),
+        validation_alias=AliasChoices("TRADING_END_TIME", "trading_end_time"),
+        description="Trading window end time (HH:MM format, 24-hour, local timezone)"
+    )
+    
+    trading_timezone: str = Field(
+        default=os.getenv("TRADING_TIMEZONE", "Europe/Istanbul"),
+        validation_alias=AliasChoices("TRADING_TIMEZONE", "trading_timezone"),
+        description="Timezone for trading schedule (e.g., Europe/Istanbul, America/New_York)"
+    )
+    
+    trade_on_weekends: bool = Field(
+        default=os.getenv("TRADE_ON_WEEKENDS", "true").lower() in {"1", "true", "yes", "on"},
+        validation_alias=AliasChoices("TRADE_ON_WEEKENDS", "trade_on_weekends"),
+        description="Allow trading on Saturday and Sunday"
+    )
+    
+    close_before_end_minutes: int = Field(
+        default=int(os.getenv("CLOSE_BEFORE_END_MINUTES", "10")),
+        validation_alias=AliasChoices("CLOSE_BEFORE_END_MINUTES", "close_before_end_minutes"),
+        description="Close all positions X minutes before end time (prevents holding overnight)"
+    )
+    # ======== Trailing Stop Settings ========
+    trailing_stop_enabled: bool = Field(
+        default=os.getenv("TRAILING_STOP_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+        validation_alias=AliasChoices("TRAILING_STOP_ENABLED", "trailing_stop_enabled"),
+        description="Enable trailing stop (move SL to lock in profits as price moves favorably)"
+    )
+    
+    trailing_activation_bps: float = Field(
+        default=float(os.getenv("TRAILING_ACTIVATION_BPS", "1.5")),
+        validation_alias=AliasChoices("TRAILING_ACTIVATION_BPS", "trailing_activation_bps"),
+        description="Profit threshold (in bps) to activate trailing stop"
+    )
+    
+    trailing_distance_bps: float = Field(
+        default=float(os.getenv("TRAILING_DISTANCE_BPS", "0.5")),
+        validation_alias=AliasChoices("TRAILING_DISTANCE_BPS", "trailing_distance_bps"),
+        description="Distance from peak (in bps) to trail the stop loss"
+    )
     idempotency_window_sec: int = 300
     idempotency_max_size: int = 10000  # ← This is probably missing or named differently
     max_watchlist_bulk: int = 50
@@ -543,9 +671,9 @@ class Settings(BaseSettings):
 
     # ---------- NEW: WS lifecycle & rate controls (used by ws_client/constants) ----------
     ws_rate_suffix: str = Field(
-        default=os.getenv("WS_RATE_SUFFIX", "@500ms"),
+        default=os.getenv("WS_RATE_SUFFIX", "@100ms"),
         validation_alias=AliasChoices("WS_RATE_SUFFIX", "ws_rate_suffix"),
-        description="Requested WS frequency suffix, e.g. '@500ms'. Empty string means provider default.",
+        description="Requested WS frequency suffix, e.g. '@100ms'. Empty string means provider default.",
     )
     ws_subscribe_rate_limit_per_sec: int = Field(
         default=int(os.getenv("WS_SUBSCRIBE_RATE_LIMIT_PER_SEC", "8")),
@@ -750,5 +878,14 @@ class Settings(BaseSettings):
             issues.append("DEPTH5_MIN_USD > DEPTH10_MIN_USD — проверь пороги.")
         return issues
 
+    # ═══════════════════════════════════════════════════════════════════
+    # ML SETTINGS
+    # ═══════════════════════════════════════════════════════════════════
+    ML_ENABLED: bool = False
+    ML_MODEL_PATH: str = "ml_models/mexc_ml_v1.json"
+    ML_MIN_CONFIDENCE: float = 0.6
+    ML_WEIGHT: float = 0.2
+    ML_USE_FILTER: bool = True
+    ML_USE_WEIGHT: bool = False
 
 settings = Settings()

@@ -193,7 +193,7 @@ except Exception:
                 row.ask = ask
                 row.mid = (bid + ask) * 0.5 if bid > 0 and ask > 0 else (bid or ask or 0.0)
                 row.spread_bps = ((ask - bid) / row.mid * 1e4) if row.mid > 0 and bid > 0 and ask > 0 else 0.0
-                row.imbalance = (bid_qty / (bid_qty + ask_qty)) if (bid_qty > 0 or ask_qty > 0) else 0.5
+                row.imbalance = 0.5
                 row.eff_spread_bps = row.spread_bps * (0.5 + abs(row.imbalance - 0.5))
                 row.last_update = ts
 
@@ -448,14 +448,6 @@ def _with_derived(q: Dict[str, Any]) -> Dict[str, Any]:
     if asks_l2:
         out["asks"] = asks_l2
 
-    # Imbalance
-    try:
-        bq = float(out.get("bidQty", 0.0))
-        aq = float(out.get("askQty", 0.0))
-        out["imbalance"] = (bq / (bq + aq)) if (bq > 0.0 or aq > 0.0) else 0.5
-    except Exception:
-        out["imbalance"] = 0.5
-
     # Absorption over ±X bps band (USD)
     try:
         x_bps = float(getattr(settings, "absorption_x_bps", DEFAULT_ABS_BPS) or DEFAULT_ABS_BPS)
@@ -491,6 +483,14 @@ def _with_derived(q: Dict[str, Any]) -> Dict[str, Any]:
     else:
         out["absorption_bid_usd"] = 0.0
         out["absorption_ask_usd"] = 0.0
+
+    # ✅ NOW calculate imbalance AFTER absorption is computed
+    try:
+        abs_bid = float(out.get("absorption_bid_usd", 0.0))
+        abs_ask = float(out.get("absorption_ask_usd", 0.0))
+        out["imbalance"] = (abs_bid / (abs_bid + abs_ask)) if (abs_bid + abs_ask) > 0 else 0.5
+    except Exception:
+        out["imbalance"] = 0.5
 
     return out
 

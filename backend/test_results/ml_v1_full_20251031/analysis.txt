@@ -1,0 +1,146 @@
+[OK] Using database: mexc.db
+
+================================================================================
+CHECKING TRADES TABLE
+================================================================================
+Columns: id, trade_id, symbol, exchange, entry_time, entry_price, entry_qty, entry_side, exit_time, exit_price, exit_qty, exit_side, exit_reason, pnl_usd, pnl_bps, pnl_percent, entry_fee, exit_fee, total_fee, hold_duration_sec, spread_bps_entry, imbalance_entry, depth_5bps_entry, strategy_tag, strategy_params, status, created_at, updated_at
+
+Total records in trades: 12346
+Records in last 24 hours: 8828
+
+================================================================================
+EXIT ANALYSIS BY SYMBOL (LAST 24H)
+================================================================================
+
+SYMBOL       TOTAL  TPs    TRLs   TOs    SLs   TP%    TR%    TO%    SL%    AVG$    
+------------------------------------------------------------------------------------------
+[YELLOW] LINKUSDT   2004   1892   0      24     88    94.4   0.0    1.2    4.4    $0.0281 
+[YELLOW] AVAXUSDT   1770   1657   0      28     84    93.6   0.0    1.6    4.7    $0.0251 
+[YELLOW] NEARUSDT   1758   1659   0      27     71    94.4   0.0    1.5    4.0    $0.0241 
+[GREEN] VETUSDT    1660   1602   0      21     35    96.5   0.0    1.3    2.1    $0.0331 
+[GREEN] ALGOUSDT   1636   1569   0      30     35    95.9   0.0    1.8    2.1    $0.0284 
+
+================================================================================
+DETAILED BREAKDOWN BY SYMBOL
+================================================================================
+
+[YELLOW] LINKUSDT - GOOD
+   Total trades: 2004
+   [+] TP:      1892  ( 94.4%)  Avg: $0.0335
+   [🎯] TRAIL:  0     (  0.0%)  (None yet)
+   [!] TIMEOUT: 24    (  1.2%)  Avg: $-0.0291
+   [-] SL:      88    (  4.4%)  Avg: $-0.0732
+   [$] Total P&L: $56.22
+
+[YELLOW] AVAXUSDT - GOOD
+   Total trades: 1770
+   [+] TP:      1657  ( 93.6%)  Avg: $0.0305
+   [🎯] TRAIL:  0     (  0.0%)  (None yet)
+   [!] TIMEOUT: 28    (  1.6%)  Avg: $-0.0273
+   [-] SL:      84    (  4.7%)  Avg: $-0.0653
+   [$] Total P&L: $44.34
+
+[YELLOW] NEARUSDT - GOOD
+   Total trades: 1758
+   [+] TP:      1659  ( 94.4%)  Avg: $0.0286
+   [🎯] TRAIL:  0     (  0.0%)  (None yet)
+   [!] TIMEOUT: 27    (  1.5%)  Avg: $-0.0246
+   [-] SL:      71    (  4.0%)  Avg: $-0.0624
+   [$] Total P&L: $42.31
+
+[GREEN] VETUSDT - EXCELLENT
+   Total trades: 1660
+   [+] TP:      1602  ( 96.5%)  Avg: $0.0363
+   [🎯] TRAIL:  0     (  0.0%)  (None yet)
+   [!] TIMEOUT: 21    (  1.3%)  Avg: $-0.0320
+   [-] SL:      35    (  2.1%)  Avg: $-0.0732
+   [$] Total P&L: $54.98
+
+[GREEN] ALGOUSDT - EXCELLENT
+   Total trades: 1636
+   [+] TP:      1569  ( 95.9%)  Avg: $0.0316
+   [🎯] TRAIL:  0     (  0.0%)  (None yet)
+   [!] TIMEOUT: 30    (  1.8%)  Avg: $-0.0285
+   [-] SL:      35    (  2.1%)  Avg: $-0.0649
+   [$] Total P&L: $46.49
+
+================================================================================
+OVERALL STATISTICS
+================================================================================
+
+Total Trades:    8828
+
+[+] TPs:          8379   (94.9%)  Total P&L: $269.18
+[🎯] TRAILs:      0      (0.0%)  (No trailing stops yet)
+[!] TIMEOUTs:     130    (1.5%)  Total P&L: $-3.66
+[-] SLs:          313    (3.5%)  Total P&L: $-21.19
+
+[$] TOTAL P&L:    $244.33
+[$] AVG P&L:      $0.0277 per trade
+[%] WIN RATE:     94.9% (TP + TRAIL)
+[%] FAIL RATE:    5.0% (TIMEOUT + SL)
+
+================================================================================
+TRAILING STOP PERFORMANCE
+================================================================================
+
+[!] No TRAIL exits yet
+   Trailing Stop may be activating but not triggering exits
+   Check logs for '🎯 Trailing Stop ACTIVATED' messages
+   May need:
+     - Longer timeout (allow positions to develop)
+     - Wider trailing_stop_bps (less aggressive)
+     - More volatile markets
+
+================================================================================
+PROBLEM SYMBOLS ANALYSIS
+================================================================================
+[OK] No symbols with excessive fail rate (>15%)
+   All symbols performing within acceptable range
+
+================================================================================
+STOP LOSS ANALYSIS
+================================================================================
+
+Symbols with Stop Loss exits:
+
+SYMBOL       SL COUNT   AVG LOSS     TOTAL LOSS  
+--------------------------------------------------
+[-] LINKUSDT   88         $-0.0732     $-6.44      
+[-] AVAXUSDT   84         $-0.0653     $-5.48      
+[-] NEARUSDT   71         $-0.0624     $-4.43      
+[-] ALGOUSDT   35         $-0.0649     $-2.27      
+[-] VETUSDT    35         $-0.0732     $-2.56      
+
+[IDEA] INSIGHT:
+   Stop losses indicate dangerous market conditions
+   ML will learn to avoid these patterns
+
+================================================================================
+INSIGHTS & RECOMMENDATIONS
+================================================================================
+[OK] Fail rate is LOW (<10%)
+   Current settings are working well!
+   Consider enabling Trailing Stop to capture more profit
+
+[-] HIGH STOP LOSS RATE (3.5%)
+   Problem: Market moving against positions
+   Solutions:
+   - Tighten entry filters (especially imbalance)
+   - Widen stop loss
+   - Avoid extreme market conditions
+
+================================================================================
+ML TRAINING READINESS
+================================================================================
+[!] Too few negative examples (<10% of positives)
+   ML may not learn to avoid failures effectively
+   Recommendation: Collect more data or relax filters temporarily
+
+================================================================================
+[OK] Analysis complete!
+================================================================================
+
+Files to run next:
+  - python scripts/ml_export_with_labels.py  (export data)
+  - python scripts/ml_train_v5.py            (train model)

@@ -168,6 +168,85 @@ process_uptime_sec = Gauge("process_uptime_sec", "Process uptime in seconds")
 
 _process_start_ts = time.time()
 
+# ───────────────────── REALISTIC SIMULATION METRICS ─────────────────────
+# Metrics for paper trading realistic simulation
+
+# Slippage distribution
+simulation_slippage_bps = Histogram(
+    "simulation_slippage_bps",
+    "Slippage in basis points for simulated orders",
+    ["symbol"],
+    buckets=(0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 7.0, 10.0),
+)
+
+# Fees accumulated
+simulation_fees_total_usd = Counter(
+    "simulation_fees_total_usd",
+    "Total fees accumulated in USD (paper simulation)",
+    ["symbol"],
+)
+
+# Order rejections
+simulation_rejections_total = Counter(
+    "simulation_rejections_total",
+    "Total number of rejected orders (paper simulation)",
+    ["symbol"],
+)
+
+# Partial fills
+simulation_partial_fills_total = Counter(
+    "simulation_partial_fills_total",
+    "Total number of partial fills (paper simulation)",
+    ["symbol"],
+)
+
+# Partial fill ratio (how much of requested qty was filled)
+simulation_partial_fill_ratio = Histogram(
+    "simulation_partial_fill_ratio",
+    "Ratio of filled qty to requested qty (0.7-1.0)",
+    ["symbol"],
+    buckets=(0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.0),
+)
+
+# Latency distribution
+simulation_latency_ms = Histogram(
+    "simulation_latency_ms",
+    "Simulated latency in milliseconds",
+    ["symbol"],
+    buckets=(25, 50, 75, 100, 125, 150, 175, 200, 250, 300),
+)
+
+# Total simulated orders (for calculating rates)
+simulation_orders_total = Counter(
+    "simulation_orders_total",
+    "Total orders processed by simulation (accepted + rejected)",
+    ["symbol", "side"],  # side ∈ {BUY, SELL}
+)
+
+# Average slippage gauge (for quick dashboard view)
+simulation_avg_slippage_bps = Gauge(
+    "simulation_avg_slippage_bps",
+    "Average slippage in bps (last N orders, updated periodically)",
+)
+
+# Rejection rate gauge (for quick dashboard view)
+simulation_rejection_rate = Gauge(
+    "simulation_rejection_rate",
+    "Order rejection rate as fraction (0.0-1.0)",
+)
+
+# Partial fill rate gauge (for quick dashboard view)
+simulation_partial_fill_rate = Gauge(
+    "simulation_partial_fill_rate",
+    "Partial fill rate as fraction (0.0-1.0)",
+)
+
+# Enable/disable flag (so we can monitor if simulation is active)
+simulation_enabled = Gauge(
+    "simulation_enabled",
+    "Whether realistic simulation is enabled (1=on, 0=off)",
+)
+
 def update_uptime_now() -> None:
     """Set the process_uptime_sec gauge to current uptime."""
     try:

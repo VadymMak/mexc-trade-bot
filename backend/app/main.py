@@ -169,7 +169,7 @@ async def lifespan(app: FastAPI):
         return s.upper()
 
     symbols = [_clean_sym(s) for s in symbols_raw if _clean_sym(s)]
-    enable_ws = False  # FORCE DISABLED - bypass .env
+    enable_ws = True  # FORCE DISABLED - bypass .env
     # enable_ws = getattr(settings, "enable_ws", False)
     enable_ps = False  # FORCE DISABLED - scanner works without it
     # enable_ps = getattr(settings, "enable_ps_poller", True)
@@ -248,64 +248,64 @@ async def lifespan(app: FastAPI):
 
         ws_enabled_flag = False
 
-        # Always try (re)subscription via service layer
-        # if ensure_symbols_subscribed and _symbols_ok(symbols):
-        #     try:
-        #         await ensure_symbols_subscribed(symbols)
-        #     except Exception as e:
-        #         logger.warning(f"ensure_symbols_subscribed failed: {e}")
+        #Always try (re)subscription via service layer
+        if ensure_symbols_subscribed and _symbols_ok(symbols):
+            try:
+                await ensure_symbols_subscribed(symbols)
+            except Exception as e:
+                logger.warning(f"ensure_symbols_subscribed failed: {e}")
 
-        # MEXC WS
-        # if prov == "mexc" and enable_ws and _symbols_ok(symbols):
-        #     try:
-        #         from app.market_data.ws_client import MEXCWebSocketClient
-        #         app.state.ws_client = MEXCWebSocketClient([s for s in symbols if str(s).strip()])
-        #         app.state.ws_task = asyncio.create_task(app.state.ws_client.run())
-        #         logger.info("✅ WS market client started (MEXC).")
-        #         ws_enabled_flag = True
-        #     except Exception as e:
-        #         logger.error(f"❌ Failed to start MEXC WS client: {e}")
-        #         app.state.ws_client = None
-        #         app.state.ws_task = None
+        #MEXC WS
+        if prov == "mexc" and enable_ws and _symbols_ok(symbols):
+            try:
+                from app.market_data.ws_client import MEXCWebSocketClient
+                app.state.ws_client = MEXCWebSocketClient([s for s in symbols if str(s).strip()])
+                app.state.ws_task = asyncio.create_task(app.state.ws_client.run())
+                logger.info("✅ WS market client started (MEXC).")
+                ws_enabled_flag = True
+            except Exception as e:
+                logger.error(f"❌ Failed to start MEXC WS client: {e}")
+                app.state.ws_client = None
+                app.state.ws_task = None
 
-        # GATE WS
-        # if prov == "gate" and enable_ws and _symbols_ok(symbols) and app.state.ws_client is None:
-        #     try:
-        #         from app.market_data.gate_ws import GateWebSocketClient
-        #         app.state.ws_client = GateWebSocketClient(
-        #             [s for s in symbols if str(s).strip()],
-        #             depth_limit=getattr(settings, "depth_limit", 10),
-        #             want_tickers=True,
-        #             want_order_book=True,
-        #         )
-        #         app.state.ws_task = asyncio.create_task(app.state.ws_client.run())
-        #         logger.info("✅ WS market client started (GATE).")
-        #         ws_enabled_flag = True
-        #     except Exception as e:
-        #         logger.error(f"❌ Failed to start GATE WS client: {e}")
-        #         app.state.ws_client = None
-        #         app.state.ws_task = None
+        #GATE WS
+        if prov == "gate" and enable_ws and _symbols_ok(symbols) and app.state.ws_client is None:
+            try:
+                from app.market_data.gate_ws import GateWebSocketClient
+                app.state.ws_client = GateWebSocketClient(
+                    [s for s in symbols if str(s).strip()],
+                    depth_limit=getattr(settings, "depth_limit", 10),
+                    want_tickers=True,
+                    want_order_book=True,
+                )
+                app.state.ws_task = asyncio.create_task(app.state.ws_client.run())
+                logger.info("✅ WS market client started (GATE).")
+                ws_enabled_flag = True
+            except Exception as e:
+                logger.error(f"❌ Failed to start GATE WS client: {e}")
+                app.state.ws_client = None
+                app.state.ws_task = None
 
-        # PS poller (fallback)
-        # if app.state.ws_client is None and getattr(settings, "enable_ps_poller", True):
-        #     try:
-        #         if _symbols_ok(symbols):
-        #             from app.market_data.http_client_ps import PSMarketPoller
-        #             app.state.ps_poller = PSMarketPoller(
-        #                 symbols=symbols,
-        #                 interval=getattr(settings, "poll_interval_sec", 2.0),
-        #                 depth_limit=getattr(settings, "depth_limit", 10),
-        #                 on_update=_rest_update_adapter,
-        #             )
-        #             await app.state.ps_poller.start()
-        #             logger.info("⚠️ Using PS market poller (WS disabled or not started).")
-        #         else:
-        #             logger.info("PS poller not started: no symbols configured.")
-        #     except Exception as e:
-        #         logger.error(f"⚠️ PS poller import/start failed, skipping: {e}")
-        #         app.state.ps_poller = None
+        #PS poller (fallback)
+        if app.state.ws_client is None and getattr(settings, "enable_ps_poller", True):
+            try:
+                if _symbols_ok(symbols):
+                    from app.market_data.http_client_ps import PSMarketPoller
+                    app.state.ps_poller = PSMarketPoller(
+                        symbols=symbols,
+                        interval=getattr(settings, "poll_interval_sec", 2.0),
+                        depth_limit=getattr(settings, "depth_limit", 10),
+                        on_update=_rest_update_adapter,
+                    )
+                    await app.state.ps_poller.start()
+                    logger.info("⚠️ Using PS market poller (WS disabled or not started).")
+                else:
+                    logger.info("PS poller not started: no symbols configured.")
+            except Exception as e:
+                logger.error(f"⚠️ PS poller import/start failed, skipping: {e}")
+                app.state.ps_poller = None
 
-        # return ws_enabled_flag
+        return ws_enabled_flag
 
     # Wire hooks into ConfigManager
     config_manager.set_hooks(

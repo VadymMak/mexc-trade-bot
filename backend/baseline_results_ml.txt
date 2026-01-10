@@ -1,0 +1,160 @@
+[OK] Using database: mexc.db
+
+================================================================================
+CHECKING TRADES TABLE
+================================================================================
+Columns: id, trade_id, symbol, exchange, entry_time, entry_price, entry_qty, entry_side, exit_time, exit_price, exit_qty, exit_side, exit_reason, pnl_usd, pnl_bps, pnl_percent, entry_fee, exit_fee, total_fee, hold_duration_sec, spread_bps_entry, imbalance_entry, depth_5bps_entry, strategy_tag, strategy_params, status, created_at, updated_at
+
+Total records in trades: 765
+Records in last 24 hours: 765
+
+================================================================================
+EXIT ANALYSIS BY SYMBOL (LAST 24H)
+================================================================================
+
+SYMBOL       TOTAL  TPs    TOs    SLs   TP%    TO%    SL%    AVG$    
+--------------------------------------------------------------------------------
+[GREEN] LINKUSDT   328    327    0      1     99.7   0.0    0.3    $0.0281 
+[GREEN] VETUSDT    231    230    1      0     99.6   0.4    0.0    $0.0299 
+[GREEN] ALGOUSDT   171    168    2      1     98.2   1.2    0.6    $0.0298 
+[RED] TRXUSDT    23     14     9      0     60.9   39.1   0.0    $0.0263 
+[RED] XRPUSDT    12     9      1      2     75.0   8.3    16.7   $0.0122 
+
+================================================================================
+DETAILED BREAKDOWN BY SYMBOL
+================================================================================
+
+[GREEN] LINKUSDT - EXCELLENT
+   Total trades: 328
+   [+] TP:      327   ( 99.7%)  Avg: $0.0284
+   [!] TIMEOUT: 0     (  0.0%)  Avg: $0.0000
+   [-] SL:      1     (  0.3%)  Avg: $-0.0555
+   [$] Total P&L: $9.22
+
+[GREEN] VETUSDT - EXCELLENT
+   Total trades: 231
+   [+] TP:      230   ( 99.6%)  Avg: $0.0300
+   [!] TIMEOUT: 1     (  0.4%)  Avg: $0.0000
+   [-] SL:      0     (  0.0%)  (None)
+   [$] Total P&L: $6.90
+
+[GREEN] ALGOUSDT - EXCELLENT
+   Total trades: 171
+   [+] TP:      168   ( 98.2%)  Avg: $0.0307
+   [!] TIMEOUT: 2     (  1.2%)  Avg: $0.0000
+   [-] SL:      1     (  0.6%)  Avg: $-0.0544
+   [$] Total P&L: $5.10
+
+[RED] TRXUSDT - POOR
+   Total trades: 23
+   [+] TP:      14    ( 60.9%)  Avg: $0.0336
+   [!] TIMEOUT: 9     ( 39.1%)  Avg: $0.0149
+   [-] SL:      0     (  0.0%)  (None)
+   [$] Total P&L: $0.60
+
+[RED] XRPUSDT - POOR
+   Total trades: 12
+   [+] TP:      9     ( 75.0%)  Avg: $0.0220
+   [!] TIMEOUT: 1     (  8.3%)  Avg: $0.0096
+   [-] SL:      2     ( 16.7%)  Avg: $-0.0307
+   [$] Total P&L: $0.15
+
+================================================================================
+OVERALL STATISTICS
+================================================================================
+
+Total Trades:    765
+
+[+] TPs:          748    (97.8%)  Total P&L: $21.99
+[!] TIMEOUTs:     13     (1.7%)  Total P&L: $0.14
+[-] SLs:          4      (0.5%)  Total P&L: $-0.17
+
+[$] TOTAL P&L:    $21.96
+[$] AVG P&L:      $0.0287 per trade
+[%] WIN RATE:     99.0%
+[%] FAIL RATE:    2.2% (TIMEOUT + SL)
+
+================================================================================
+PROBLEM SYMBOLS ANALYSIS
+================================================================================
+
+[!] SYMBOLS WITH HIGH FAIL RATE (>15% TIMEOUT+SL):
+
+  [RED] TRXUSDT:
+     Total: 23 trades, Fail rate: 39.1%
+     - TIMEOUT: 9 (39.1%)
+     - SL:      0 (0.0%)
+
+[LIST] RECOMMENDED ACTIONS:
+  1. Add to blacklist temporarily
+  2. Wait for ML to filter these automatically (Day 4)
+  3. Or increase TP/timeout specifically for these symbols
+
+[CODE] CODE TO ADD TO engine.py:
+================================================================================
+# Near top of app/strategy/engine.py
+
+SYMBOL_BLACKLIST = {
+    'ATOMUSDT',  # Already blacklisted
+    'TRXUSDT',  # High fail rate (TIMEOUT+SL)
+}
+================================================================================
+
+[LOOP] ALTERNATIVE: Per-symbol optimization
+================================================================================
+SYMBOL_PARAMS = {
+    'TRXUSDT': {
+        'take_profit_bps': 5.0,  # Increase from 2.0
+        'timeout_exit_sec': 45,  # Increase from 25
+        'stop_loss_bps': -10.0,  # Widen from -8.0
+    },
+}
+================================================================================
+
+================================================================================
+STOP LOSS ANALYSIS
+================================================================================
+
+Symbols with Stop Loss exits:
+
+SYMBOL       SL COUNT   AVG LOSS     TOTAL LOSS  
+--------------------------------------------------
+[-] XRPUSDT    2          $-0.0307     $-0.06      
+[-] ALGOUSDT   1          $-0.0544     $-0.05      
+[-] LINKUSDT   1          $-0.0555     $-0.06      
+
+[IDEA] INSIGHT:
+   Stop losses indicate dangerous market conditions
+   ML will learn to avoid these patterns
+
+================================================================================
+INSIGHTS & RECOMMENDATIONS
+================================================================================
+[RED] Overall fail rate is HIGH (>20%)
+   URGENT actions needed:
+   - Increase TP from 2 bps to 5 bps globally
+   - Increase timeout from 25s to 45s
+   - Review entry filters (spread, depth, imbalance)
+   - ML filter is CRITICAL for this dataset
+
+[!] TIMEOUT-dominant failures (39.1% TO vs 0.0% SL)
+   Problem: Slow markets, not reaching TP in time
+   Solutions:
+   - Increase timeout duration
+   - Decrease TP target
+   - Filter low-volume pairs
+
+================================================================================
+ML TRAINING READINESS
+================================================================================
+[!] Too few negative examples (<10% of positives)
+   ML may not learn to avoid failures effectively
+   Recommendation: Collect more data or relax filters temporarily
+
+================================================================================
+[OK] Analysis complete!
+================================================================================
+
+Files to run next:
+  - python scripts/ml_export_with_labels.py  (export data)
+  - python scripts/ml_train_v5.py            (train model)

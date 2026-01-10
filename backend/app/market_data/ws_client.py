@@ -78,7 +78,7 @@ except Exception:
         "DEALS": "spot@public.aggre.deals.v3.api.pb",
         "DEPTH_LIMIT": "spot@public.limit.depth.v3.api.pb",
     }
-    WS_RATE_SUFFIX = "@500ms"
+    WS_RATE_SUFFIX = "@100ms"
     WS_SUBSCRIBE_RATE_LIMIT_PER_SEC = 8
 
 # ── service callbacks ───────────────────────────────────────────────────────
@@ -402,6 +402,11 @@ class MEXCWebSocketClient:
             log_throttle_ms=int(getattr(settings, "ws_log_throttle_ms", 2000)),
             summary_every_ms=int(getattr(settings, "ws_summary_every_ms", 5000)),
         )
+
+        # Callback rate limiter (защита от перегрузки)
+        from collections import deque
+        self._callback_calls = deque(maxlen=50)
+        self._callback_max_per_sec = 50
         
         # Statistics
         self._total_reconnects = 0
@@ -412,10 +417,6 @@ class MEXCWebSocketClient:
 
     # ───────────── lifecycle ─────────────
     async def run(self) -> None:
-        print("🛑 WebSocket FORCE DISABLED - exiting immediately", file=sys.stderr)
-        logger.warning("🛑 WebSocket client disabled by configuration")
-        return  # ← FORCE EXIT HERE
-
         if not PROTO_AVAILABLE or EnvelopeModule is None:
             print("❌ Protobuf decoders not available — cannot run WS client.", file=sys.stderr)
             return
@@ -589,19 +590,28 @@ class MEXCWebSocketClient:
                 logger.warning("No suitable deals class found in PublicAggreDealsV3Api_pb2")
 
     def _topic_for(self, ch: str, sym: str, levels: int) -> str:
-        """Build topic string with current downgrade state and rate suffix."""
+        """Build topic string with CORRECT MEXC format: topic@RATE@SYMBOL"""
         topic = ch
+        
+        # Downgrade aggre if needed
         if self._blocked_seen >= 2:
             topic = topic.replace(".aggre.bookTicker.", ".bookTicker.")
+        
         ch_l = topic.lower()
-        if (".bookticker." in ch_l) or (".aggre.depth." in ch_l) or (".deals." in ch_l):
-            suf = "" if self._blocked_seen >= 1 else self.rate_suffix
-            return f"{topic}{suf}@{sym}"
-        elif ".limit.depth." in ch_l:
+        
+        # Rate suffix: @500ms or @100ms or empty
+        if self._blocked_seen >= 1:
+            rate = "@100ms"  # Slower rate after blocking
+        else:
+            rate = "@500ms"  # Default rate
+        
+        # Build topic based on channel type
+        if ".limit.depth." in ch_l:
+            # Depth limit format: topic@SYMBOL@LEVELS
             return f"{topic}@{sym}@{levels}"
         else:
-            suf = "" if self._blocked_seen >= 1 else self.rate_suffix
-            return f"{topic}{suf}@{sym}"
+            # Standard format: topic@RATE@SYMBOL
+            return f"{topic}{rate}@{sym}"
 
     async def _subscribe_all(self) -> None:
         """Subscribe to all topics with rate limiting."""
@@ -871,6 +881,19 @@ class MEXCWebSocketClient:
             logger.warning("🟡 Protobuf envelope parsed but no frames found")
 
     # ───────────── domain parsers ─────────────
+    def _can_call_callback(self) -> bool:
+        """Check if we can make a callback (rate limit protection)"""
+        now = time.time()
+        # Remove old calls (older than 1 second)
+        while self._callback_calls and self._callback_calls[0] < now - 1.0:
+            self._callback_calls.popleft()
+        # Check limit
+        if len(self._callback_calls) >= self._callback_max_per_sec:
+            return False
+        # Record this call
+        self._callback_calls.append(now)
+        return True
+   
     def _on_book_ticker(self, symbol: str, data_bytes: bytes, send_time: int) -> None:
         """Parse and process book ticker message."""
         if self._want_stop:
@@ -1005,7 +1028,7 @@ class MEXCWebSocketClient:
                         ):
                             self._total_book_tickers += 1
                             self._on_tick_metrics(send_time, symbol=symbol)
-                            if not self._want_stop:
+                            if not self._want_stop and self._can_call_callback():
                                 asyncio.create_task(_bt_cb(symbol, b, float(bq), a, float(aq), ts_ms=send_time))
                         return
             except Exception as e:
@@ -1024,7 +1047,7 @@ class MEXCWebSocketClient:
                     ):
                         self._total_book_tickers += 1
                         self._on_tick_metrics(send_time, symbol=symbol)
-                        if not self._want_stop:
+                        if not self._want_stop and self._can_call_callback():
                             asyncio.create_task(_bt_cb(symbol, b, float(bq), a, float(aq), ts_ms=send_time))
                     return
 
@@ -1113,7 +1136,8 @@ class MEXCWebSocketClient:
             _metric_inc(ticks_total, symbol=symbol or "unknown", type="deals")
 
             # Update tape metrics asynchronously
-            asyncio.create_task(self._update_live_tape(symbol, usdpm, tpm, trades))
+            if self._can_call_callback():
+                asyncio.create_task(self._update_live_tape(symbol, usdpm, tpm, trades))
 
             if self._verbose_frames:
                 logger.debug(
@@ -1188,8 +1212,9 @@ class MEXCWebSocketClient:
                         f"Depth update {symbol}: bids={len(bids)} (sum5=${sum5_bid:.0f}), "
                         f"asks={len(asks)} (sum5=${sum5_ask:.0f})"
                     )
-                    
-                asyncio.create_task(_depth_cb(symbol, bids, asks, ts_ms=send_time))
+                
+                if self._can_call_callback():
+                    asyncio.create_task(_depth_cb(symbol, bids, asks, ts_ms=send_time))
                 
         except Exception as e:
             if self._verbose_frames:

@@ -589,3 +589,65 @@ class PnlService:
                 }
             )
         return out
+
+    def get_fees_summary(
+        self,
+        db: Session,
+        *,
+        period: PNLPeriod,
+        tz: Optional[str] = None,
+        scope: Optional[repo.Scope] = None,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get total fees for a period.
+        Returns fees from fills table (most accurate source).
+        """
+        from app.models.fills import Fill
+        
+        start_utc, end_utc = period_window(period, tz=tz, now=now)
+        
+        # Query fills table for fees
+        query = db.query(Fill).filter(
+            Fill.executed_at >= start_utc,
+            Fill.executed_at < end_utc,
+            Fill.fee.isnot(None)
+        )
+        
+        # Apply scope filters if provided
+        if scope:
+            if 'symbol' in scope:
+                query = query.filter(Fill.symbol == scope['symbol'])
+            # Note: Fill table doesn't have exchange/account_id
+            # So we can't filter by those without joins
+        
+        # Get all fills
+        fills = query.all()
+        
+        # Calculate totals
+        total_fee_usd = 0.0
+        by_symbol = {}
+        count = 0
+        
+        for f in fills:
+            if f.fee is not None:  # ✅ FIXED: Now includes 0.0 fees
+                fee_val = float(f.fee)
+                total_fee_usd += abs(fee_val)  # Fees are stored as negative
+                count += 1
+                
+                # Group by symbol
+                sym = f.symbol
+                if sym not in by_symbol:
+                    by_symbol[sym] = {"symbol": sym, "total_fee_usd": 0.0, "count": 0}
+                by_symbol[sym]["total_fee_usd"] += abs(fee_val)
+                by_symbol[sym]["count"] += 1
+        
+        # Convert to list
+        by_symbol_list = list(by_symbol.values())
+        
+        return {
+            "period": period,
+            "total_fee_usd": total_fee_usd,
+            "count": count,
+            "by_symbol": by_symbol_list,
+        }

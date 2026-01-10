@@ -1,0 +1,11 @@
+{
+  "rules": [
+    "ALLOWED: Refactoring, type hints, docstrings, tests, documentation",
+    "FORBIDDEN: Modifying order placement logic, risk management, .env files",
+    "CRITICAL FILES: app/strategy/engine.py, app/execution/*.py - require review",
+    "ALWAYS: Run tests after changes, show git diff before committing"
+  ],
+  "safetyLevel": "high",
+  "requireConfirmation": true,
+  "autoTest": true
+}

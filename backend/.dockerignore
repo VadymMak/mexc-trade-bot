@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+app.db
+mexc.db
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Tests
+tests/
+pytest.ini
+.pytest_cache/
+
+# Scripts (not needed in production)
+run-dev.ps1
+scripts/test_*.py
+scripts/*_smoke.py
+
+# Docs
+README.md
+*.md

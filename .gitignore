@@ -1,6 +1,58 @@
+# ===== SECRETS - NEVER COMMIT! =====
+.env
+*.env
+.env.*
+secrets.json
+*_secret*
+*_key*
+credentials.json
+api_keys.py
+config.local.py
 
-# pytest/python caches
-backend/.pytest_cache/
-**/.pytest_cache/
+# ===== Python =====
+__pycache__/
 **/__pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ===== pytest =====
+.pytest_cache/
+**/.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== Data =====
+*.csv
+*.db
+*.sqlite
+data/
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Node (if frontend exists) =====
+node_modules/
+npm-debug.log

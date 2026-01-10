@@ -728,8 +728,8 @@ def _compute_activity_ratio(
 
 
 def _http_timeout(short: bool = False) -> httpx.Timeout:
-    read_timeout = 3.0 if short else 5.0  # ✅ MUCH FASTER!
-    return httpx.Timeout(connect=2.0, read=read_timeout, write=2.0, pool=1.0)
+    read_timeout = 8.0 if short else 12.0  # ← Changed to 8/12 (not 10/20!)
+    return httpx.Timeout(connect=3.0, read=read_timeout, write=3.0, pool=2.0)  # ← connect 3s (not 5s)
 
 
 async def _with_timeout(awaitable, seconds: float = 3.0, default=None):
@@ -747,16 +747,16 @@ async def _with_timeout(awaitable, seconds: float = 3.0, default=None):
 def _get_retry_attempts() -> int:
     """Get REST retry attempts from settings with fallback."""
     try:
-        return int(getattr(settings, "rest_retry_attempts", 3))
+        return int(getattr(settings, "rest_retry_attempts", 3))  # ← Keep at 3 (not 5)
     except Exception:
-        return 3
+        return 3  # ← Keep at 3
     
 def _get_backoff_base() -> float:
     """Get backoff base delay from settings."""
     try:
-        return float(getattr(settings, "rest_backoff_base_sec", 0.25))
+        return float(getattr(settings, "rest_backoff_base_sec", 0.5))  # ← 0.5 is OK
     except Exception:
-        return 0.25
+        return 0.5  # ← 0.5 is OK
 
 async def _retry(
     build_coro: Callable[[], Awaitable[Any]],

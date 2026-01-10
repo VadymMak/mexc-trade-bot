@@ -81,15 +81,15 @@ CONSERVATIVE: Preset = {
 
 BALANCED: Preset = {
     "min_usd_per_min": 3_000.0,
-    "min_trades_per_min": 3,
+    "min_trades_per_min": 5,            # ← БЫЛО: 3, СТАЛО: 5 (больше активности)
     "max_spread_bps": 8.0,
     "max_slip_bps": 8.0,
 
-    # FRACTIONS
-    "min_atr1m_pct": 0.0015,  # 0.15%
+    # volatility / shape (FRACTIONS)
+    "min_atr1m_pct": 0.0020,            # ← БЫЛО: 0.0015, СТАЛО: 0.0020 (больше движения)
     "min_spike_count_90m": 5,
-    "max_grinder_ratio": 0.65,
-    "target_grinder_ratio": 0.45,
+    "max_grinder_ratio": 0.50,          # ← БЫЛО: 0.65, СТАЛО: 0.50 (меньше chop)
+    "target_grinder_ratio": 0.35,       # ← БЫЛО: 0.45, СТАЛО: 0.35 (меньше chop)
 
     "min_depth5_usd": 5_000.0,
     "min_depth10_usd": 7_500.0,
@@ -104,11 +104,11 @@ BALANCED: Preset = {
     "min_quote_vol_usd": 50_000.0,
     "min_spread_pct": 0.0,
     "depth_levels_bps": [5, 10],
-    "min_median_trade_usd": 0.0,
-    "min_vol_pattern": 0.0,
-    "max_atr_proxy": float("inf"),
-    "activity_ratio": 0.10,
-    "liquidity_test": False,
+    "min_median_trade_usd": 5.0,        # ← БЫЛО: 0.0, СТАЛО: 5.0 (фильтр мелких сделок)
+    "min_vol_pattern": 70.0,            # ← БЫЛО: 0.0, СТАЛО: 70.0 (стабильность!)
+    "max_atr_proxy": 8.0,               # ← БЫЛО: inf, СТАЛО: 8.0 (hedgehog лимит!)
+    "activity_ratio": 0.15,             # ← БЫЛО: 0.10, СТАЛО: 0.15 (больше активности)
+    "liquidity_test": True,             # ← БЫЛО: False, СТАЛО: True (проверка ликвидности!)
     "symbols": None,
 }
 

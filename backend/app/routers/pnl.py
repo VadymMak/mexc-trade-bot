@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -81,6 +81,43 @@ def get_pnl_symbol_detail(
     )
     payload = asdict(d) if is_dataclass(d) else d  # ← handle dict or dataclass
     return SymbolDetailResponse(**payload)
+
+@router.get("/fees", summary="Get fees summary")
+def get_fees_summary(
+    period: Literal["today", "wtd", "mtd", "custom"] = Query(
+        "today",
+        description="today | wtd | mtd | custom",
+    ),
+    tz: Optional[str] = Query(None, description="IANA timezone, e.g. Europe/Istanbul"),
+    exchange: Optional[str] = Query(None),
+    account_id: Optional[str] = Query(None),
+    symbol: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """
+    Get total fees paid for a given period.
+    Reads from fills table for accurate fee tracking.
+    
+    Example:
+    - GET /api/pnl/fees?period=today
+    - GET /api/pnl/fees?period=today&symbol=ETHUSDT
+    """
+    scope: Dict[str, str] = {}
+    if exchange:
+        scope["exchange"] = exchange
+    if account_id:
+        scope["account_id"] = account_id
+    if symbol:
+        scope["symbol"] = symbol
+    
+    svc = PnlService()
+    result = svc.get_fees_summary(
+        db,
+        period=period,
+        tz=tz,
+        scope=scope if scope else None,
+    )
+    return result
 
 
 # ─────────────────────────────── Internal (custom period) ──────────────────────

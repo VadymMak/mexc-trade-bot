@@ -166,7 +166,7 @@ async def lifespan(app: FastAPI):
         return s.upper()
 
     symbols = [_clean_sym(s) for s in symbols_raw if _clean_sym(s)]
-    enable_ws = getattr(settings, "enable_ws", False)
+    enable_ws = getattr(settings, "enable_ws", True)
     enable_ps = getattr(settings, "enable_ps_poller", True)
 
     print(

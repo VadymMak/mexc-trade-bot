@@ -39,14 +39,14 @@ export default function PageToolbar() {
       <NavLink to="/" className={linkStyle}>
         Trading
       </NavLink>
-      <NavLink to="/dashboard" className={linkStyle}>
-        Dashboard
-      </NavLink>
       <NavLink to="/scanner" className={linkStyle}>
         Scanner
       </NavLink>
       <NavLink to="/trades" className={linkStyle}>
         Trades
+      </NavLink>
+      <NavLink to="/settings" className={linkStyle}>
+        Settings
       </NavLink>
 
       {location.pathname.startsWith("/trade") && (

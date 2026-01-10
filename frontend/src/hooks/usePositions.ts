@@ -29,7 +29,7 @@ export interface UsePositionsResult {
 /* ───────────────────────── Hook ───────────────────────── */
 
 export function usePositions(options?: UsePositionsOptions): UsePositionsResult {
-  const intervalMs = options?.intervalMs ?? 3000;
+  const intervalMs = options?.intervalMs ?? 10000;  // Default 10 seconds
   const immediate = options?.immediate ?? true;
   const pauseWhenHidden = options?.pauseWhenHidden ?? true;
 
@@ -111,7 +111,7 @@ export function usePositions(options?: UsePositionsOptions): UsePositionsResult 
 
     const startPolling = (): void => {
       stopPolling(); // очистить на случай двойного запуска
-      timerId = window.setInterval(tick, Math.max(250, intervalMs));
+      timerId = window.setInterval(tick, Math.max(10000, intervalMs));  // Minimum 10 seconds
     };
 
     const stopPolling = (): void => {

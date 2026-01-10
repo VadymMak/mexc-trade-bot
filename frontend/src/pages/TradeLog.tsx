@@ -30,7 +30,7 @@ const TradeLog: React.FC = () => {
   const itemsPerPage = 50;
 
   // Auto-refresh
-    const [autoRefresh, setAutoRefresh] = useState(true);
+    const [autoRefresh, setAutoRefresh] = useState(false);
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
   // Extract unique symbols from trades
@@ -48,7 +48,7 @@ const TradeLog: React.FC = () => {
             period, 
             symbol: symbol || undefined,
             status: status || undefined,
-            limit: 500
+            limit: 50
         }),
         fetchTradeStats({ period, include_costs: true }),
         ]);
@@ -69,15 +69,15 @@ const TradeLog: React.FC = () => {
     }, [loadData]);
 
     // Auto-refresh interval
-useEffect(() => {
-  if (!autoRefresh) return;
+    useEffect(() => {
+      if (!autoRefresh) return;
 
-  const interval = setInterval(() => {
-    loadData();
-  }, 10000); // 10 seconds
+      const interval = setInterval(() => {
+        loadData();
+      }, 15000); // 15 seconds (was 10)
 
-  return () => clearInterval(interval);
-}, [autoRefresh, loadData]);
+      return () => clearInterval(interval);
+    }, [autoRefresh, loadData]);
 
   // ✅ NEW: Filtered trades (by search)
   const filteredTrades = React.useMemo(() => {
@@ -270,7 +270,7 @@ const handleRefresh = () => {
                 {autoRefresh ? "ON" : "OFF"}
                 </button>
                 <span className="text-xs text-zinc-500">
-                {autoRefresh ? "(every 10s)" : "(manual only)"}
+                  {autoRefresh ? "(every 15s)" : "(manual only)"}
                 </span>
             </div>
 

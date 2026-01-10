@@ -58,6 +58,35 @@ def _metric_or_zero(name: str) -> float:
     return _gauge_value_safe(getattr(m, name, None))
 
 
+def _get_ml_stats() -> dict:
+    """
+    Get ML predictor stats safely.
+    Returns dict with ML status and metrics.
+    """
+    try:
+        from app.services.ml_predictor import get_ml_predictor
+        ml_pred = get_ml_predictor()
+        ml_stats = ml_pred.get_stats()
+        
+        return {
+            "enabled": ml_stats.get("enabled", False),
+            "xgboost_available": ml_stats.get("xgboost_available", False),
+            "model_version": ml_stats.get("model_version", "unknown"),
+            "model_path": ml_stats.get("model_path", ""),
+            "predictions_count": ml_stats.get("predictions_count", 0),
+            "min_confidence": ml_stats.get("min_confidence", 0.6),
+            "features_count": ml_stats.get("features_count", 0),
+            "status": "loaded" if ml_stats.get("enabled") else "disabled",
+        }
+    except Exception as e:
+        log.warning(f"ML stats unavailable: {e}")
+        return {
+            "enabled": False,
+            "status": "unavailable",
+            "error": str(e),
+        }
+
+
 @router.get("/healthz")
 async def healthz():
     """
@@ -132,6 +161,7 @@ async def healthz():
         "process": {
             "uptime_sec": uptime_sec,
         },
+        "ml": _get_ml_stats(),  # ← ML STATS ADDED HERE
         "warnings": warnings,
     }
 

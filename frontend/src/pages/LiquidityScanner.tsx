@@ -214,7 +214,7 @@ const storeSetHideUnknownFees = useScannerStore((s) => s.setHideUnknownFees);
   const excludeLeveraged = storeExcludeLeveraged;
   const hideUnknownFees = storeHideUnknownFees;
   const [running, setRunning] = useState(true);
-  const intervalMs = 4000;
+  const intervalMs = 8000;
 
   // Parse depth levels from CSV
   const depthLevelsCsv = storeDepthBpsLevels.join(',');

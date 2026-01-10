@@ -117,10 +117,12 @@ async def get_position(symbol: str = Path(..., description="e.g. BTCUSDT")) -> d
 async def get_positions(symbols: Optional[List[str]] = Query(None)) -> list[dict]:
     """
     Read-only endpoint - no idempotency needed.
-    If no symbols are provided, returns positions for all symbols we currently have quotes for.
+    Returns positions with realized_pnl from trades table (source of truth).
     """
-    port = exec_router.get_port()
-
+    from app.db.session import SessionLocal
+    from sqlalchemy import func
+    from app.models.trades import Trade
+    
     if symbols:
         # normalize + unique
         seen = set()
@@ -142,10 +144,58 @@ async def get_positions(symbols: Optional[List[str]] = Query(None)) -> list[dict
     except Exception:
         pass
 
-    out: list[dict] = []
-    for s in syms:
-        out.append(await port.get_position(s))
-    return out
+    # Read from database
+    db = SessionLocal()
+    try:
+        out: list[dict] = []
+        for sym in syms:
+            # Get realized P&L from TRADES (source of truth!)
+            realized_pnl_result = db.query(
+                func.coalesce(func.sum(Trade.pnl_usd), 0.0)
+            ).filter(
+                Trade.symbol == sym,
+                Trade.exit_reason.isnot(None)  # only completed trades
+            ).scalar()
+            
+            realized_pnl = float(realized_pnl_result or 0.0)
+            
+            # Get open position from TRADES (latest open trade)
+            open_trade = db.query(Trade).filter(
+                Trade.symbol == sym,
+                Trade.exit_reason.is_(None)  # still open
+            ).order_by(Trade.entry_time.desc()).first()
+            
+            # Get current market price
+            q = await get_all_quotes()
+            quote = next((x for x in q if x["symbol"] == sym), None)
+            
+            bid = float(quote.get("bid", 0)) if quote else 0
+            ask = float(quote.get("ask", 0)) if quote else 0
+            mid = (bid + ask) / 2 if (bid > 0 and ask > 0) else (bid if bid > 0 else ask)
+            
+            if open_trade:
+                qty = float(open_trade.entry_qty or 0)
+                entry_price = float(open_trade.entry_price or 0)
+                upnl = (mid - entry_price) * qty if (qty != 0 and mid > 0 and entry_price > 0) else 0.0
+                ts_ms = int(open_trade.entry_time.timestamp() * 1000) if open_trade.entry_time else 0
+            else:
+                qty = 0.0
+                entry_price = 0.0
+                upnl = 0.0
+                ts_ms = 0
+            
+            out.append({
+                "symbol": sym,
+                "qty": qty,
+                "avg_price": entry_price,  # ✅ FROM TRADES!
+                "unrealized_pnl": upnl,
+                "realized_pnl": realized_pnl,
+                "ts_ms": ts_ms
+            })
+        
+        return out
+    finally:
+        db.close()
 
 
 @router.post("/cancel/{symbol}")

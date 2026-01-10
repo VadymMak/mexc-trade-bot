@@ -109,8 +109,66 @@ async def get_params() -> dict:
 
 @router.put("/params")
 async def set_params(patch: dict = Body(..., description="Partial update for StrategyParams")) -> dict:
-    updated = _engine.update_params(patch or {})
-    return {"ok": True, "params": updated}
+    """
+    Update strategy parameters. 
+    Returns 409 if there are open positions (must close positions first).
+    """
+    # Check if there are any open positions
+    port = exec_router.get_port(settings.workspace_id)
+    
+    try:
+        # Get all known symbols from quote tracker
+        quotes = await bt_service.get_all_quotes()
+        symbols_to_check = [q["symbol"] for q in quotes if q.get("symbol")]
+        
+        # Check positions for each symbol
+        open_positions = []
+        for sym in symbols_to_check:
+            try:
+                pos = await port.get_position(sym)
+                qty = pos.get("qty", 0.0)
+                if qty and abs(qty) > 0.0001:  # Has position
+                    open_positions.append({
+                        "symbol": sym,
+                        "qty": qty,
+                        "avg_price": pos.get("avg_price", 0.0)
+                    })
+            except Exception:
+                continue
+        
+        # If there are open positions, reject the update
+        if open_positions:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "Cannot update parameters while positions are open",
+                    "message": "Please close all positions before changing strategy parameters",
+                    "open_positions": open_positions,
+                    "count": len(open_positions)
+                }
+            )
+        
+        # No open positions - safe to update
+        updated = _engine.update_params(patch or {})
+        return {
+            "ok": True, 
+            "params": updated,
+            "applied_immediately": True,
+            "message": "Parameters updated successfully (no restart required)"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        # If we can't check positions, be conservative and allow update
+        # (better than blocking legitimate updates)
+        updated = _engine.update_params(patch or {})
+        return {
+            "ok": True, 
+            "params": updated,
+            "applied_immediately": True,
+            "warning": "Could not verify positions, parameters updated anyway"
+        }
 
 
 # ───────────────────────────── Control ─────────────────────────────

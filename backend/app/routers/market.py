@@ -5,7 +5,7 @@ import asyncio
 import json
 from typing import AsyncGenerator, List, Optional, Dict
 
-from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi import APIRouter, Request, HTTPException, Query, Path 
 from fastapi.responses import StreamingResponse, Response as FastAPIResponse
 
 from app.config.settings import settings
@@ -227,3 +227,43 @@ async def stream_market(
         headers["Access-Control-Allow-Credentials"] = "true" if origin != "*" else "false"
 
     return StreamingResponse(event_generator(), headers=headers, media_type="text/event-stream")
+
+@router.get("/{symbol}/quote")
+async def get_quote(
+    symbol: str = Path(..., description="Trading symbol, e.g. BTCUSDT")
+) -> dict:
+    """Get real-time quote for a single symbol."""
+    import time
+    from app.services import book_tracker
+    
+    symbol_upper = symbol.strip().upper()
+    
+    if not symbol_upper:
+        raise HTTPException(status_code=400, detail="Symbol is required")
+    
+    # ✅ Get quote directly using the module function
+    quote = await book_tracker.get_quote(symbol_upper)
+    
+    if not quote:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No quote data available for {symbol_upper}"
+        )
+    
+    bid = float(quote.get('bid', 0))
+    ask = float(quote.get('ask', 0))
+    last = float(quote.get('last', 0))
+    
+    if bid <= 0 and ask <= 0:
+        raise HTTPException(
+            status_code=503,
+            detail=f"No valid price data for {symbol_upper} (waiting for ticks)"
+        )
+    
+    return {
+        "symbol": symbol_upper,
+        "bid": bid,
+        "ask": ask,
+        "last": last,
+        "timestamp": int(time.time() * 1000)
+    }

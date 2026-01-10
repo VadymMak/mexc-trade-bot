@@ -1,0 +1,15 @@
+{
+  "feature_names": [
+    "spread_bps_entry",
+    "imbalance_entry"
+  ],
+  "metrics": {
+    "accuracy": 0.9545454545454546,
+    "precision": 0.9819915254237288,
+    "recall": 0.9666319082377477,
+    "f1": 0.9742511823436679,
+    "auc": 0.9454833028101752
+  },
+  "train_samples": 4309,
+  "test_samples": 1078
+}

@@ -114,7 +114,7 @@ export default function PositionSummary({
   // Poll rPnL summary every 5s (period/TZ aware)
   useEffect(() => {
     void fetchSummary();
-    const id = window.setInterval(() => void fetchSummary(), 5000);
+    const id = window.setInterval(() => void fetchSummary(), 15000);
     return () => clearInterval(id);
   }, [fetchSummary]);
 

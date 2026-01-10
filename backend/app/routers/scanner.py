@@ -12,6 +12,8 @@ from time import time
 from fastapi import APIRouter, Query, HTTPException
 from app.config.settings import settings
 
+from app.strategy.engine import SYMBOL_BLACKLIST
+
 from app.services.market_scanner import (
     scan_gate_quote,
     scan_mexc_quote,
@@ -58,6 +60,16 @@ router = APIRouter(prefix="/api/scanner", tags=["scanner"])
 
 # logger for this router
 log = logging.getLogger("scanner.router")
+
+def filter_blacklisted(rows):
+    """Remove blacklisted symbols"""
+    if not SYMBOL_BLACKLIST:
+        return rows
+    filtered = [r for r in rows if getattr(r, 'symbol', None) not in SYMBOL_BLACKLIST]
+    if len(filtered) < len(rows):
+        removed = [getattr(r, 'symbol', '?') for r in rows if getattr(r, 'symbol', None) in SYMBOL_BLACKLIST]
+        log.info("🚫 Filtered blacklisted: %s", removed)
+    return filtered
 
 
 # ────────────────────────────── metrics helpers ──────────────────────────────
@@ -990,6 +1002,7 @@ async def gate_top_tiered(
         rows = []
 
     rows = [r for r in rows if not isinstance(r, Exception)]
+    rows = filter_blacklisted(rows)
     if not rows:
         _observe_top_latency(t0)
         if debug:
@@ -1133,6 +1146,7 @@ async def mexc_top_tiered(
         rows = []
 
     rows = [r for r in rows if not isinstance(r, Exception)]
+    rows = filter_blacklisted(rows)
     if not rows:
         _observe_top_latency(t0)
         if debug:

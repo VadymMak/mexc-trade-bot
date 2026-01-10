@@ -153,7 +153,7 @@ export default function Dashboard() {
   }, [hydrated, hasSymbols, symbolsKey, clearMarket, bootApp, refreshAll]);
 
   // 9) polling
-  useInterval(() => refreshAll(), hydrated && hasSymbols ? 5000 : null);
+  useInterval(() => refreshAll(), hydrated && hasSymbols ? 15000 : null);  // Every 15 seconds 
 
   // 10) loading/error
   if (!hydrated || bootStatus === "loading") {

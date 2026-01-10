@@ -1,0 +1,6 @@
+{
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/ml_collector",
+        "${workspaceFolder}/backend"
+    ]
+}

@@ -158,7 +158,7 @@ export default function TopBar() {
             }
             end
           >
-            Dashboard
+            Trading
           </NavLink>
 
           <NavLink
@@ -173,14 +173,25 @@ export default function TopBar() {
           </NavLink>
 
           <NavLink
-            to="/trade"
+            to="/trades"
             className={({ isActive }) =>
               `rounded-xl px-3 py-2 text-sm ${
                 isActive ? "bg-zinc-800 text-zinc-100" : "text-zinc-300 hover:bg-zinc-800/70"
               }`
             }
           >
-            Trade
+            Trades
+          </NavLink>
+
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              `rounded-xl px-3 py-2 text-sm ${
+                isActive ? "bg-zinc-800 text-zinc-100" : "text-zinc-300 hover:bg-zinc-800/70"
+              }`
+            }
+          >
+            Settings
           </NavLink>
         </nav>
 

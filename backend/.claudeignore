@@ -1,0 +1,13 @@
+# Не трогать эти файлы
+.env
+.env.*
+*.db
+*.db-shm
+*.db-wal
+logs/
+__pycache__/
+.git/
+
+# Критические файлы
+app/strategy/engine.py
+app/execution/live_executor.py

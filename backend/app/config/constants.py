@@ -33,16 +33,27 @@ WS_SUBSCRIBE_RATE_LIMIT_PER_SEC = settings.ws_subscribe_rate_limit_per_sec
 # These are import-time defaults; dynamic runtime values should come from
 # PUT /api/strategy/params or from settings.* where applicable.
 
-# Entry requires at least this spread (bps). You can still override at runtime.
-MIN_SPREAD_BPS = 3
+# Entry filters
+MIN_SPREAD_BPS = 3                  # Minimum spread to enter
+EDGE_FLOOR_BPS = 2                  # Minimum net edge after fees
+ABSORPTION_X_BPS = 10               # Depth check window around mid
 
-# Minimum net edge after fees (bps)
-EDGE_FLOOR_BPS = 2
+# Trading constraints
+MAX_CONCURRENT_SYMBOLS = 10         # Max symbols in parallel
+ORDER_SIZE_USD = 50                 # Notional per order
 
-# Window around mid (bps) used for absorption/depth checks
-ABSORPTION_X_BPS = 10
+# Exit management
+TIMEOUT_EXIT_SEC = 30               # Force exit after this time
+TAKE_PROFIT_BPS = 2.0               # Initial TP target
+STOP_LOSS_BPS = -3.0                # Base for dynamic SL
+MIN_HOLD_MS = 600                   # Minimum hold before exit
 
-# Trading constraints (paper defaults)
-MAX_CONCURRENT_SYMBOLS = 6         # max symbols the strategy will run in parallel
-ORDER_SIZE_USD = 50                # paper notional per order
-TIMEOUT_EXIT_SEC = 25              # force exit if held longer than this
+# ═══════════════════════════════════════════════════════════════════════════
+# TRAILING STOP SETTINGS (NEW)
+# ═══════════════════════════════════════════════════════════════════════════
+ENABLE_TRAILING_STOP = True         # Enable/disable trailing stop
+TRAILING_ACTIVATION_BPS = 2.0       # Activate trailing at +X bps profit
+TRAILING_STOP_BPS = 0.8             # Trail X bps behind peak
+TRAILING_STEP_BPS = 0.2             # Update only if peak moves +X bps
+# ═══════════════════════════════════════════════════════════════════════════
+

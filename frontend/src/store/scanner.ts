@@ -314,7 +314,7 @@ export const useScannerStore = create<ScannerState>()(
     // FE & legacy gates
     minBps: 10,
     minUsd: 10_000,
-    limit: 100,
+    limit: 20,
     includeStables: false,
     excludeLeveraged: true,
 

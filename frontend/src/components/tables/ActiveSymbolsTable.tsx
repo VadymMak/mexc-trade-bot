@@ -6,7 +6,6 @@ import { usePositionsStore } from "@/store/positions";
 import { useToast } from "@/hooks/useToast";
 import { getErrorMessage } from "@/lib/errors";
 import { formatNumber } from "@/utils/format";
-import { useStrategyMetrics } from "@/store/strategyMetrics";
 
 export type ActiveRowData = {
   qty: number;
@@ -79,9 +78,6 @@ const ActiveSymbolsTable: React.FC<Props> = ({
   const stop = useStrategy((s) => s.stop);
   const busy = useStrategy((s) => s.busy);
 
-  // strategy metrics
-  const isSymbolRunning = useStrategyMetrics((s) => s.isSymbolRunning);
-
 
   const rows: string[] = symbols.length === 0 && showDemoWhenEmpty ? DEMO : symbols;
 
@@ -140,27 +136,6 @@ const ActiveSymbolsTable: React.FC<Props> = ({
     }
   };
 
-  const onRemove = async (symbol: string) => {
-    if (!confirm(`Remove ${symbol} from strategy? This will stop and flatten.`)) {
-      return;
-    }
-
-    try {
-      // Stop and flatten
-      await stop([symbol], true);
-      
-      toast.success(`${symbol} removed from strategy`);
-      
-      // 👇 ADD THIS: Refresh positions after a short delay
-      setTimeout(() => {
-        window.location.reload(); // Force refresh for now
-      }, 500);
-      
-    } catch (e) {
-      toast.error(getErrorMessage(e) || "Remove failed", "Remove");
-    }
-  };
-
   const onSettings = (symbol: string) => {
     window.dispatchEvent(new CustomEvent("open-strategy-settings", { detail: { symbol } }));
   };
@@ -191,7 +166,6 @@ const ActiveSymbolsTable: React.FC<Props> = ({
             rows.map((symbol) => {
               const data = buildRow(symbol);
               const exposure = data.mark * data.qty;
-              const running = isSymbolRunning(symbol);
 
               return (
                 <tr
@@ -217,13 +191,13 @@ const ActiveSymbolsTable: React.FC<Props> = ({
 
                   <td className="px-4 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-2">
-                      {running ? (
+                      {data.qty > 0 ? (
                         <>
-                          <ActionButton title="Stop strategy" onClick={() => onStop(symbol)} disabled={busy}>
+                          <ActionButton title="Stop strategy (keep position open)" onClick={() => onStop(symbol)} disabled={busy}>
                             Stop
                           </ActionButton>
                           <ActionButton
-                            title="Flatten (close all and stop)"
+                            title="Close position immediately"
                             kind="danger"
                             onClick={() => onFlatten(symbol)}
                             disabled={busy}
@@ -233,7 +207,7 @@ const ActiveSymbolsTable: React.FC<Props> = ({
                         </>
                       ) : (
                         <ActionButton
-                          title="Start strategy"
+                          title="Start trading this symbol"
                           kind="primary"
                           onClick={() => onStart(symbol)}
                           disabled={busy}
@@ -241,16 +215,6 @@ const ActiveSymbolsTable: React.FC<Props> = ({
                           Start
                         </ActionButton>
                       )}
-                      
-                      {/* 👇 ADD THIS REMOVE BUTTON HERE */}
-                      <ActionButton 
-                        title="Remove from strategy" 
-                        kind="danger"
-                        onClick={() => onRemove(symbol)}
-                        disabled={busy}
-                      >
-                        ✕
-                      </ActionButton>
                       
                       <ActionButton title="Symbol settings" onClick={() => onSettings(symbol)}>
                         ⚙

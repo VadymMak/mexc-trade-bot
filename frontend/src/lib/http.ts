@@ -16,7 +16,7 @@ function resolveBaseURL(): string {
 function resolveTimeoutMs(): number {
   const raw = (import.meta.env.VITE_HTTP_TIMEOUT_MS as string | undefined)?.trim();
   const n = raw ? Number.parseInt(raw, 10) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : 30_000;
+  return Number.isFinite(n) && n > 0 ? n : 90_000;
 }
 
 const http: AxiosInstance = axios.create({

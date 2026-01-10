@@ -1,26 +1,23 @@
-"""Configuration for ML data collector."""
-import os
+"""
+Configuration for ML Data Collector
+"""
 from pathlib import Path
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Top 5 performing symbols (based on trade analysis)
+SYMBOLS = [
+    'LINKUSDT',  # 94.6% TP - Excellent
+    'NEARUSDT',  # 88.0% TP - Good
+    'VETUSDT',   # 85.7% TP - Good
+    'AVAXUSDT',  # 77.4% TP - Acceptable
+    'ALGOUSDT',  # 75.0% TP - Acceptable
+]
 
-# Symbols to collect
-SYMBOLS = os.getenv("SYMBOLS", "WLFIUSDT,UCNUSDT,HBARUSDT").split(",")
-
-# Database path
-DB_PATH = Path(os.getenv("DB_PATH", "../backend/mexc.db"))
-
-# MEXC WebSocket URL
-MEXC_WS_URL = os.getenv("MEXC_WS_URL", "wss://wbs.mexc.com/ws")
+# Database path (relative to collector directory)
+DB_PATH = Path(__file__).parent.parent / 'backend' / 'mexc.db'
 
 # Collection interval (seconds)
-COLLECTION_INTERVAL = int(os.getenv("COLLECTION_INTERVAL", "2"))
+COLLECTION_INTERVAL = 10  # Increased from 5s to reduce load
 
-# Logging
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-
-print(f"[CONFIG] Symbols: {SYMBOLS}")
-print(f"[CONFIG] DB Path: {DB_PATH}")
-print(f"[CONFIG] Interval: {COLLECTION_INTERVAL}s")
+# Scanner API configuration
+SCANNER_BASE_URL = "http://localhost:8000/api/scanner/mexc/top"
+SCANNER_TIMEOUT = 10  # Increased from 5s to 10s

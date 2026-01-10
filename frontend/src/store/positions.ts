@@ -5,6 +5,8 @@ import type { Position } from "@/types";
 
 /* ───────────────────────── Types ───────────────────────── */
 
+export type { Position } from "@/types";
+
 type PositionsBySymbol = Record<string, Position>;
 
 export type Period = "today" | "wtd" | "mtd" | "custom";
