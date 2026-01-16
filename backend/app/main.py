@@ -388,21 +388,15 @@ _allowed_origins = list(getattr(settings, "cors_origins", []) or []) or [
     "http://127.0.0.1:3000",
 ]
 
-_allow_credentials = "*" not in _allowed_origins
+# DEBUG: Print what origins we're allowing
+print(f"🔧 CORS origins: {_allowed_origins}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
-    allow_credentials=_allow_credentials,
+    allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=[
-        "Content-Type",
-        "Authorization",
-        "If-Match",
-        "X-Idempotency-Key",
-        "Accept",
-        "Cache-Control",
-    ],
+    allow_headers=["*"],
 )
 
 # ------------------------------ route mounting ------------------------------
