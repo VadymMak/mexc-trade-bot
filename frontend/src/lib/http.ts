@@ -7,9 +7,17 @@ import { useToastStore } from "@/store/toast";
  * In PROD (or if you really want to bypass the proxy), set VITE_API_BASE_URL.
  */
 function resolveBaseURL(): string {
+  // 1. Check env variable (for local dev)
   const envBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
   if (envBase) return envBase.replace(/\/+$/, "");
-  return ""; // relative → go through Vite proxy (or same-origin in prod)
+  
+  // 2. Production: always use backend URL
+  if (import.meta.env.PROD) {
+    return "https://mexc-trade-bot-production.up.railway.app";
+  }
+  
+  // 3. Dev: relative for Vite proxy
+  return "";
 }
 
 /** Read timeout from env, fallback 30s. */
