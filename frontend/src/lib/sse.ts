@@ -19,11 +19,11 @@ function isDevEnv(): boolean {
   return (env as Record<string, unknown>).DEV === true;
 }
 
-/** Build an SSE URL with query params. Uses VITE_API_BASE_URL if set, else same-origin. */
+/** Build an SSE URL with query params. Uses VITE_API_URL (or VITE_API_BASE_URL) if set, else same-origin. */
 export function buildSSEUrl(path: string, params?: Record<string, unknown>): string {
   const p = path.startsWith("/") ? path : `/${path}`;
   // IMPORTANT: align with http.ts env name
-  const base = envStr("VITE_API_BASE_URL") ?? "";
+  const base = envStr("VITE_API_URL") ?? envStr("VITE_API_BASE_URL") ?? "";
 
   const url = base
     ? new URL(p, base.endsWith("/") ? base : `${base}/`)
