@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePositionsStore, type Position } from "@/store/positions";
 import { useMarket } from "@/store/market";
+import http from "@/lib/http";
 
 export type MarkGetter = (symbol: string) => number | undefined;
 
@@ -93,16 +94,8 @@ export default function PositionSummary({
     try {
       setPnlLoading(true);
       setPnlError(null);
-      const res = await fetch(buildSummaryUrl(), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`GET /api/pnl/summary failed: ${res.status} ${text}`);
-      }
-      const data: PnlSummary = await res.json();
-      const v = typeof data?.total_usd === "number" ? data.total_usd : 0;
+      const res = await http.get<PnlSummary>(buildSummaryUrl());
+      const v = typeof res.data?.total_usd === "number" ? res.data.total_usd : 0;
       setPnl(v);
     } catch (e) {
       setPnlError(e instanceof Error ? e.message : "Failed to load PnL summary");

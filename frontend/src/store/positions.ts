@@ -1,6 +1,7 @@
 // src/store/positions.ts
 import { create } from "zustand";
 import { useProvider } from "@/store/provider";
+import http from "@/lib/http";
 import type { Position } from "@/types";
 
 /* ───────────────────────── Types ───────────────────────── */
@@ -178,16 +179,8 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
         if (params.to) qs.set("to", params.to);
       }
 
-      const res = await fetch(`/api/pnl/summary?${qs.toString()}`, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`GET /api/pnl/summary failed: ${res.status} ${text}`);
-      }
-
-      const data: { total_usd?: number | string } = await res.json();
+      const res = await http.get<{ total_usd?: number | string }>(`/api/pnl/summary?${qs.toString()}`);
+      const data = res.data;
       const total = parseNum(data?.total_usd) ?? 0;
       set({ pnlSummary: total });
     } catch (err) {
@@ -250,21 +243,9 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
       }
 
       console.log("📡 [positions] Fetching /api/exec/positions" + qs);
-      
-      const res = await fetch(`/api/exec/positions${qs}`, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
 
-      if (!res.ok) {
-        const text = await res.text();
-        const errorMsg = `GET /api/exec/positions failed: ${res.status} ${text}`;
-        console.error("❌ [positions]", errorMsg);
-        set({ error: errorMsg });
-        return;
-      }
-
-      const data: unknown = await res.json();
+      const res = await http.get<unknown>(`/api/exec/positions${qs}`);
+      const data = res.data;
       const list = Array.isArray(data)
         ? (data.filter((x) => x && typeof x === "object") as Position[])
         : [];
@@ -284,19 +265,10 @@ export const usePositionsStore = create<PositionsState>((set, get) => ({
   },
 
   loadDailyRPnL: async () => {
-    try {
-      set({ loadingDaily: true, errorDaily: null });
-      const res = await fetch(`/api/pnl/summary?period=today`, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        set({ errorDaily: `GET /api/pnl/summary failed: ${res.status} ${text}` });
-        return;
-      }
-      const data: { total_usd?: number | string } = await res.json();
-      set({ dailyRPnL: parseNum(data?.total_usd) ?? 0 });
+  try {
+    set({ loadingDaily: true, errorDaily: null });
+    const res = await http.get<{ total_usd?: number | string }>("/api/pnl/summary?period=today");
+    set({ dailyRPnL: parseNum(res.data?.total_usd) ?? 0 });
     } catch (err) {
       set({
         errorDaily: err instanceof Error ? err.message : "Failed to load daily RPnL",

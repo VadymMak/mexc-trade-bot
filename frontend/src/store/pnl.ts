@@ -1,5 +1,6 @@
 // src/store/pnl.ts
 import { create } from "zustand";
+import http from "@/lib/http";
 
 /* ─────────────────────────── Types ─────────────────────────── */
 
@@ -262,20 +263,12 @@ export const usePnlStore = create<PnlState>((set, get) => ({
 
   /* fetch summary */
   fetchSummary: async () => {
-    const { params } = get();
-    try {
-      set({ loadingSummary: true, errorSummary: null });
-      const res = await fetch(makeSummaryURL(params), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`GET /api/pnl/summary failed: ${res.status} ${text}`);
-      }
-      const raw = (await res.json()) as unknown;
-      const data = normalizeSummary(raw);
-      set({ summary: data });
+  const { params } = get();
+  try {
+    set({ loadingSummary: true, errorSummary: null });
+    const res = await http.get<unknown>(makeSummaryURL(params));
+    const data = normalizeSummary(res.data);
+    set({ summary: data });
     } catch (e) {
       set({
         errorSummary: e instanceof Error ? e.message : "Failed to load PnL summary",
@@ -306,16 +299,8 @@ export const usePnlStore = create<PnlState>((set, get) => ({
     }));
 
     try {
-      const res = await fetch(makeSymbolURL({ ...params, symbol }), {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`GET /api/pnl/symbol/${symbol} failed: ${res.status} ${text}`);
-      }
-      const raw = (await res.json()) as unknown;
-      const data = normalizeDetail(raw);
+      const res = await http.get<unknown>(makeSymbolURL({ ...params, symbol }));
+      const data = normalizeDetail(res.data);
       const entry: DetailCacheEntry = { data, loading: false, error: null, ts: now };
       set((s) => ({
         detailByKey: { ...s.detailByKey, [key]: entry },

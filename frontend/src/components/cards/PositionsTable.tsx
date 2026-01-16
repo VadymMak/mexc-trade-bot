@@ -10,6 +10,7 @@ import FlattenButton from "@/components/controls/FlattenButton";
 import { useMarket } from "@/store/market";
 import { useSymbols } from "@/store/symbols";
 import SymbolPnlModal from "@/components/modals/SymbolPnlModal";
+import http from "@/lib/http";
 
 type MarkGetter = (symbol: string) => number | undefined;
 
@@ -176,28 +177,21 @@ export default function PositionsTable({
   const upsert = usePositionsStore((s) => s.upsert);
 
   const onFlatten = useCallback(
-    async (symbol: string) => {
-      const sym = norm(symbol);
-      try {
-        setBusy((prev) => {
-          const next = new Set(prev);
-          next.add(sym);
-          return next;
-        });
+  async (symbol: string) => {
+    const sym = norm(symbol);
+    try {
+      setBusy((prev) => {
+        const next = new Set(prev);
+        next.add(sym);
+        return next;
+      });
 
-        const res = await fetch(`/api/exec/flatten/${encodeURIComponent(sym)}`, {
-          method: "POST",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            "X-Idempotency-Key":
-              (globalThis.crypto?.randomUUID?.() ?? String(Math.random())).toString(),
-          },
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Flatten failed: ${res.status} ${text}`);
-        }
+      await http.post(`/api/exec/flatten/${encodeURIComponent(sym)}`, null, {
+        headers: {
+          "X-Idempotency-Key":
+            (globalThis.crypto?.randomUUID?.() ?? String(Math.random())).toString(),
+        },
+      });
 
         push("success", `Orders placed to flatten ${sym}`, "Flattened");
         await refresh();

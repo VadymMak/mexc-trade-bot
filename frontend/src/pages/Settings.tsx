@@ -5,6 +5,7 @@ import { getErrorMessage } from "@/lib/errors";
 import PageToolbar from "@/components/layout/PageToolbar";
 import { useProvider } from "@/store/provider";
 import ProviderSwitch from "@/components/settings/ProviderSwitch";
+import http from "@/lib/http";
 
 interface RiskLimits {
   account_balance_usd: number;
@@ -39,11 +40,7 @@ interface AllocationData {
   }>;
 }
 
-interface OpenPosition {
-  symbol: string;
-  qty: number;
-  avg_price: number;
-}
+
 
 interface ScheduleSettings {
   trading_schedule_enabled: boolean;
@@ -102,168 +99,129 @@ export default function Settings() {
   }, []);
   
   const loadAllData = async () => {
-    setLoading(true);
-    try {
-      // Load risk limits
-      const riskRes = await fetch("/api/risk/limits");
-      if (riskRes.ok) {
-        const data = await riskRes.json();
-        setRiskLimits({
-          account_balance_usd: data.account_balance_usd,
-          max_position_size_usd: data.max_position_size_usd,
-          max_positions: data.max_positions,
-          max_exposure_per_position_pct: data.max_exposure_per_position_pct,
-        });
-      }
-      
-      // Load strategy params
-      const paramsRes = await fetch("/api/strategy/params");
-      if (paramsRes.ok) {
-        const data = await paramsRes.json();
-        setStrategyParams({
-          order_size_usd: data.order_size_usd,
-          take_profit_bps: data.take_profit_bps,
-          stop_loss_bps: data.stop_loss_bps,
-          timeout_exit_sec: data.timeout_exit_sec,
-          max_concurrent_symbols: data.max_concurrent_symbols,
-          // Trailing Stop
-          enable_trailing_stop: data.enable_trailing_stop ?? false,
-          trailing_activation_bps: data.trailing_activation_bps ?? 1.5,
-          trailing_stop_bps: data.trailing_stop_bps ?? 0.5,
-        });
-        
-        // Load schedule settings from same response
-        setScheduleSettings({
-          trading_schedule_enabled: data.trading_schedule_enabled ?? false,
-          trading_start_time: data.trading_start_time ?? "10:00",
-          trading_end_time: data.trading_end_time ?? "20:00",
-          trading_timezone: data.trading_timezone ?? "Europe/Istanbul",
-          trade_on_weekends: data.trade_on_weekends ?? true,
-          close_before_end_minutes: data.close_before_end_minutes ?? 10,
-        });
-      }
-      
-      // Load allocation mode
-      const modeRes = await fetch("/api/allocation/mode");
-      if (modeRes.ok) {
-        const data = await modeRes.json();
-        setAllocationMode(data.mode);
-      }
-      
-      // Load allocation data
-      await loadAllocationData();
-      
-    } catch (e) {
-      toast.error(getErrorMessage(e), "Settings");
-    } finally {
-      setLoading(false);
-    }
-  };
+  setLoading(true);
+  try {
+    // Load risk limits
+    const riskRes = await http.get("/api/risk/limits");
+    setRiskLimits({
+      account_balance_usd: riskRes.data.account_balance_usd,
+      max_position_size_usd: riskRes.data.max_position_size_usd,
+      max_positions: riskRes.data.max_positions,
+      max_exposure_per_position_pct: riskRes.data.max_exposure_per_position_pct,
+    });
+    
+    // Load strategy params
+    const paramsRes = await http.get("/api/strategy/params");
+    setStrategyParams({
+      order_size_usd: paramsRes.data.order_size_usd,
+      take_profit_bps: paramsRes.data.take_profit_bps,
+      stop_loss_bps: paramsRes.data.stop_loss_bps,
+      timeout_exit_sec: paramsRes.data.timeout_exit_sec,
+      max_concurrent_symbols: paramsRes.data.max_concurrent_symbols,
+      enable_trailing_stop: paramsRes.data.enable_trailing_stop ?? false,
+      trailing_activation_bps: paramsRes.data.trailing_activation_bps ?? 1.5,
+      trailing_stop_bps: paramsRes.data.trailing_stop_bps ?? 0.5,
+    });
+    
+    setScheduleSettings({
+      trading_schedule_enabled: paramsRes.data.trading_schedule_enabled ?? false,
+      trading_start_time: paramsRes.data.trading_start_time ?? "10:00",
+      trading_end_time: paramsRes.data.trading_end_time ?? "20:00",
+      trading_timezone: paramsRes.data.trading_timezone ?? "Europe/Istanbul",
+      trade_on_weekends: paramsRes.data.trade_on_weekends ?? true,
+      close_before_end_minutes: paramsRes.data.close_before_end_minutes ?? 10,
+    });
+    
+    // Load allocation mode
+    const modeRes = await http.get("/api/allocation/mode");
+    setAllocationMode(modeRes.data.mode);
+    
+    // Load allocation data
+    await loadAllocationData();
+    
+  } catch (e) {
+    toast.error(getErrorMessage(e), "Settings");
+  } finally {
+    setLoading(false);
+  }
+};
   
   const loadAllocationData = async () => {
-    try {
-      const res = await fetch("/api/allocation/calculate");
-      if (res.ok) {
-        const data = await res.json();
-        setAllocationData(data);
-      }
-    } catch (e) {
-      console.error("Failed to load allocation:", e);
-    }
-  };
+  try {
+    const res = await http.get("/api/allocation/calculate");
+    setAllocationData(res.data);
+  } catch (e) {
+    console.error("Failed to load allocation:", e);
+  }
+};
   
   const saveRiskLimits = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch("/api/risk/limits", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(riskLimits),
-      });
-      
-      if (!res.ok) throw new Error("Failed to save risk limits");
-      
-      toast.success("Risk limits saved");
-      await loadAllocationData(); // Recalculate allocation
-    } catch (e) {
-      toast.error(getErrorMessage(e), "Save Error");
-    } finally {
-      setSaving(false);
-    }
-  };
+  setSaving(true);
+  try {
+    await http.put("/api/risk/limits", riskLimits);
+    toast.success("Risk limits saved");
+    await loadAllocationData();
+  } catch (e) {
+    toast.error(getErrorMessage(e), "Save Error");
+  } finally {
+    setSaving(false);
+  }
+};
   
   const saveStrategyParams = async () => {
-    setSaving(true);
-    try {
-      const res = await fetch("/api/strategy/params", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...strategyParams, ...scheduleSettings }),
-      });
-      
-      if (!res.ok) {
-        // Handle 409 (positions open) specially
-        if (res.status === 409) {
-          const errorData = await res.json();
-          const detail = errorData.detail || {};
-          const openPositions = detail.open_positions || [];
-          const posCount = detail.count || openPositions.length;
-          
-          // Build informative error message
-          let message = detail.message || "Cannot update parameters while positions are open";
-          if (posCount > 0) {
-            const symbols = openPositions.map((p: OpenPosition) => p.symbol).join(", ");
-            message += `\n\nOpen positions (${posCount}): ${symbols}`;
-            message += "\n\nPlease close all positions first (use Stop Strategy with flatten).";
-          }
-          
-          toast.error(message, "Positions Open");
-          return;
-        }
-        
-        throw new Error("Failed to save strategy params");
-      }
-      
-      const data = await res.json();
-      
-      // Success message
-      if (data.applied_immediately) {
-        toast.success(
-          "Parameters updated and applied immediately (no restart needed)",
-          "Strategy Parameters"
-        );
-      } else {
-        toast.success("Strategy parameters saved");
-      }
-      
-      await loadAllocationData(); // Recalculate allocation
-    } catch (e) {
-      toast.error(getErrorMessage(e), "Save Error");
-    } finally {
-      setSaving(false);
+  setSaving(true);
+  try {
+    const res = await http.put("/api/strategy/params", { ...strategyParams, ...scheduleSettings });
+    
+    if (res.data.applied_immediately) {
+      toast.success(
+        "Parameters updated and applied immediately (no restart needed)",
+        "Strategy Parameters"
+      );
+    } else {
+      toast.success("Strategy parameters saved");
     }
-  };
+    
+    await loadAllocationData();
+  } catch (e: unknown) {  // ← Изменено с any на unknown
+    // Handle 409 (positions open)
+    const error = e as { response?: { status?: number; data?: { detail?: { message?: string; open_positions?: Array<{ symbol: string }>; count?: number } } } };
+    
+    if (error.response?.status === 409) {
+      const detail = error.response?.data?.detail || {};
+      const openPositions = detail.open_positions || [];
+      const posCount = detail.count || openPositions.length;
+      
+      let message = detail.message || "Cannot update parameters while positions are open";
+      if (posCount > 0) {
+        const symbols = openPositions.map((p) => p.symbol).join(", ");
+        message += `\n\nOpen positions (${posCount}): ${symbols}`;
+        message += "\n\nPlease close all positions first.";
+      }
+      
+      toast.error(message, "Positions Open");
+      return;
+    }
+    
+    toast.error(getErrorMessage(e), "Save Error");
+  } finally {
+    setSaving(false);
+  }
+};
   
   const saveAllocationMode = async (mode: "equal" | "dynamic" | "smart") => {
-    setSaving(true);
-    try {
-      const res = await fetch("/api/allocation/mode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
-      });
-      
-      if (!res.ok) throw new Error("Failed to save allocation mode");
-      
-      setAllocationMode(mode);
-      toast.success(`Allocation mode: ${mode}`);
-      await loadAllocationData(); // Recalculate
-    } catch (e) {
-      toast.error(getErrorMessage(e), "Save Error");
-    } finally {
-      setSaving(false);
-    }
-  };
+  setSaving(true);
+  try {
+    await http.post("/api/allocation/mode", { mode });
+    setAllocationMode(mode);
+    toast.success(`Allocation mode: ${mode}`);
+    await loadAllocationData();
+  } catch (e) {
+    toast.error(getErrorMessage(e), "Save Error");
+  } finally {
+    setSaving(false);
+  }
+};
   
   if (loading) {
     return (

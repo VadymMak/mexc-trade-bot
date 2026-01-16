@@ -12,6 +12,7 @@ import { getErrorMessage } from "@/lib/errors";
 import { useSymbolItems } from "@/store/symbols";
 import { useSymbols } from "@/store/symbols";
 import { useStrategy } from "@/store/strategy";
+import http from "@/lib/http";
 
 const TradingBoard: React.FC = () => {
   const loadProvider = useProvider((s) => s.load);
@@ -73,54 +74,44 @@ const TradingBoard: React.FC = () => {
   };
 
   const handleConfirmStop = async () => {
-    setShowEmergencyDialog(false);
-    setStoppingAll(true);
+  setShowEmergencyDialog(false);
+  setStoppingAll(true);
+  
+  try {
+    await http.post("/api/strategy/stop-all", { flatten: true });
     
-    try {
-      const response = await fetch("/api/strategy/stop-all", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ flatten: true }),
-      });
-      
-      if (!response.ok) {
-        throw new Error("Failed to stop all strategies");
-      }
-      
-      await response.json();
-      
-      // ✅ Update symbols store (set all running: false)
-      useSymbols.getState().stopAll();
-      
-      toast.success(
-        "All strategies stopped and positions flattened",
-        "🚨 Emergency Stop"
-      );
-      
-      setTimeout(() => {
-        loadMetrics();
-        window.dispatchEvent(new Event('positions-force-reload'));
-      }, 1000);
-      
-      setTimeout(() => {
-        loadMetrics();
-        window.dispatchEvent(new Event('positions-force-reload'));
-      }, 3000);
-      
-      setTimeout(() => {
-        loadMetrics();
-        window.dispatchEvent(new Event('positions-force-reload'));
-      }, 5000);
-      
-    } catch (error) {
-      toast.error(
-        getErrorMessage(error),
-        "Emergency Stop Failed"
-      );
-    } finally {
-      setStoppingAll(false);
-    }
-  };
+    // ✅ Update symbols store (set all running: false)
+    useSymbols.getState().stopAll();
+    
+    toast.success(
+      "All strategies stopped and positions flattened",
+      "🚨 Emergency Stop"
+    );
+    
+    setTimeout(() => {
+      loadMetrics();
+      window.dispatchEvent(new Event('positions-force-reload'));
+    }, 1000);
+    
+    setTimeout(() => {
+      loadMetrics();
+      window.dispatchEvent(new Event('positions-force-reload'));
+    }, 3000);
+    
+    setTimeout(() => {
+      loadMetrics();
+      window.dispatchEvent(new Event('positions-force-reload'));
+    }, 5000);
+    
+  } catch (error) {
+    toast.error(
+      getErrorMessage(error),
+      "Emergency Stop Failed"
+    );
+  } finally {
+    setStoppingAll(false);
+  }
+};
 
   const handleCancelStop = () => {
     setShowEmergencyDialog(false);
