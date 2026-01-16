@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY migration ./migration
 COPY scripts ./scripts
-COPY .env.example .env
+# COPY .env.example .env
 
 # Create data directories
 RUN mkdir -p /app/data /app/logs
