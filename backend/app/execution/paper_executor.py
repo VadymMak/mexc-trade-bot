@@ -245,19 +245,20 @@ class RealisticSimulation:
 
             return None, None, metrics
         
-        # 3. Slippage
-        slippage_bps = random.uniform(self.slippage_min_bps, self.slippage_max_bps)
-        metrics.slippage_bps = slippage_bps
-        slippage_factor = Decimal(str(slippage_bps / 10000))
-        
-        if side == "BUY":
-            # Покупаем дороже (неблагоприятное исполнение)
-            fill_price = price * (Decimal("1") + slippage_factor)
-        else:  # SELL
-            # Продаём дешевле (неблагоприятное исполнение)
-            fill_price = price * (Decimal("1") - slippage_factor)
-        
-        fill_price = await _round_price_async(symbol, fill_price)
+        # 3. Slippage (ONLY for MARKET orders, NOT for LIMIT/MAKER!)
+        if order_type == "MARKET":
+            slippage_bps = random.uniform(self.slippage_min_bps, self.slippage_max_bps)
+            metrics.slippage_bps = slippage_bps
+            slippage_factor = Decimal(str(slippage_bps / 10000))
+            if side == "BUY":
+                fill_price = price * (Decimal("1") + slippage_factor)
+            else:
+                fill_price = price * (Decimal("1") - slippage_factor)
+            fill_price = await _round_price_async(symbol, fill_price)
+        else:
+            # LIMIT/MAKER order = NO slippage, you get YOUR price
+            metrics.slippage_bps = 0.0
+            fill_price = price
         
         # 4. Partial fills
         if random.random() < self.partial_fill_prob:
@@ -492,7 +493,7 @@ class PaperExecutor:
             side=s_up,
             price=fill_price,
             qty=qty_dec,
-            order_type="MARKET"
+            order_type="LIMIT"
         )
 
         # Order rejected
