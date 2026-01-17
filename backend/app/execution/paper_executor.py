@@ -186,6 +186,9 @@ class RealisticSimulation:
         
         # Order rejection settings
         self.rejection_prob = float(os.getenv("SIM_REJECTION_PROB", "0.05"))  # 5%
+
+        # Maker fill probability (not all limit orders get filled!)
+        self.maker_fill_prob = float(os.getenv("SIM_MAKER_FILL_PROB", "0.55"))  # 55% fill rate
         
         # Enable/disable simulation
         self.enabled = str(os.getenv("REALISTIC_SIMULATION", "1")).lower() in {"1", "true", "yes", "on"}
@@ -258,6 +261,13 @@ class RealisticSimulation:
         else:
             # LIMIT/MAKER order = NO slippage, you get YOUR price
             metrics.slippage_bps = 0.0
+            
+            # But NOT all limit orders get filled! Check fill probability
+            if random.random() > self.maker_fill_prob:
+                # Order not filled - price moved away or not enough takers
+                _dbg(f"[SIM] LIMIT order not filled: {symbol} {side} (fill_prob={self.maker_fill_prob})")
+                return None, None, metrics
+            
             fill_price = price
         
         # 4. Partial fills
