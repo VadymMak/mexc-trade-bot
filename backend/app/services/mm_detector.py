@@ -417,6 +417,23 @@ class MMDetector:
         pattern = self.get_pattern(symbol)
         return pattern.safe_order_size_usd if pattern else None
     
+    def is_mm_gone(self, symbol: str, spread_bps: float) -> tuple[bool, str]:
+        """Check if MM has left (emergency signal)"""
+        if spread_bps > 30:
+            return True, f"spread:{spread_bps:.1f}bps"
+        
+        pattern = self.get_pattern(symbol)
+        if not pattern:
+            return True, "no_pattern"
+        
+        if pattern.mm_confidence < 0.5:
+            return True, f"conf:{pattern.mm_confidence:.2f}"
+        
+        if pattern.mm_spread_bps > 0 and spread_bps > pattern.mm_spread_bps * 3:
+            return True, f"3x_spread"
+    
+        return False, "ok"
+    
     def get_summary(self, symbol: str) -> dict:
         """Get human-readable summary"""
         pattern = self.get_pattern(symbol)

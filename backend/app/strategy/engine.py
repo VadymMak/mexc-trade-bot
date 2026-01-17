@@ -1059,6 +1059,25 @@ class StrategyEngine:
                     # Use oldest position for timing
                     oldest_pos = positions_list[0]
                     elapsed_s = now - oldest_pos['entry_ts']
+
+                    # ⚠️ MM GONE CHECK - Emergency exit
+                    mm_detector = get_mm_detector()
+                    mm_gone, mm_reason = mm_detector.is_mm_gone(sym, spread_bps)
+                    if mm_gone:
+                        print(f"[STRAT:{sym}] 🚨 MM GONE: {mm_reason} - EMERGENCY EXIT")
+                        pos = await self._exec.get_position(sym)
+                        actual_qty = float(pos.get("qty", 0.0))
+                        if actual_qty > 0:
+                            await self._exec.place_market(sym, "SELL", qty=actual_qty, tag="mm_exit_emergency")
+                            await self._exec.flatten_symbol(sym)
+                            in_pos = False
+                            positions_list.clear()
+                            last_exit_ts_ms = time.time() * 1000
+                            if _METRICS_OK:
+                                strategy_exits_total.labels(sym, "MM_GONE").inc()
+                                strategy_open_positions.labels(sym).set(0)
+                        await asyncio.sleep(poll_ms / 1000)
+                        continue
                     
                     # Calculate weighted average PnL
                     total_qty = sum(p['qty'] for p in positions_list)
