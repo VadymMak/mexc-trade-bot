@@ -419,19 +419,24 @@ class MMDetector:
     
     def is_mm_gone(self, symbol: str, spread_bps: float) -> tuple[bool, str]:
         """Check if MM has left (emergency signal)"""
-        if spread_bps > 30:
+        
+        # 🔴 CRITICAL: Only spread explosion is reliable signal
+        if spread_bps > 50:  # Was 30, increase to 50
             return True, f"spread:{spread_bps:.1f}bps"
         
+        # ✅ No pattern = NOT enough data, NOT mm_gone
         pattern = self.get_pattern(symbol)
         if not pattern:
-            return True, "no_pattern"
+            return False, "no_data"  # ← CHANGED from True to False
         
-        if pattern.mm_confidence < 0.5:
-            return True, f"conf:{pattern.mm_confidence:.2f}"
+        # ✅ Low confidence = uncertain, NOT mm_gone  
+        if pattern.mm_confidence < 0.3:  # Was 0.5, lowered to 0.3
+            return False, "low_conf"  # ← CHANGED from True to False
         
-        if pattern.mm_spread_bps > 0 and spread_bps > pattern.mm_spread_bps * 3:
-            return True, f"3x_spread"
-    
+        # Only trigger on extreme spread expansion
+        if pattern.mm_spread_bps > 0 and spread_bps > pattern.mm_spread_bps * 5:  # Was 3x, now 5x
+            return True, f"5x_spread"
+
         return False, "ok"
     
     def get_summary(self, symbol: str) -> dict:
