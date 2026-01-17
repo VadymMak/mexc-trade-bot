@@ -189,6 +189,10 @@ class RealisticSimulation:
 
         # Maker fill probability (not all limit orders get filled!)
         self.maker_fill_prob = float(os.getenv("SIM_MAKER_FILL_PROB", "0.55"))  # 55% fill rate
+
+        # Maker wait time (queue simulation) - how long to wait for fill
+        self.maker_wait_min_ms = int(os.getenv("SIM_MAKER_WAIT_MIN_MS", "500"))   # 500ms min
+        self.maker_wait_max_ms = int(os.getenv("SIM_MAKER_WAIT_MAX_MS", "3000"))  # 3000ms max
         
         # Enable/disable simulation
         self.enabled = str(os.getenv("REALISTIC_SIMULATION", "1")).lower() in {"1", "true", "yes", "on"}
@@ -268,6 +272,11 @@ class RealisticSimulation:
                 _dbg(f"[SIM] LIMIT order not filled: {symbol} {side} (fill_prob={self.maker_fill_prob})")
                 return None, None, metrics
             
+            # Simulate queue wait time for maker orders
+            wait_ms = random.randint(self.maker_wait_min_ms, self.maker_wait_max_ms)
+            await asyncio.sleep(wait_ms / 1000.0)
+            metrics.latency_ms += wait_ms  # Add to total latency
+            
             fill_price = price
         
         # 4. Partial fills
@@ -283,8 +292,8 @@ class RealisticSimulation:
         fee_rate = Decimal(str(self.maker_fee_pct))
         metrics.taker_fee = float(fee_rate)
         
-        _dbg(f"[SIM] {symbol} {side}: slippage={slippage_bps:.2f}bps, "
-             f"latency={latency_ms}ms, fill={fill_qty}/{qty}")
+        _dbg(f"[SIM] {symbol} {side}: slippage={metrics.slippage_bps:.2f}bps, "
+             f"latency={metrics.latency_ms}ms, fill={fill_qty}/{qty}")
         
         # ========== LOG METRICS ==========
         if self._metrics:
