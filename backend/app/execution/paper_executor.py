@@ -214,7 +214,8 @@ class RealisticSimulation:
         side: str,
         price: Decimal,
         qty: Decimal,
-        order_type: str = "MARKET"
+        order_type: str = "MARKET",
+        spread_bps: float = 10.0
     ) -> tuple[Optional[Decimal], Optional[Decimal], SimulationMetrics]:
         """
         Симулирует исполнение ордера с реалистичными условиями.
@@ -266,10 +267,22 @@ class RealisticSimulation:
             # LIMIT/MAKER order = NO slippage, you get YOUR price
             metrics.slippage_bps = 0.0
             
-            # But NOT all limit orders get filled! Check fill probability
-            if random.random() > self.maker_fill_prob:
-                # Order not filled - price moved away or not enough takers
-                _dbg(f"[SIM] LIMIT order not filled: {symbol} {side} (fill_prob={self.maker_fill_prob})")
+            # Dynamic fill probability based on spread
+            # Narrow spread (3-5 bps) = more competition = lower fill rate ~40%
+            # Normal spread (6-12 bps) = balanced = fill rate ~55-65%
+            # Wide spread (13-20 bps) = less competition = higher fill rate ~70%
+            # Very wide (>20 bps) = MM leaving = lower fill rate ~35%
+            if spread_bps <= 5:
+                dynamic_fill_prob = 0.40
+            elif spread_bps <= 12:
+                dynamic_fill_prob = 0.55 + (spread_bps - 6) * 0.02  # 55% to 67%
+            elif spread_bps <= 20:
+                dynamic_fill_prob = 0.70
+            else:
+                dynamic_fill_prob = 0.35  # MM leaving, dangerous
+            
+            if random.random() > dynamic_fill_prob:
+                _dbg(f"[SIM] LIMIT not filled: {symbol} {side} spread={spread_bps:.1f}bps prob={dynamic_fill_prob:.0%}")
                 return None, None, metrics
             
             # Simulate queue wait time for maker orders
@@ -506,13 +519,17 @@ class PaperExecutor:
             return None
 
         # ========== REALISTIC SIMULATION ==========
+        # Calculate spread for dynamic fill probability
+        spread_bps = ((ask - bid) / mid * 10000) if mid > 0 else 10.0
+        
         # Симулируем реальное исполнение (slippage, latency, partial fills, rejection)
-        sim_price, sim_qty, sim_metrics = await self._simulation.simulate_order_execution(
+        sim_price, sim_qty, sim_metrics = await self._simulation.simulate_order_execution(        
             symbol=sym,
             side=s_up,
             price=fill_price,
             qty=qty_dec,
-            order_type="LIMIT"
+            order_type="LIMIT",
+            spread_bps=float(spread_bps)
         )
 
         # Order rejected
