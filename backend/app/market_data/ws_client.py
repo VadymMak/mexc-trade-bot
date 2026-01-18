@@ -592,30 +592,33 @@ class MEXCWebSocketClient:
     def _topic_for(self, ch: str, sym: str, levels: int) -> str:
         """Build topic string with CORRECT MEXC format.
         
-        CRITICAL: BookTicker does NOT use rate suffix!
-        Only depth and deals use rate suffix.
+        FIXED (Jan 18, 2026): ALL aggre topics require rate suffix!
+        
+        Official MEXC formats:
+        - BookTicker: spot@public.aggre.bookTicker.v3.api.pb@(100ms|10ms)@<symbol>
+        - Deals:      spot@public.aggre.deals.v3.api.pb@(100ms|10ms)@<symbol>
+        - Depth:      spot@public.aggre.depth.v3.api.pb@(100ms|10ms)@<symbol>
+        - Limit Depth: spot@public.limit.depth.v3.api.pb@<symbol>@<levels>
         """
         topic = ch
         
-        # Downgrade aggre if needed
+        # Downgrade aggre if needed (after multiple blocked)
         if self._blocked_seen >= 2:
             topic = topic.replace(".aggre.bookTicker.", ".bookTicker.")
         
         ch_l = topic.lower()
         
-        # FIXED: BookTicker - NO rate suffix (push on every change)
-        if "bookticker" in ch_l:
-            return f"{topic}@{sym}"
-        
-        # Limit depth - NO rate suffix, but with levels
+        # Limit depth - NO rate suffix, but WITH levels
+        # Format: spot@public.limit.depth.v3.api.pb@<symbol>@<levels>
         if ".limit.depth." in ch_l:
             return f"{topic}@{sym}@{levels}"
         
-        # Deals and aggre depth - use rate suffix
-        if ".deals." in ch_l or ".aggre.depth." in ch_l:
+        # ALL aggre topics need rate suffix @100ms!
+        # Format: spot@public.aggre.<type>.v3.api.pb@100ms@<symbol>
+        if ".aggre." in ch_l:
             return f"{topic}@100ms@{sym}"
         
-        # Default: no rate suffix
+        # Non-aggre topics (fallback) - just symbol
         return f"{topic}@{sym}"
 
     async def _subscribe_all(self) -> None:
@@ -755,9 +758,9 @@ class MEXCWebSocketClient:
                     if msg.startswith("spot@"):
                         self._subscribed_topics.add(msg)
                         logger.debug(f"✅ Subscribed: {msg}")
-                    # Reset block counter on healthy ack
-                    if self._blocked_seen > 0:
-                        self._blocked_seen = 0
+                    # NOTE: Don't reset _blocked_seen immediately!
+                    # Let it decay naturally to avoid rapid re-triggering
+                    # The counter will reset on next clean connect
                     logger.debug(f"✅ ACK code=0 msg={msg[:100]}")
             else:
                 logger.error(f"❗ ACK error code={code} msg={msg}")
@@ -780,16 +783,17 @@ class MEXCWebSocketClient:
         - Second downgrade: also drop 'aggre' variant
         Then re-subscribe with new policy.
         
-        FIXED: Added exponential backoff to prevent rapid retry loops.
+        FIXED Jan 18, 2026: Increased backoff to prevent rapid retry loops.
         """
         self._downgraded_once = True
         
-        # FIXED: Exponential backoff - wait longer after each block
-        backoff_sec = min(30, 2 ** self._blocked_seen)  # 2, 4, 8, 16, 30 seconds
+        # FIXED: Linear backoff starting at 10 seconds (MEXC needs time to cool down)
+        # Pattern: 10, 20, 30, 45, 60 seconds
+        backoff_sec = min(60, 10 + (self._blocked_seen * 10))
         
         logger.warning(
             f"🔽 Downgrading subscription policy: "
-            f"drop_rate_suffix={self._blocked_seen>=1}, drop_aggre={self._blocked_seen>=2}, "
+            f"blocked_count={self._blocked_seen}, "
             f"backoff={backoff_sec}s"
         )
         
