@@ -79,7 +79,7 @@ except Exception:
         "DEPTH_LIMIT": "spot@public.limit.depth.v3.api.pb",
     }
     WS_RATE_SUFFIX = "@100ms"
-    WS_SUBSCRIBE_RATE_LIMIT_PER_SEC = 8
+    WS_SUBSCRIBE_RATE_LIMIT_PER_SEC = 2
 
 # ── service callbacks ───────────────────────────────────────────────────────
 try:
@@ -590,7 +590,11 @@ class MEXCWebSocketClient:
                 logger.warning("No suitable deals class found in PublicAggreDealsV3Api_pb2")
 
     def _topic_for(self, ch: str, sym: str, levels: int) -> str:
-        """Build topic string with CORRECT MEXC format: topic@RATE@SYMBOL"""
+        """Build topic string with CORRECT MEXC format.
+        
+        CRITICAL: BookTicker does NOT use rate suffix!
+        Only depth and deals use rate suffix.
+        """
         topic = ch
         
         # Downgrade aggre if needed
@@ -599,19 +603,21 @@ class MEXCWebSocketClient:
         
         ch_l = topic.lower()
         
-        # Rate suffix: @500ms or @100ms or empty
-        if self._blocked_seen >= 1:
-            rate = "@100ms"  # Slower rate after blocking
-        else:
-            rate = "@500ms"  # Default rate
+        # FIXED: BookTicker - NO rate suffix (push on every change)
+        if "bookticker" in ch_l:
+            return f"{topic}@{sym}"
         
-        # Build topic based on channel type
+        # Limit depth - NO rate suffix, but with levels
         if ".limit.depth." in ch_l:
-            # Depth limit format: topic@SYMBOL@LEVELS
             return f"{topic}@{sym}@{levels}"
-        else:
-            # Standard format: topic@RATE@SYMBOL
+        
+        # Deals and other depth - use rate suffix
+        if ".deals." in ch_l or ".depth." in ch_l:
+            rate = "@100ms"
             return f"{topic}{rate}@{sym}"
+        
+        # Default: no rate suffix
+        return f"{topic}@{sym}"
 
     async def _subscribe_all(self) -> None:
         """Subscribe to all topics with rate limiting."""
@@ -774,12 +780,18 @@ class MEXCWebSocketClient:
         - First downgrade: drop rate suffix
         - Second downgrade: also drop 'aggre' variant
         Then re-subscribe with new policy.
+        
+        FIXED: Added exponential backoff to prevent rapid retry loops.
         """
         self._downgraded_once = True
         
+        # FIXED: Exponential backoff - wait longer after each block
+        backoff_sec = min(30, 2 ** self._blocked_seen)  # 2, 4, 8, 16, 30 seconds
+        
         logger.warning(
             f"🔽 Downgrading subscription policy: "
-            f"drop_rate_suffix={self._blocked_seen>=1}, drop_aggre={self._blocked_seen>=2}"
+            f"drop_rate_suffix={self._blocked_seen>=1}, drop_aggre={self._blocked_seen>=2}, "
+            f"backoff={backoff_sec}s"
         )
         
         try:
@@ -788,7 +800,11 @@ class MEXCWebSocketClient:
             logger.warning(f"Error during unsubscribe: {e}")
         
         self._subscribed_topics.clear()
-        await asyncio.sleep(0.5)  # Brief pause before re-subscribing
+        
+        # FIXED: Exponential backoff instead of fixed 0.5s
+        logger.info(f"⏳ Waiting {backoff_sec}s before resubscribe...")
+        await asyncio.sleep(backoff_sec)
+        
         await self._subscribe_all()
 
     async def _unsubscribe_all_silent(self) -> None:
