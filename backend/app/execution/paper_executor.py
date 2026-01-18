@@ -233,11 +233,10 @@ class RealisticSimulation:
         metrics.latency_ms = latency_ms
         await asyncio.sleep(latency_ms / 1000.0)
         
-        # 2. Order rejection
-        if random.random() < self.rejection_prob:
+        # 2. Order rejection (ONLY for LIMIT orders, exits must always work!)
+        if order_type == "LIMIT" and random.random() < self.rejection_prob:
             metrics.rejected = True
             _dbg(f"[SIM] Order rejected: {symbol} {side} {qty}")
-
             # ========== LOG REJECTION METRIC ==========
             if self._metrics:
                 try:
@@ -250,7 +249,6 @@ class RealisticSimulation:
                 except Exception:
                     pass
             # ========== END LOG REJECTION ==========
-
             return None, None, metrics
         
         # 3. Slippage (ONLY for MARKET orders, NOT for LIMIT/MAKER!)
