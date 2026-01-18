@@ -1207,17 +1207,25 @@ class StrategyEngine:
                         
                         if can_exit_by_tp or (can_exit_by_trailing and st.trailing_active):
                             exit_price = ask
-                            exit_oid = await self._exec.place_maker(sym, "SELL", price=exit_price, qty=actual_qty, tag="mm_exit_tp")
-                            if not exit_oid:
+                            exit_result = await self._exec.place_maker(sym, "SELL", price=exit_price, qty=actual_qty, tag="mm_exit_tp")
+                            if not exit_result:
                                 # LIMIT exit failed (fill prob), fallback to MARKET
                                 print(f"[STRAT:{sym}] ⚠️ {original_reason} LIMIT not filled, using MARKET fallback")
-                                exit_price = bid
-                                # Keep original reason (TP or TRAIL), don't change to SL!
-                                exit_oid = await self._exec.place_market(sym, "SELL", qty=actual_qty, tag=f"mm_exit_{reason.lower()}_fallback")
+                                exit_result = await self._exec.place_market(sym, "SELL", qty=actual_qty, tag=f"mm_exit_{reason.lower()}_fallback")
+                            if exit_result:
+                                exit_price = exit_result.get("fill_price", exit_price)
+                                exit_oid = exit_result.get("order_id")
+                            else:
+                                exit_oid = None
                         else:
                             # TIMEOUT or SL → use MARKET order
-                            exit_price = bid
-                            exit_oid = await self._exec.place_market(sym, "SELL", qty=actual_qty, tag=f"mm_exit_{reason.lower()}")
+                            exit_result = await self._exec.place_market(sym, "SELL", qty=actual_qty, tag=f"mm_exit_{reason.lower()}")
+                            if exit_result:
+                                exit_price = exit_result.get("fill_price", bid)
+                                exit_oid = exit_result.get("order_id")
+                            else:
+                                exit_price = bid
+                                exit_oid = None
                         
                         await self._exec.cancel_orders(sym)
                         

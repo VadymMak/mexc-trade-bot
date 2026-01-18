@@ -592,7 +592,14 @@ class PaperExecutor:
             strategy_tag=tag,
             prev_avg_for_pnl=prev_avg_for_pnl,
         )
-        return coid
+        
+        # Return dict with fill info (like place_market)
+        return {
+            "order_id": coid,
+            "fill_price": float(fill_price),
+            "fill_qty": float(qty_dec),
+            "slippage_bps": sim_metrics.slippage_bps,
+        }
 
     async def get_position(self, symbol: str) -> Dict[str, Any]:
         sym = symbol.upper()
@@ -1250,7 +1257,12 @@ class PaperExecutor:
             finally:
                 session.close()
         
-        return client_order_id
+        return {
+            "order_id": client_order_id,
+            "fill_price": float(fill_price),
+            "fill_qty": float(fill_qty),
+            "slippage_bps": sim_metrics.slippage_bps,
+        }
 
     async def _apply_memory_fill(
         self, symbol: str, side: str, price: Decimal, qty: Decimal, ts_ms: int
