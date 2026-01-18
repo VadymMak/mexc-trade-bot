@@ -676,7 +676,7 @@ class Settings(BaseSettings):
         description="Requested WS frequency suffix, e.g. '@100ms'. Empty string means provider default.",
     )
     ws_subscribe_rate_limit_per_sec: int = Field(
-        default=int(os.getenv("WS_SUBSCRIBE_RATE_LIMIT_PER_SEC", "8")),
+        default=int(os.getenv("WS_SUBSCRIBE_RATE_LIMIT_PER_SEC", "2")),
         validation_alias=AliasChoices("WS_SUBSCRIBE_RATE_LIMIT_PER_SEC", "ws_subscribe_rate_limit_per_sec"),
         description="Throttle for SUBSCRIPTION sends (topics per second).",
     )
