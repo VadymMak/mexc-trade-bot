@@ -1156,6 +1156,7 @@ class StrategyEngine:
                     # Get params used for this trade (stored when position opened)
                     # For now, we'll use the current values (will improve later with per-trade storage)
                     # Standard exit conditions (use saved params!)
+                    print(f"[DEBUG:{sym}] pnl_bps={pnl_bps:.2f}, TP={st.trade_take_profit_bps}, SL={st.trade_stop_loss_bps}, elapsed={elapsed_s:.2f}s")
                     can_exit_by_timeout = elapsed_s >= st.trade_timeout_sec
                     can_exit_by_tp = (elapsed_s * 1000 >= p.min_hold_ms) and (pnl_bps >= st.trade_take_profit_bps)
                     can_exit_by_sl = (elapsed_s * 1000 >= p.min_hold_ms) and (pnl_bps <= st.trade_stop_loss_bps)
