@@ -611,10 +611,9 @@ class MEXCWebSocketClient:
         if ".limit.depth." in ch_l:
             return f"{topic}@{sym}@{levels}"
         
-        # Deals and other depth - use rate suffix
-        if ".deals." in ch_l or ".depth." in ch_l:
-            rate = "@100ms"
-            return f"{topic}{rate}@{sym}"
+        # Deals and aggre depth - use rate suffix
+        if ".deals." in ch_l or ".aggre.depth." in ch_l:
+            return f"{topic}@100ms@{sym}"
         
         # Default: no rate suffix
         return f"{topic}@{sym}"
