@@ -441,10 +441,12 @@ class StrategyEngine:
                 entry_ts = time.time()
                 
                 # Add to pyramid tracking
+                # ts_ms из DB в миллисекундах, конвертируем в секунды
+                real_entry_ts = pos.get("ts_ms", 0) / 1000.0 if pos.get("ts_ms", 0) > 0 else time.time()
                 positions_list.append({
                     'qty': qty_f,
                     'entry_price': avg_px,
-                    'entry_ts': time.time(),
+                    'entry_ts': real_entry_ts,
                 })
                 
                 if _METRICS_OK:
