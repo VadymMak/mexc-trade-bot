@@ -1199,16 +1199,23 @@ class StrategyEngine:
                             actual_qty = qty_units  # Fallback to requested qty
                         # ═══════════════════════════════
                         
+                        # ═══════════════════════════════
                         # TP/TRAIL → LIMIT order (maker fee 0%)
                         # TIMEOUT/SL → MARKET order (taker fee 0.05%)
+                        exit_oid = None
                         if can_exit_by_tp or (can_exit_by_trailing and st.trailing_active):
                             exit_price = ask
-                            await self._exec.place_maker(sym, "SELL", price=exit_price, qty=actual_qty, tag="mm_exit_tp")
+                            exit_oid = await self._exec.place_maker(sym, "SELL", price=exit_price, qty=actual_qty, tag="mm_exit_tp")
+                            if not exit_oid:
+                                # LIMIT exit failed (fill prob), fallback to MARKET
+                                print(f"[STRAT:{sym}] ⚠️ TP LIMIT not filled, using MARKET")
+                                exit_price = bid
+                                reason = "SL"  # Change reason since we're using market exit
+                                exit_oid = await self._exec.place_market(sym, "SELL", qty=actual_qty, tag="mm_exit_sl_fallback")
                         else:
                             # TIMEOUT or SL → use MARKET order
                             exit_price = bid
-                            await self._exec.place_market(sym, "SELL", qty=actual_qty, tag=f"mm_exit_{reason.lower()}")
-                        
+                            exit_oid = await self._exec.place_market(sym, "SELL", qty=actual_qty, tag=f"mm_exit_{reason.lower()}")
                         await self._exec.cancel_orders(sym)
                         await self._exec.flatten_symbol(sym)
 
