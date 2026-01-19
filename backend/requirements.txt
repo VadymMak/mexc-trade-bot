@@ -1,11 +1,14 @@
-# requirements.txt (или pyproject.toml deps)
+# requirements.txt
 fastapi
 uvicorn[standard]
 pydantic
+pydantic-settings>=2.0.0
 websockets>=12.0
 httpx>=0.25.2,<1.0.0
-protobuf>=5.27.0   # для декодирования MEXC Spot v3 Protobuf сообщений
+protobuf>=5.27.0
 prometheus-client>=0.20.0
 SQLAlchemy>=2.0
-python-telegram-bot==20.7
-ccxt>=4.3.0  # Добавили ccxt для унифицированных клиентов (public/private) по провайдерам
+asyncpg>=0.29.0
+python-dotenv>=1.0.0
+ccxt>=4.3.0
+# python-telegram-bot==20.7  # commented - causes httpx conflict
