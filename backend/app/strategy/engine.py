@@ -16,6 +16,7 @@ SYMBOL_BLACKLIST = {
     'DOTUSDT',
     'LTCUSDT',  
     'SOLUSDT',
+    'NEARUSDT',   # ✅ Added Jan 19, 2026: ~40 bps spread, toxic for HFT scalping
     # Add more toxic symbols here as discovered
 }
 # ────────────────────────────────────────────────────────────────
@@ -599,6 +600,16 @@ class StrategyEngine:
                         # We BUY now → later we will SELL, so require that ask side can fill entry size
                         depth_ok = (abs_ask_usd >= p.order_size_usd)
                     edge_ok = (spread_bps >= p.edge_floor_bps)
+                    
+                    # ═══ CRITICAL CHECK (Jan 19, 2026): Reject TOXIC spreads! ═══
+                    # If spread > 20 bps, we cannot profit with 2-3 bps TP target
+                    # Example: NEARUSDT often has 30-50 bps spread = instant -27 to -47 bps loss!
+                    MAX_SPREAD_BPS = 20.0  # Maximum acceptable spread for scalping
+                    spread_ok = spread_bps <= MAX_SPREAD_BPS
+                    if not spread_ok and not hasattr(st, '_last_spread_warn') or (now - getattr(st, '_last_spread_warn', 0)) > 60:
+                        st._last_spread_warn = now
+                        print(f"[STRAT:{sym}] ⚠️ TOXIC SPREAD: {spread_bps:.1f} bps > {MAX_SPREAD_BPS} - SKIPPING ENTRY")
+                    # ═══════════════════════════════════════════════════════════
 
                     # ═══════════════════════════════════════════════════════
                     # RISK CHECKS BEFORE ENTRY
@@ -635,7 +646,7 @@ class StrategyEngine:
                         risk_ok = False
                     # ═══════════════════════════════════════════════════════
 
-                    if base_ok and depth_ok and edge_ok and risk_ok:
+                    if base_ok and depth_ok and edge_ok and risk_ok and spread_ok:
                         # ═══════════════════════════════════════════════════════
                         # MM DETECTION CHECK (Phase 2)
                         # ═══════════════════════════════════════════════════════
@@ -1089,7 +1100,12 @@ class StrategyEngine:
                     total_cost = sum(p['qty'] * p['entry_price'] for p in positions_list)
                     avg_entry = total_cost / total_qty if total_qty > 0 else 0.0
                     
-                    pnl_bps = (mid - avg_entry) / avg_entry * 1e4 if avg_entry > 0 else 0.0
+                    # ═══ CRITICAL FIX (Jan 19, 2026): Use BID for PnL, not MID! ═══
+                    # For BUY positions, we exit by SELLing at BID price
+                    # MID is misleading when spread is wide (e.g., NEARUSDT 40 bps spread)
+                    # Example: entry=1.556, mid=1.553, bid=1.55 → mid shows -2 bps, bid shows -39 bps!
+                    pnl_bps = (bid - avg_entry) / avg_entry * 1e4 if avg_entry > 0 else 0.0
+                    pnl_bps_mid = (mid - avg_entry) / avg_entry * 1e4 if avg_entry > 0 else 0.0  # For logging only
 
                     # ═══════════════════════════════════════════════════════════
                     # 🚨 LAYER 1: HARD STOP LOSS - CHECK FIRST, ALWAYS!
@@ -1100,7 +1116,7 @@ class StrategyEngine:
                     HARD_SL_BPS = -10.0  # Absolute maximum loss per trade
                     
                     if pnl_bps <= HARD_SL_BPS:
-                        print(f"[STRAT:{sym}] 🚨🚨🚨 HARD SL TRIGGERED: pnl={pnl_bps:.2f} bps <= {HARD_SL_BPS}")
+                        print(f"[STRAT:{sym}] 🚨🚨🚨 HARD SL TRIGGERED: pnl_bid={pnl_bps:.2f} bps (mid={pnl_bps_mid:.2f}) <= {HARD_SL_BPS}")
                         
                         # Get actual position qty
                         pos = await self._exec.get_position(sym)
@@ -1374,6 +1390,20 @@ class StrategyEngine:
                             else:
                                 exit_price = bid
                                 exit_oid = None
+                        
+                        # ═══ CRITICAL FIX (Jan 19, 2026): Recalculate REAL PnL after fill! ═══
+                        # The pnl_bps calculated earlier used mid/bid estimate
+                        # Now we have actual exit_price, recalculate for accurate logging
+                        real_pnl_bps = (exit_price - avg_entry) / avg_entry * 1e4 if avg_entry > 0 else 0.0
+                        
+                        # Update reason if "TP" but actually lost money
+                        if reason == "TP" and real_pnl_bps < -3.0:  # Lost more than 3 bps
+                            reason = "TP_SLIPPAGE"
+                            print(f"[STRAT:{sym}] ⚠️ TP became loss! Expected pnl={pnl_bps:.2f}, actual={real_pnl_bps:.2f} → {reason}")
+                        
+                        # Use REAL pnl for all logging
+                        pnl_bps = real_pnl_bps
+                        # ═══════════════════════════════════════════════════════════════════
                         
                         await self._exec.cancel_orders(sym)
                         
