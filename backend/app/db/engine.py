@@ -37,6 +37,11 @@ def _sqlite_path(url: str) -> Optional[Path]:
 
 # Resolve DB URL & echo from Settings (not raw env for consistency)
 DATABASE_URL: str = settings.database_url.strip()
+
+# FIX: Railway даёт postgres://, SQLAlchemy требует postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    
 SQL_ECHO: bool = bool(getattr(settings, "sql_echo", False))
 
 # Ensure SQLite directory exists (file-based only)
