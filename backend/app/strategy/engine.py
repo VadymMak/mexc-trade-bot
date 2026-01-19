@@ -168,6 +168,9 @@ class SymbolState:
     trade_trail_distance: float = 0.5
     trade_timeout_sec: float = 40.0
     trade_is_exploration: bool = False
+    
+    # ═══ HARD PROTECTION (NEW - Jan 19, 2026) ═══
+    hard_sl_triggered: bool = False
 
 
 # ───────────────────────────── Strategy engine ─────────────────────────────
@@ -412,7 +415,7 @@ class StrategyEngine:
             except Exception:
                 pass
 
-        poll_ms = 120
+        poll_ms = 50  # ✅ FIX: Faster reaction (was 120ms, price can move 1%+ in 120ms)
 
         # ═══════════════════════════════════════════════════════════
         # PYRAMID: Track list of positions (NEW)
@@ -1088,6 +1091,122 @@ class StrategyEngine:
                     
                     pnl_bps = (mid - avg_entry) / avg_entry * 1e4 if avg_entry > 0 else 0.0
 
+                    # ═══════════════════════════════════════════════════════════
+                    # 🚨 LAYER 1: HARD STOP LOSS - CHECK FIRST, ALWAYS!
+                    # This is insurance against catastrophic losses.
+                    # If triggered, we exit IMMEDIATELY with MARKET order.
+                    # NO LIMIT attempts, NO delays.
+                    # ═══════════════════════════════════════════════════════════
+                    HARD_SL_BPS = -10.0  # Absolute maximum loss per trade
+                    
+                    if pnl_bps <= HARD_SL_BPS:
+                        print(f"[STRAT:{sym}] 🚨🚨🚨 HARD SL TRIGGERED: pnl={pnl_bps:.2f} bps <= {HARD_SL_BPS}")
+                        
+                        # Get actual position qty
+                        pos = await self._exec.get_position(sym)
+                        actual_qty = float(pos.get("qty", 0.0))
+                        
+                        if actual_qty > 0:
+                            # IMMEDIATE MARKET EXIT - NO LIMIT ATTEMPTS!
+                            exit_result = await self._exec.place_market(
+                                sym, "SELL", qty=actual_qty, tag="HARD_SL"
+                            )
+                            
+                            if exit_result:
+                                exit_price = exit_result.get("fill_price", bid)
+                            else:
+                                # Force flatten if market order failed
+                                print(f"[STRAT:{sym}] 🚨 MARKET failed, forcing flatten")
+                                await self._exec.flatten_symbol(sym)
+                                exit_price = bid
+                            
+                            # Calculate REAL PnL after exit
+                            real_pnl_bps = (exit_price - avg_entry) / avg_entry * 1e4 if avg_entry > 0 else 0.0
+                            
+                            print(f"[STRAT:{sym}] 🚨 HARD SL EXIT: {actual_qty:.6f} @ {exit_price:.6f} "
+                                  f"(real_pnl={real_pnl_bps:.2f} bps, intended={pnl_bps:.2f} bps)")
+                            
+                            # Clean up state
+                            in_pos = False
+                            positions_list.clear()
+                            last_exit_ts_ms = time.time() * 1000
+                            st.last_exit_ts = int(last_exit_ts_ms)
+                            st.hard_sl_triggered = True
+                            
+                            # Reset trailing stop state
+                            st.trailing_active = False
+                            st.trailing_stop_price = 0.0
+                            st.peak_price = 0.0
+                            
+                            # Log metrics
+                            if _METRICS_OK:
+                                try:
+                                    strategy_exits_total.labels(sym, "HARD_SL").inc()
+                                    strategy_open_positions.labels(sym).set(0)
+                                    pos2 = await self._exec.get_position(sym)
+                                    strategy_realized_pnl_total.labels(sym).set(float(pos2.get("realized_pnl", 0.0)))
+                                    strategy_trade_pnl_bps.labels(sym).observe(abs(float(real_pnl_bps)))
+                                except Exception:
+                                    pass
+                            
+                            # Log to ML logger
+                            if st.current_trade_id:
+                                try:
+                                    from app.services.ml_trade_logger import get_ml_trade_logger
+                                    ml_logger = get_ml_trade_logger()
+                                    pnl_usd = (exit_price - avg_entry) * actual_qty if avg_entry > 0 else 0.0
+                                    ml_logger.log_exit(
+                                        symbol=sym,
+                                        exit_price=exit_price,
+                                        exit_qty=actual_qty,
+                                        exit_reason="HARD_SL",
+                                        pnl_usd=pnl_usd,
+                                        pnl_bps=real_pnl_bps,
+                                        pnl_percent=(exit_price - avg_entry) / avg_entry * 100 if avg_entry > 0 else 0.0,
+                                        hold_duration_sec=elapsed_s,
+                                        max_favorable_excursion_bps=None,
+                                        max_adverse_excursion_bps=None,
+                                        peak_price=None,
+                                        lowest_price=None,
+                                    )
+                                except Exception:
+                                    pass
+                            
+                            # Log to trade DB (non-blocking)
+                            if st.current_trade_db_id:
+                                trade_db_id = st.current_trade_db_id
+                                async def _log_hard_sl():
+                                    async with _db_semaphore:
+                                        db = None
+                                        try:
+                                            db = SessionLocal()
+                                            trade = db.query(Trade).filter(Trade.id == trade_db_id).first()
+                                            if trade:
+                                                trade.close_trade(
+                                                    exit_time=datetime.fromtimestamp(time.time()),
+                                                    exit_price=exit_price,
+                                                    exit_qty=actual_qty,
+                                                    exit_side="SELL",
+                                                    exit_reason="HARD_SL",
+                                                    exit_fee=0.0
+                                                )
+                                                db.commit()
+                                        except Exception as e:
+                                            print(f"[STRAT:{sym}] ⚠️ Failed to log HARD_SL exit: {e}")
+                                        finally:
+                                            if db:
+                                                try:
+                                                    db.close()
+                                                except:
+                                                    pass
+                                asyncio.create_task(_log_hard_sl())
+                                st.current_trade_db_id = None
+                                st.current_trade_id = None
+                        
+                        await asyncio.sleep(poll_ms / 1000)
+                        continue
+                    # ═══════════════════════════════════════════════════════════
+
                     # ⏰ CHECK: Close before end of trading window
                     should_close_window, close_reason = self._should_close_before_end()
                     if should_close_window:
@@ -1156,7 +1275,6 @@ class StrategyEngine:
                     # Get params used for this trade (stored when position opened)
                     # For now, we'll use the current values (will improve later with per-trade storage)
                     # Standard exit conditions (use saved params!)
-                    print(f"[DEBUG:{sym}] pnl_bps={pnl_bps:.2f}, TP={st.trade_take_profit_bps}, SL={st.trade_stop_loss_bps}, elapsed={elapsed_s:.2f}s")
                     can_exit_by_timeout = elapsed_s >= st.trade_timeout_sec
                     can_exit_by_tp = (elapsed_s * 1000 >= p.min_hold_ms) and (pnl_bps >= st.trade_take_profit_bps)
                     can_exit_by_sl = (elapsed_s * 1000 >= p.min_hold_ms) and (pnl_bps <= st.trade_stop_loss_bps)
@@ -1212,9 +1330,36 @@ class StrategyEngine:
                             exit_price = ask
                             exit_result = await self._exec.place_maker(sym, "SELL", price=exit_price, qty=actual_qty, tag="mm_exit_tp")
                             if not exit_result:
-                                # LIMIT exit failed (fill prob), fallback to MARKET
-                                print(f"[STRAT:{sym}] ⚠️ {original_reason} LIMIT not filled, using MARKET fallback")
-                                exit_result = await self._exec.place_market(sym, "SELL", qty=actual_qty, tag=f"mm_exit_{reason.lower()}_fallback")
+                                # ═══ CRITICAL FIX: Re-check PnL before MARKET fallback! ═══
+                                # Price may have moved while waiting for LIMIT fill
+                                q_new = await bt_service.get_quote(sym)
+                                new_bid = float(q_new.get("bid", bid))
+                                new_ask = float(q_new.get("ask", ask))
+                                new_mid = (new_bid + new_ask) / 2 if new_bid > 0 and new_ask > 0 else mid
+                                new_pnl_bps = (new_mid - avg_entry) / avg_entry * 1e4 if avg_entry > 0 else 0.0
+                                
+                                print(f"[STRAT:{sym}] ⚠️ {original_reason} LIMIT not filled. "
+                                      f"Original pnl={pnl_bps:.2f}, new pnl={new_pnl_bps:.2f}")
+                                
+                                # Check if we've hit HARD SL while waiting
+                                HARD_SL_BPS = -10.0
+                                MIN_TP_FOR_MARKET = 1.0  # Min profit to use MARKET
+                                
+                                if new_pnl_bps <= HARD_SL_BPS:
+                                    reason = "HARD_SL"
+                                    print(f"[STRAT:{sym}] 🚨 Hit HARD SL while waiting for LIMIT!")
+                                elif new_pnl_bps >= MIN_TP_FOR_MARKET:
+                                    # Still in profit (at least 1 bps), use MARKET
+                                    reason = f"{original_reason}_MARKET"
+                                else:
+                                    # Lost profit, exit anyway but mark correctly
+                                    reason = f"{original_reason}_EXPIRED"
+                                    print(f"[STRAT:{sym}] ⚠️ TP profit evaporated: was {pnl_bps:.2f}, now {new_pnl_bps:.2f}")
+                                
+                                # Update pnl_bps to reflect reality
+                                pnl_bps = new_pnl_bps
+                                
+                                exit_result = await self._exec.place_market(sym, "SELL", qty=actual_qty, tag=f"mm_exit_{reason.lower()}")
                             if exit_result:
                                 exit_price = exit_result.get("fill_price", exit_price)
                                 exit_oid = exit_result.get("order_id")

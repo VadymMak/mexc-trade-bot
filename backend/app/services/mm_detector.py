@@ -420,8 +420,9 @@ class MMDetector:
     def is_mm_gone(self, symbol: str, spread_bps: float) -> tuple[bool, str]:
         """Check if MM has left (emergency signal)"""
         
-        # 🔴 CRITICAL: Only spread explosion is reliable signal
-        if spread_bps > 50:  # Was 30, increase to 50
+        # 🔴 CRITICAL: Spread explosion = MM gone
+        # ✅ FIX (Jan 19, 2026): Lower threshold for earlier detection (was 50, now 30)
+        if spread_bps > 30:
             return True, f"spread:{spread_bps:.1f}bps"
         
         # ✅ No pattern = NOT enough data, NOT mm_gone
