@@ -2,6 +2,7 @@
  * API functions for trade history
  */
 
+import http from "@/lib/http";
 import type { Trade, TradeStats } from "@/types";
 
 /**
@@ -21,13 +22,9 @@ export async function fetchTrades(params: {
   if (params.period) searchParams.set("period", params.period);
 
   const url = `/api/trades/recent?${searchParams.toString()}`;
-  const res = await fetch(url);
+  const res = await http.get<Trade[]>(url);
   
-  if (!res.ok) {
-    throw new Error(`Failed to fetch trades: ${res.status}`);
-  }
-  
-  return res.json();
+  return res.data;
 }
 
 /**
@@ -45,13 +42,9 @@ export async function fetchTradeStats(params: {
   }
 
   const url = `/api/trades/stats?${searchParams.toString()}`;
-  const res = await fetch(url);
+  const res = await http.get<TradeStats>(url);
   
-  if (!res.ok) {
-    throw new Error(`Failed to fetch trade stats: ${res.status}`);
-  }
-  
-  return res.json();
+  return res.data;
 }
 
 /**
@@ -68,7 +61,9 @@ export function exportTradesCSV(params: {
   if (params.symbol) searchParams.set("symbol", params.symbol);
   if (params.status) searchParams.set("status", params.status);
 
-  const url = `/api/trades/export?${searchParams.toString()}`;
+  // For downloads, we need the full URL with base
+  const baseUrl = import.meta.env.VITE_API_URL || "";
+  const url = `${baseUrl}/api/trades/export?${searchParams.toString()}`;
   
   // Trigger download
   window.open(url, "_blank");

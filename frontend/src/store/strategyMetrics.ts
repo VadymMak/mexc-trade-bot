@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import http from "@/lib/http";
 
 interface StrategyMetrics {
   entries: Record<string, number>;
@@ -24,18 +25,8 @@ export const useStrategyMetrics = create<StrategyMetricsState>((set, get) => ({
     try {
       set({ loading: true, error: null });
 
-      const res = await fetch("/api/strategy/metrics", {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`GET /api/strategy/metrics failed: ${res.status} ${text}`);
-      }
-
-      const data: StrategyMetrics = await res.json();
-      set({ metrics: data, loading: false });
+      const res = await http.get<StrategyMetrics>("/api/strategy/metrics");
+      set({ metrics: res.data, loading: false });
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : "Failed to load strategy metrics",

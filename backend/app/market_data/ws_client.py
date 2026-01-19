@@ -79,7 +79,7 @@ except Exception:
         "DEPTH_LIMIT": "spot@public.limit.depth.v3.api.pb",
     }
     WS_RATE_SUFFIX = "@100ms"
-    WS_SUBSCRIBE_RATE_LIMIT_PER_SEC = 8
+    WS_SUBSCRIBE_RATE_LIMIT_PER_SEC = 2
 
 # ── service callbacks ───────────────────────────────────────────────────────
 try:
@@ -590,28 +590,36 @@ class MEXCWebSocketClient:
                 logger.warning("No suitable deals class found in PublicAggreDealsV3Api_pb2")
 
     def _topic_for(self, ch: str, sym: str, levels: int) -> str:
-        """Build topic string with CORRECT MEXC format: topic@RATE@SYMBOL"""
+        """Build topic string with CORRECT MEXC format.
+        
+        FIXED (Jan 18, 2026): ALL aggre topics require rate suffix!
+        
+        Official MEXC formats:
+        - BookTicker: spot@public.aggre.bookTicker.v3.api.pb@(100ms|10ms)@<symbol>
+        - Deals:      spot@public.aggre.deals.v3.api.pb@(100ms|10ms)@<symbol>
+        - Depth:      spot@public.aggre.depth.v3.api.pb@(100ms|10ms)@<symbol>
+        - Limit Depth: spot@public.limit.depth.v3.api.pb@<symbol>@<levels>
+        """
         topic = ch
         
-        # Downgrade aggre if needed
+        # Downgrade aggre if needed (after multiple blocked)
         if self._blocked_seen >= 2:
             topic = topic.replace(".aggre.bookTicker.", ".bookTicker.")
         
         ch_l = topic.lower()
         
-        # Rate suffix: @500ms or @100ms or empty
-        if self._blocked_seen >= 1:
-            rate = "@100ms"  # Slower rate after blocking
-        else:
-            rate = "@500ms"  # Default rate
-        
-        # Build topic based on channel type
+        # Limit depth - NO rate suffix, but WITH levels
+        # Format: spot@public.limit.depth.v3.api.pb@<symbol>@<levels>
         if ".limit.depth." in ch_l:
-            # Depth limit format: topic@SYMBOL@LEVELS
             return f"{topic}@{sym}@{levels}"
-        else:
-            # Standard format: topic@RATE@SYMBOL
-            return f"{topic}{rate}@{sym}"
+        
+        # ALL aggre topics need rate suffix @100ms!
+        # Format: spot@public.aggre.<type>.v3.api.pb@100ms@<symbol>
+        if ".aggre." in ch_l:
+            return f"{topic}@100ms@{sym}"
+        
+        # Non-aggre topics (fallback) - just symbol
+        return f"{topic}@{sym}"
 
     async def _subscribe_all(self) -> None:
         """Subscribe to all topics with rate limiting."""
@@ -750,9 +758,9 @@ class MEXCWebSocketClient:
                     if msg.startswith("spot@"):
                         self._subscribed_topics.add(msg)
                         logger.debug(f"✅ Subscribed: {msg}")
-                    # Reset block counter on healthy ack
-                    if self._blocked_seen > 0:
-                        self._blocked_seen = 0
+                    # NOTE: Don't reset _blocked_seen immediately!
+                    # Let it decay naturally to avoid rapid re-triggering
+                    # The counter will reset on next clean connect
                     logger.debug(f"✅ ACK code=0 msg={msg[:100]}")
             else:
                 logger.error(f"❗ ACK error code={code} msg={msg}")
@@ -774,12 +782,19 @@ class MEXCWebSocketClient:
         - First downgrade: drop rate suffix
         - Second downgrade: also drop 'aggre' variant
         Then re-subscribe with new policy.
+        
+        FIXED Jan 18, 2026: Increased backoff to prevent rapid retry loops.
         """
         self._downgraded_once = True
         
+        # FIXED: Linear backoff starting at 10 seconds (MEXC needs time to cool down)
+        # Pattern: 10, 20, 30, 45, 60 seconds
+        backoff_sec = min(60, 10 + (self._blocked_seen * 10))
+        
         logger.warning(
             f"🔽 Downgrading subscription policy: "
-            f"drop_rate_suffix={self._blocked_seen>=1}, drop_aggre={self._blocked_seen>=2}"
+            f"blocked_count={self._blocked_seen}, "
+            f"backoff={backoff_sec}s"
         )
         
         try:
@@ -788,7 +803,11 @@ class MEXCWebSocketClient:
             logger.warning(f"Error during unsubscribe: {e}")
         
         self._subscribed_topics.clear()
-        await asyncio.sleep(0.5)  # Brief pause before re-subscribing
+        
+        # FIXED: Exponential backoff instead of fixed 0.5s
+        logger.info(f"⏳ Waiting {backoff_sec}s before resubscribe...")
+        await asyncio.sleep(backoff_sec)
+        
         await self._subscribe_all()
 
     async def _unsubscribe_all_silent(self) -> None:

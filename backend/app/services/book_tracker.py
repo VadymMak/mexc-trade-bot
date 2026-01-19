@@ -944,7 +944,7 @@ async def _stop_ws() -> None:
     if _WS_TASK and not _WS_TASK.done():
         _WS_TASK.cancel()
         with suppress(Exception):
-            await _WS_TASK
+            await asyncio.wait_for(_WS_TASK, timeout=3.0)  # 3 sec timeout
     _WS_TASK = None
     _WS_CLIENT = None
     _WS_RUNNING = set()

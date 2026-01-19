@@ -1,6 +1,7 @@
 // src/bridges/BootBridge.tsx
 import { useEffect, useRef } from "react";
 import { useOrders } from "@/store/orders";
+import http from "@/lib/http";
 import type { OrderItem, FillItem, Position } from "@/types";
 
 type BootPayload = {
@@ -10,8 +11,8 @@ type BootPayload = {
   fills?: FillItem[];
 };
 
-// Primary and fallback endpoints (keep if your backend differs)
-const BOOT_URL = "/api/ui/snapshot?include=positions,orders,fills";;
+// Primary and fallback endpoints
+const BOOT_URL = "/api/ui/snapshot?include=positions,orders,fills";
 const FALLBACK_URL = "/api/ui/snapshot?include=orders,fills";
 
 function isOrderArray(a: unknown): a is OrderItem[] {
@@ -32,18 +33,21 @@ export default function BootBridge() {
 
     (async () => {
       try {
-        // 1) Try the canonical boot payload
-        let res = await fetch(BOOT_URL, { signal: ac.signal });
-        if (!res.ok) {
+        let data: BootPayload = {};
+        
+        try {
+          // 1) Try the canonical boot payload
+          const res = await http.get<BootPayload>(BOOT_URL, { signal: ac.signal });
+          data = res.data && typeof res.data === "object" ? res.data : {};
+        } catch (err: unknown) {
           // 2) Graceful fallback to snapshot (orders + fills only)
-          if (res.status === 404 || res.status === 405) {
-            res = await fetch(FALLBACK_URL, { signal: ac.signal });
+          if ((err as { response?: { status: number } }).response?.status === 404 || (err as { response?: { status: number } }).response?.status === 405) {
+            const fallbackRes = await http.get<BootPayload>(FALLBACK_URL, { signal: ac.signal });
+            data = fallbackRes.data && typeof fallbackRes.data === "object" ? fallbackRes.data : {};
+          } else {
+            throw err;
           }
-          if (!res.ok) throw new Error(`Boot fetch failed: ${res.status}`);
         }
-
-        const raw: unknown = await res.json();
-        const data: BootPayload = (raw && typeof raw === "object") ? (raw as BootPayload) : {};
 
         const ordersArr = isOrderArray(data.orders) ? data.orders : [];
         const fillsArr  = isFillArray(data.fills)   ? data.fills  : [];

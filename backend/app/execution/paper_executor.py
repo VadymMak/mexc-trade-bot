@@ -186,6 +186,13 @@ class RealisticSimulation:
         
         # Order rejection settings
         self.rejection_prob = float(os.getenv("SIM_REJECTION_PROB", "0.05"))  # 5%
+
+        # Maker fill probability (not all limit orders get filled!)
+        self.maker_fill_prob = float(os.getenv("SIM_MAKER_FILL_PROB", "0.55"))  # 55% fill rate
+
+        # Maker wait time (queue simulation) - how long to wait for fill
+        self.maker_wait_min_ms = int(os.getenv("SIM_MAKER_WAIT_MIN_MS", "500"))   # 500ms min
+        self.maker_wait_max_ms = int(os.getenv("SIM_MAKER_WAIT_MAX_MS", "3000"))  # 3000ms max
         
         # Enable/disable simulation
         self.enabled = str(os.getenv("REALISTIC_SIMULATION", "1")).lower() in {"1", "true", "yes", "on"}
@@ -207,7 +214,8 @@ class RealisticSimulation:
         side: str,
         price: Decimal,
         qty: Decimal,
-        order_type: str = "MARKET"
+        order_type: str = "MARKET",
+        spread_bps: float = 10.0
     ) -> tuple[Optional[Decimal], Optional[Decimal], SimulationMetrics]:
         """
         Симулирует исполнение ордера с реалистичными условиями.
@@ -225,11 +233,10 @@ class RealisticSimulation:
         metrics.latency_ms = latency_ms
         await asyncio.sleep(latency_ms / 1000.0)
         
-        # 2. Order rejection
-        if random.random() < self.rejection_prob:
+        # 2. Order rejection (ONLY for LIMIT orders, exits must always work!)
+        if order_type == "LIMIT" and random.random() < self.rejection_prob:
             metrics.rejected = True
             _dbg(f"[SIM] Order rejected: {symbol} {side} {qty}")
-
             # ========== LOG REJECTION METRIC ==========
             if self._metrics:
                 try:
@@ -242,22 +249,46 @@ class RealisticSimulation:
                 except Exception:
                     pass
             # ========== END LOG REJECTION ==========
-
             return None, None, metrics
         
-        # 3. Slippage
-        slippage_bps = random.uniform(self.slippage_min_bps, self.slippage_max_bps)
-        metrics.slippage_bps = slippage_bps
-        slippage_factor = Decimal(str(slippage_bps / 10000))
-        
-        if side == "BUY":
-            # Покупаем дороже (неблагоприятное исполнение)
-            fill_price = price * (Decimal("1") + slippage_factor)
-        else:  # SELL
-            # Продаём дешевле (неблагоприятное исполнение)
-            fill_price = price * (Decimal("1") - slippage_factor)
-        
-        fill_price = await _round_price_async(symbol, fill_price)
+        # 3. Slippage (ONLY for MARKET orders, NOT for LIMIT/MAKER!)
+        if order_type == "MARKET":
+            slippage_bps = random.uniform(self.slippage_min_bps, self.slippage_max_bps)
+            metrics.slippage_bps = slippage_bps
+            slippage_factor = Decimal(str(slippage_bps / 10000))
+            if side == "BUY":
+                fill_price = price * (Decimal("1") + slippage_factor)
+            else:
+                fill_price = price * (Decimal("1") - slippage_factor)
+            fill_price = await _round_price_async(symbol, fill_price)
+        else:
+            # LIMIT/MAKER order = NO slippage, you get YOUR price
+            metrics.slippage_bps = 0.0
+            
+            # Dynamic fill probability based on spread
+            # Narrow spread (3-5 bps) = more competition = lower fill rate ~40%
+            # Normal spread (6-12 bps) = balanced = fill rate ~55-65%
+            # Wide spread (13-20 bps) = less competition = higher fill rate ~70%
+            # Very wide (>20 bps) = MM leaving = lower fill rate ~35%
+            if spread_bps <= 5:
+                dynamic_fill_prob = 0.40
+            elif spread_bps <= 12:
+                dynamic_fill_prob = 0.55 + (spread_bps - 6) * 0.02  # 55% to 67%
+            elif spread_bps <= 20:
+                dynamic_fill_prob = 0.70
+            else:
+                dynamic_fill_prob = 0.35  # MM leaving, dangerous
+            
+            if random.random() > dynamic_fill_prob:
+                _dbg(f"[SIM] LIMIT not filled: {symbol} {side} spread={spread_bps:.1f}bps prob={dynamic_fill_prob:.0%}")
+                return None, None, metrics
+            
+            # Simulate queue wait time for maker orders
+            wait_ms = random.randint(self.maker_wait_min_ms, self.maker_wait_max_ms)
+            await asyncio.sleep(wait_ms / 1000.0)
+            metrics.latency_ms += wait_ms  # Add to total latency
+            
+            fill_price = price
         
         # 4. Partial fills
         if random.random() < self.partial_fill_prob:
@@ -272,8 +303,8 @@ class RealisticSimulation:
         fee_rate = Decimal(str(self.maker_fee_pct))
         metrics.taker_fee = float(fee_rate)
         
-        _dbg(f"[SIM] {symbol} {side}: slippage={slippage_bps:.2f}bps, "
-             f"latency={latency_ms}ms, fill={fill_qty}/{qty}")
+        _dbg(f"[SIM] {symbol} {side}: slippage={metrics.slippage_bps:.2f}bps, "
+             f"latency={metrics.latency_ms}ms, fill={fill_qty}/{qty}")
         
         # ========== LOG METRICS ==========
         if self._metrics:
@@ -486,13 +517,17 @@ class PaperExecutor:
             return None
 
         # ========== REALISTIC SIMULATION ==========
+        # Calculate spread for dynamic fill probability
+        spread_bps = ((ask - bid) / mid * 10000) if mid > 0 else 10.0
+        
         # Симулируем реальное исполнение (slippage, latency, partial fills, rejection)
-        sim_price, sim_qty, sim_metrics = await self._simulation.simulate_order_execution(
+        sim_price, sim_qty, sim_metrics = await self._simulation.simulate_order_execution(        
             symbol=sym,
             side=s_up,
             price=fill_price,
             qty=qty_dec,
-            order_type="MARKET"
+            order_type="LIMIT",
+            spread_bps=float(spread_bps)
         )
 
         # Order rejected
@@ -557,7 +592,14 @@ class PaperExecutor:
             strategy_tag=tag,
             prev_avg_for_pnl=prev_avg_for_pnl,
         )
-        return coid
+        
+        # Return dict with fill info (like place_market)
+        return {
+            "order_id": coid,
+            "fill_price": float(fill_price),
+            "fill_qty": float(qty_dec),
+            "slippage_bps": sim_metrics.slippage_bps,
+        }
 
     async def get_position(self, symbol: str) -> Dict[str, Any]:
         sym = symbol.upper()
@@ -1215,7 +1257,12 @@ class PaperExecutor:
             finally:
                 session.close()
         
-        return client_order_id
+        return {
+            "order_id": client_order_id,
+            "fill_price": float(fill_price),
+            "fill_qty": float(fill_qty),
+            "slippage_bps": sim_metrics.slippage_bps,
+        }
 
     async def _apply_memory_fill(
         self, symbol: str, side: str, price: Decimal, qty: Decimal, ts_ms: int

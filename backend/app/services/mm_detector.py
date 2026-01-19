@@ -417,6 +417,29 @@ class MMDetector:
         pattern = self.get_pattern(symbol)
         return pattern.safe_order_size_usd if pattern else None
     
+    def is_mm_gone(self, symbol: str, spread_bps: float) -> tuple[bool, str]:
+        """Check if MM has left (emergency signal)"""
+        
+        # 🔴 CRITICAL: Spread explosion = MM gone
+        # ✅ FIX (Jan 19, 2026): Lower threshold for earlier detection (was 50, now 30)
+        if spread_bps > 30:
+            return True, f"spread:{spread_bps:.1f}bps"
+        
+        # ✅ No pattern = NOT enough data, NOT mm_gone
+        pattern = self.get_pattern(symbol)
+        if not pattern:
+            return False, "no_data"  # ← CHANGED from True to False
+        
+        # ✅ Low confidence = uncertain, NOT mm_gone  
+        if pattern.mm_confidence < 0.3:  # Was 0.5, lowered to 0.3
+            return False, "low_conf"  # ← CHANGED from True to False
+        
+        # Only trigger on extreme spread expansion
+        if pattern.mm_spread_bps > 0 and spread_bps > pattern.mm_spread_bps * 5:  # Was 3x, now 5x
+            return True, f"5x_spread"
+
+        return False, "ok"
+    
     def get_summary(self, symbol: str) -> dict:
         """Get human-readable summary"""
         pattern = self.get_pattern(symbol)
