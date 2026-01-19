@@ -3,7 +3,7 @@ fastapi
 uvicorn[standard]
 pydantic
 websockets>=12.0
-httpx>=0.27
+httpx>=0.25.2,<1.0.0
 protobuf>=5.27.0   # для декодирования MEXC Spot v3 Protobuf сообщений
 prometheus-client>=0.20.0
 SQLAlchemy>=2.0
