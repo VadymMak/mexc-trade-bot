@@ -506,17 +506,31 @@ class StrategyEngine:
                     try:
                         hub = get_market_data_hub()
                         snap = hub.get_snapshot(sym)
-                        if snap and snap.is_valid and snap.data_age_ms < 2000:
-                            bid = snap.best_bid
-                            ask = snap.best_ask
-                            mid = snap.mid_price
-                            spread_bps = snap.spread_bps
-                            imb = snap.imbalance
-                            abs_bid_usd = snap.depth5_bid_usd
-                            abs_ask_usd = snap.depth5_ask_usd
-                            data_source = f"hub({snap.data_age_ms}ms)"
-                    except Exception:
-                        pass
+                        if snap:
+                            # Debug: log why hub data wasn't used
+                            if not snap.is_valid:
+                                if not hasattr(st, '_hub_debug_ts') or (time.time() - st._hub_debug_ts) > 10:
+                                    st._hub_debug_ts = time.time()
+                                    print(f"[STRAT:{sym}] 🔍 Hub: invalid (bid={snap.best_bid}, ask={snap.best_ask}, age={snap.data_age_ms}ms)")
+                            elif snap.data_age_ms >= 2000:
+                                if not hasattr(st, '_hub_debug_ts') or (time.time() - st._hub_debug_ts) > 10:
+                                    st._hub_debug_ts = time.time()
+                                    print(f"[STRAT:{sym}] 🔍 Hub: stale (age={snap.data_age_ms}ms >= 2000ms)")
+                            else:
+                                bid = snap.best_bid
+                                ask = snap.best_ask
+                                mid = snap.mid_price
+                                spread_bps = snap.spread_bps
+                                imb = snap.imbalance
+                                abs_bid_usd = snap.depth5_bid_usd
+                                abs_ask_usd = snap.depth5_ask_usd
+                                data_source = f"hub({snap.data_age_ms}ms)"
+                        else:
+                            if not hasattr(st, '_hub_debug_ts') or (time.time() - st._hub_debug_ts) > 10:
+                                st._hub_debug_ts = time.time()
+                                print(f"[STRAT:{sym}] 🔍 Hub: no snapshot for symbol")
+                    except Exception as e:
+                        print(f"[STRAT:{sym}] 🔍 Hub error: {e}")
                 
                 # ═══ PRIORITY 2: Scanner HTTP (fallback, ~100ms) ═══
                 if bid <= 0 or ask <= 0:
