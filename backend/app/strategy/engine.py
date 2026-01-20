@@ -56,6 +56,14 @@ from app.config.settings import settings
 from app.services.book_tracker import ensure_symbols_subscribed
 from app.strategy.risk import get_risk_manager, calculate_dynamic_sl
 
+# ── MarketDataHub for real-time data ──────────────────────────────────────────
+try:
+    from app.market_data.market_data_hub import get_market_data_hub
+    MARKET_DATA_HUB_AVAILABLE = True
+except Exception:
+    MARKET_DATA_HUB_AVAILABLE = False
+    get_market_data_hub = None  # type: ignore
+
 # Metrics are optional; guard imports so the engine never crashes without them
 try:
     from app.infra.metrics import (
@@ -483,54 +491,85 @@ class StrategyEngine:
                 # always read latest params so PUT /params hot-applies
                 p = self._params
                 
-                # 🔥 Get fresh market data from scanner (HTTP is fastest & most reliable)
-                try:
-                    import httpx
-                    async with httpx.AsyncClient(timeout=2.0) as client:
-                        r = await client.get(
-                            "http://localhost:8000/api/scanner/mexc/top",
-                            params={"symbols": sym, "limit": 1}
-                        )
-                        
-                        if r.status_code == 200:
-                            data = r.json()
-                            if data and len(data) > 0 and data[0].get("bid", 0) > 0:
-                                row = data[0]
-                                bid = float(row["bid"])
-                                ask = float(row["ask"])
-                                mid = (bid + ask) / 2
-                                spread_bps = float(row["spread_bps"])
-                                imb = float(row["imbalance"])
-                                abs_bid_usd = float(row.get("depth5_bid_usd", 0))
-                                abs_ask_usd = float(row.get("depth5_ask_usd", 0))
-                                # ═══ Feed to MM Detector ═══
-                                try:
-                                    mm_detector = get_mm_detector()
-                                    await mm_detector.on_book_update(
-                                        symbol=sym,
-                                        best_bid=bid,
-                                        best_ask=ask,
-                                        bid_size=abs_bid_usd / bid if bid > 0 else 0.0,
-                                        ask_size=abs_ask_usd / ask if ask > 0 else 0.0
-                                    )
-                                except Exception:
-                                    pass  # Silent fail - MM detection is optional
-                                # ═══════════════════════════
-                            else:
-                                raise Exception("Empty scanner response")
-                        else:
-                            raise Exception(f"Scanner returned {r.status_code}")
+                # 🔥 Get fresh market data - Priority: Hub > Scanner > Cache
+                bid = 0.0
+                ask = 0.0
+                mid = 0.0
+                spread_bps = 0.0
+                imb = 0.5
+                abs_bid_usd = 0.0
+                abs_ask_usd = 0.0
+                data_source = "none"
                 
-                except Exception as e:
-                    # Fallback to cache
-                    q = await bt_service.get_quote(sym)
-                    bid = float(q.get("bid", 0))
-                    ask = float(q.get("ask", 0))
-                    mid = float(q.get("mid", 0))
-                    spread_bps = float(q.get("spread_bps", 0))
-                    imb = 0.5
-                    abs_bid_usd = 0.0
-                    abs_ask_usd = 0.0
+                # ═══ PRIORITY 1: MarketDataHub (real-time, <10ms) ═══
+                if MARKET_DATA_HUB_AVAILABLE and get_market_data_hub:
+                    try:
+                        hub = get_market_data_hub()
+                        snap = hub.get_snapshot(sym)
+                        if snap and snap.is_valid and snap.data_age_ms < 2000:
+                            bid = snap.best_bid
+                            ask = snap.best_ask
+                            mid = snap.mid_price
+                            spread_bps = snap.spread_bps
+                            imb = snap.imbalance
+                            abs_bid_usd = snap.depth5_bid_usd
+                            abs_ask_usd = snap.depth5_ask_usd
+                            data_source = f"hub({snap.data_age_ms}ms)"
+                    except Exception:
+                        pass
+                
+                # ═══ PRIORITY 2: Scanner HTTP (fallback, ~100ms) ═══
+                if bid <= 0 or ask <= 0:
+                    try:
+                        import httpx
+                        async with httpx.AsyncClient(timeout=2.0) as client:
+                            r = await client.get(
+                                "http://localhost:8000/api/scanner/mexc/top",
+                                params={"symbols": sym, "limit": 1}
+                            )
+                            if r.status_code == 200:
+                                data = r.json()
+                                if data and len(data) > 0 and data[0].get("bid", 0) > 0:
+                                    row = data[0]
+                                    bid = float(row["bid"])
+                                    ask = float(row["ask"])
+                                    mid = (bid + ask) / 2
+                                    spread_bps = float(row["spread_bps"])
+                                    imb = float(row["imbalance"])
+                                    abs_bid_usd = float(row.get("depth5_bid_usd", 0))
+                                    abs_ask_usd = float(row.get("depth5_ask_usd", 0))
+                                    data_source = "scanner"
+                    except Exception:
+                        pass
+                
+                # ═══ PRIORITY 3: book_tracker cache (last resort) ═══
+                if bid <= 0 or ask <= 0:
+                    try:
+                        q = await bt_service.get_quote(sym)
+                        bid = float(q.get("bid", 0))
+                        ask = float(q.get("ask", 0))
+                        mid = float(q.get("mid", 0))
+                        spread_bps = float(q.get("spread_bps", 0))
+                        imb = 0.5
+                        abs_bid_usd = 0.0
+                        abs_ask_usd = 0.0
+                        data_source = "cache"
+                    except Exception:
+                        pass
+                
+                # ═══ Feed to MM Detector ═══
+                if bid > 0 and ask > 0:
+                    try:
+                        mm_detector = get_mm_detector()
+                        await mm_detector.on_book_update(
+                            symbol=sym,
+                            best_bid=bid,
+                            best_ask=ask,
+                            bid_size=abs_bid_usd / bid if bid > 0 else 0.0,
+                            ask_size=abs_ask_usd / ask if ask > 0 else 0.0
+                        )
+                    except Exception:
+                        pass
                 
                 
                 if bid <= 0.0 or ask <= 0.0 or mid <= 0.0:

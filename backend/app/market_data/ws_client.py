@@ -29,6 +29,14 @@ from app.market_data.helpers.proto_utils import (
 )
 from app.market_data.helpers.quote_logging import QuoteLogger
 
+# ── MarketDataHub integration ─────────────────────────────────────────────────
+try:
+    from app.market_data.market_data_hub import get_market_data_hub
+    MARKET_DATA_HUB_AVAILABLE = True
+except Exception:
+    MARKET_DATA_HUB_AVAILABLE = False
+    get_market_data_hub = None  # type: ignore
+
 # ✅ Gate client export (kept for compatibility)
 from app.market_data.gate_ws import GateWebSocketClient
 
@@ -1049,6 +1057,11 @@ class MEXCWebSocketClient:
                             self._on_tick_metrics(send_time, symbol=symbol)
                             if not self._want_stop and self._can_call_callback():
                                 asyncio.create_task(_bt_cb(symbol, b, float(bq), a, float(aq), ts_ms=send_time))
+                                # ═══ Feed MarketDataHub ═══
+                                if MARKET_DATA_HUB_AVAILABLE and get_market_data_hub:
+                                    asyncio.create_task(
+                                        get_market_data_hub().on_book_ticker(symbol, b, float(bq), a, float(aq), ts_ms=send_time)
+                                    )
                         return
             except Exception as e:
                 logger.debug(f"Error parsing with primary class: {e}")
@@ -1068,6 +1081,11 @@ class MEXCWebSocketClient:
                         self._on_tick_metrics(send_time, symbol=symbol)
                         if not self._want_stop and self._can_call_callback():
                             asyncio.create_task(_bt_cb(symbol, b, float(bq), a, float(aq), ts_ms=send_time))
+                            # ═══ Feed MarketDataHub ═══
+                            if MARKET_DATA_HUB_AVAILABLE and get_market_data_hub:
+                                asyncio.create_task(
+                                    get_market_data_hub().on_book_ticker(symbol, b, float(bq), a, float(aq), ts_ms=send_time)
+                                )
                     return
 
         if self._verbose_frames:
@@ -1170,12 +1188,20 @@ class MEXCWebSocketClient:
     async def _update_live_tape(
         self, symbol: str, usdpm: float, tpm: float, trades: List[Tuple[float, float, int]]
     ) -> None:
-        """Update tape metrics in book tracker."""
+        """Update tape metrics in book tracker and MarketDataHub."""
         try:
             await update_tape_metrics(symbol, usdpm, tpm, trades)
         except Exception as e:
             if self._verbose_frames:
                 logger.warning(f"Update tape metrics failed for {symbol}: {e}")
+        
+        # ═══ Feed MarketDataHub ═══
+        if MARKET_DATA_HUB_AVAILABLE and get_market_data_hub:
+            try:
+                await get_market_data_hub().on_tape(symbol, usdpm, tpm, trades)
+            except Exception as e:
+                if self._verbose_frames:
+                    logger.warning(f"Update tape in hub failed for {symbol}: {e}")
 
     def _on_depth(self, symbol: str, data_bytes: bytes, send_time: int) -> None:
         """Parse and process depth (orderbook snapshot) message."""
@@ -1234,6 +1260,11 @@ class MEXCWebSocketClient:
                 
                 if self._can_call_callback():
                     asyncio.create_task(_depth_cb(symbol, bids, asks, ts_ms=send_time))
+                    # ═══ Feed MarketDataHub ═══
+                    if MARKET_DATA_HUB_AVAILABLE and get_market_data_hub:
+                        asyncio.create_task(
+                            get_market_data_hub().on_depth(symbol, bids, asks, ts_ms=send_time)
+                        )
                 
         except Exception as e:
             if self._verbose_frames:

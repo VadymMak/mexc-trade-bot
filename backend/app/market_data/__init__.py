@@ -16,6 +16,19 @@ try:
 except Exception:
     MexcHttp = None  # type: ignore[misc,assignment]
 
+# ── MarketDataHub (real-time data for trading engine) ─────────────────────────
+try:
+    from app.market_data.market_data_hub import (
+        MarketDataHub,
+        get_market_data_hub,
+        reset_market_data_hub,
+    )
+except Exception:
+    MarketDataHub = None  # type: ignore[misc,assignment]
+    get_market_data_hub = None  # type: ignore[misc,assignment]
+    reset_market_data_hub = None  # type: ignore[misc,assignment]
+
+
 # Заглушки под Binance (этап 1)
 from .binance_ws_stub import BinanceWSClient
 from .binance_http_stub import BinanceHTTPClient
