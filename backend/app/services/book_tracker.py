@@ -968,6 +968,7 @@ async def ensure_symbols_subscribed(symbols: Sequence[str]) -> None:
         return
     if _is_mexc() and _WSClient and _WS_PROTO_OK:
         _WS_WANTED.update(norm)
+        print(f"[WS_DEBUG] norm={norm}, _WS_WANTED={_WS_WANTED}, _WS_RUNNING={_WS_RUNNING}")
         if (_WS_TASK is None or _WS_TASK.done()) or (
             not _WS_WANTED.issubset(_WS_RUNNING) or not _WS_RUNNING.issubset(_WS_WANTED)
         ):
