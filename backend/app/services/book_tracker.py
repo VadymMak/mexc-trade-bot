@@ -694,6 +694,7 @@ _WS_TASK: Optional[asyncio.Task[None]] = None
 _WS_CLIENT: Optional[Any] = None
 _WS_WANTED: Set[str] = set()
 _WS_RUNNING: Set[str] = set()
+_WS_LOCK: asyncio.Lock = asyncio.Lock()  # Protect against race condition
 
 _DEPTH_TASK: Optional[asyncio.Task[None]] = None
 _DEPTH_SUBSCRIBED: Set[str] = set()
@@ -961,12 +962,30 @@ async def _start_ws(symbols: Set[str]) -> None:
     _WS_TASK = asyncio.create_task(_WS_CLIENT.run())  # type: ignore[arg-type]
     _WS_RUNNING = set(symbols)
 
-
 async def ensure_symbols_subscribed(symbols: Sequence[str]) -> None:
     norm: Set[str] = set((s or "").upper() for s in symbols if (s or "").strip())
     if not norm:
         return
-    if _is_mexc() and _WSClient and _WS_PROTO_OK:
+    
+    async with _WS_LOCK:  # Protect against race condition
+        if _is_mexc() and _WSClient and _WS_PROTO_OK:
+            _WS_WANTED.update(norm)
+            print(f"[WS_LOCK] symbols={sorted(norm)}, wanted={sorted(_WS_WANTED)}, running={sorted(_WS_RUNNING)}")
+            if (_WS_TASK is None or _WS_TASK.done()) or (
+                not _WS_WANTED.issubset(_WS_RUNNING) or not _WS_RUNNING.issubset(_WS_WANTED)
+            ):
+                print(f"[WS_LOCK] 🔄 Restarting WS with {len(_WS_WANTED)} symbols")
+                await _start_ws(_WS_WANTED)
+                await asyncio.sleep(1.0)
+            await _rest_seed_symbols(list(norm))
+            await _stop_rest_poller()
+            _DEPTH_SUBSCRIBED.update(norm)
+            await _start_depth_refresher()
+            return
+        _SUBSCRIBED.update(norm)
+        await _start_rest_poller()
+        await _rest_seed_symbols(list(norm))
+        await _stop_depth_refresher()
         _WS_WANTED.update(norm)
         print(f"[WS_DEBUG] norm={norm}, _WS_WANTED={_WS_WANTED}, _WS_RUNNING={_WS_RUNNING}")
         if (_WS_TASK is None or _WS_TASK.done()) or (
