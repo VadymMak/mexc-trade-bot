@@ -255,18 +255,17 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning(f"ensure_symbols_subscribed failed: {e}")
 
-        #MEXC WS
-        if prov == "mexc" and enable_ws and _symbols_ok(symbols):
+        #MEXC WS - reuse client from book_tracker (don't create duplicate!)
+        if prov == "mexc" and enable_ws:
             try:
-                from app.market_data.ws_client import MEXCWebSocketClient
-                app.state.ws_client = MEXCWebSocketClient([s for s in symbols if str(s).strip()])
-                app.state.ws_task = asyncio.create_task(app.state.ws_client.run())
-                logger.info("✅ WS market client started (MEXC).")
-                ws_enabled_flag = True
+                from app.services.book_tracker import _WS_CLIENT, _WS_TASK
+                app.state.ws_client = _WS_CLIENT
+                app.state.ws_task = _WS_TASK
+                if _WS_CLIENT:
+                    logger.info("✅ WS market client started (MEXC) - using book_tracker client.")
+                    ws_enabled_flag = True
             except Exception as e:
-                logger.error(f"❌ Failed to start MEXC WS client: {e}")
-                app.state.ws_client = None
-                app.state.ws_task = None
+                logger.warning(f"Could not get book_tracker WS client: {e}")
 
         #GATE WS
         if prov == "gate" and enable_ws and _symbols_ok(symbols) and app.state.ws_client is None:
