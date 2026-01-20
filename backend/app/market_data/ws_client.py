@@ -658,6 +658,7 @@ class MEXCWebSocketClient:
             )
 
         logger.info(f"📡 Subscribing to {len(topics)} topics (rate: {self._subs_per_sec}/sec)...")
+        print(f"[TOPICS_DEBUG] symbols={self.symbols}, topics={topics}")
         _metric_set(ws_active_subscriptions, float(len(topics)))
 
         # Rate-limited subscription sends
