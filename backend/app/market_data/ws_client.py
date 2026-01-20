@@ -885,7 +885,7 @@ class MEXCWebSocketClient:
             # Process each frame
             for ch, sym, ts, data_bytes in frames:
                 ch_str = str(ch)
-                
+                print(f"[FRAME_DEBUG] ch={ch_str} sym={sym}")
                 if self._verbose_frames:
                     logger.debug(
                         f"🧵 Frame extracted: ch={ch_str} sym={sym or ''} "
