@@ -957,7 +957,7 @@ async def _start_ws(symbols: Set[str]) -> None:
     if not _WSClient or not _WS_PROTO_OK:
         return
     await _stop_ws()
-    _WS_CLIENT = _WSClient(sorted(symbols), channels=["BOOK_TICKER", "DEPTH_LIMIT"])  # type: ignore[call-arg]
+    _WS_CLIENT = _WSClient(sorted(symbols), channels=["BOOK_TICKER", "DEALS", "DEPTH_LIMIT"])  # type: ignore[call-arg]
     _WS_TASK = asyncio.create_task(_WS_CLIENT.run())  # type: ignore[arg-type]
     _WS_RUNNING = set(symbols)
 
