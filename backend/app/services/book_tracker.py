@@ -972,6 +972,7 @@ async def ensure_symbols_subscribed(symbols: Sequence[str]) -> None:
             not _WS_WANTED.issubset(_WS_RUNNING) or not _WS_RUNNING.issubset(_WS_WANTED)
         ):
             await _start_ws(_WS_WANTED)
+            await asyncio.sleep(1.0)
         await _rest_seed_symbols(list(norm))
         await _stop_rest_poller()
         _DEPTH_SUBSCRIBED.update(norm)
