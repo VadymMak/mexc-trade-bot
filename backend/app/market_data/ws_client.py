@@ -29,7 +29,7 @@ from app.market_data.helpers.proto_utils import (
 )
 from app.market_data.helpers.quote_logging import QuoteLogger
 
-# ── MarketDataHub integration ─────────────────────────────────────────────────
+# â”€â”€ MarketDataHub integration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 try:
     from app.market_data.market_data_hub import get_market_data_hub
     MARKET_DATA_HUB_AVAILABLE = True
@@ -37,12 +37,12 @@ except Exception:
     MARKET_DATA_HUB_AVAILABLE = False
     get_market_data_hub = None  # type: ignore
 
-# ✅ Gate client export (kept for compatibility)
+# âœ… Gate client export (kept for compatibility)
 from app.market_data.gate_ws import GateWebSocketClient
 
 logger = logging.getLogger(__name__)
 
-# ── metrics & health (minimal integration) ──────────────────────────────────
+# â”€â”€ metrics & health (minimal integration) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 try:
     from app.infra.metrics import (
         ticks_total,
@@ -65,7 +65,7 @@ except Exception:
     ws_health = None
     HEALTH_AVAILABLE = False
 
-# ── constants (env-driven via settings/constants) ───────────────────────────
+# â”€â”€ constants (env-driven via settings/constants) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 try:
     from app.config.constants import (
         WS_MAX_TOPICS,
@@ -89,7 +89,7 @@ except Exception:
     WS_RATE_SUFFIX = "@100ms"
     WS_SUBSCRIBE_RATE_LIMIT_PER_SEC = 2
 
-# ── service callbacks ───────────────────────────────────────────────────────
+# â”€â”€ service callbacks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 try:
     from app.services.book_tracker import (
         on_book_ticker as _bt_cb,
@@ -104,7 +104,7 @@ except Exception:
     from app.services.book_tracker import book_tracker as _book_tracker
 
     async def _bt_cb(symbol: str, bid: float, bid_qty: float, ask: float, ask_qty: float, ts_ms: Optional[int]):
-        logger.debug(f"📊 Book ticker stub for {symbol}: bid={bid:.4f}, ask={ask:.4f}, ts_ms={ts_ms}")
+        logger.debug(f"ðŸ“Š Book ticker stub for {symbol}: bid={bid:.4f}, ask={ask:.4f}, ts_ms={ts_ms}")
 
     async def _depth_cb(symbol: str, bids: list[tuple[float, float]], asks: list[tuple[float, float]], ts_ms: Optional[int]):
         return
@@ -172,7 +172,7 @@ except Exception:
             _book_tracker.vol_pattern[symbol] = int(vp)
             logger.debug(f"Computed vol_pattern={vp} for {symbol} (ratio={ratio:.3f})")
 
-# ── protobuf modules ────────────────────────────────────────────────────────
+# â”€â”€ protobuf modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 PROTO_AVAILABLE = False
 EnvelopeModule = None
 BookTickerModule = None
@@ -188,9 +188,9 @@ try:
         PublicAggreDealsV3Api_pb2 as DealsModule,
     )
     PROTO_AVAILABLE = True
-    logger.info("✅ Protobuf modules loaded successfully")
+    logger.info("âœ… Protobuf modules loaded successfully")
 except Exception as e:
-    logger.error(f"⚠️ Protobuf decoders not available: {e}")
+    logger.error(f"âš ï¸ Protobuf decoders not available: {e}")
     PROTO_AVAILABLE = False
     EnvelopeModule = None
 
@@ -199,7 +199,7 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-# ── small metric helpers ────────────────────────────────────────────────────
+# â”€â”€ small metric helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _metric_inc(counter, **labels) -> None:
     if not METRICS_AVAILABLE or counter is None:
         return
@@ -286,7 +286,7 @@ def _resolve_channels(channels: Optional[List[str]]) -> List[str]:
             orig = ch
             mapped = old_to_new[orig]
             ch = mapped
-            logger.info(f"🔄 Fallback: mapped old '{orig}' to new '{mapped}'")
+            logger.info(f"ðŸ”„ Fallback: mapped old '{orig}' to new '{mapped}'")
         if ch.startswith("spot@"):
             out.append(ch)
         else:
@@ -295,7 +295,7 @@ def _resolve_channels(channels: Optional[List[str]]) -> List[str]:
     return out
 
 
-# ── helpers ─────────────────────────────────────────────────────────────────
+# â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _QUOTES = ("USDT", "USDC", "FDUSD", "BUSD")
 
 
@@ -313,18 +313,18 @@ class MEXCWebSocketClient:
     Public MEXC Spot WS client (v3) with improved error handling and logging.
     
     Features:
-      • Subscribes to book-ticker, deals, and depth topics (protobuf frames).
-      • Normalizes events and forwards to book_tracker.
-      • Robust against 'Blocked!' acks; auto-downgrades and re-subscribes.
-      • Comprehensive logging and metrics.
-      • Connection lifecycle management (max lifetime, reconnection with backoff).
+      â€¢ Subscribes to book-ticker, deals, and depth topics (protobuf frames).
+      â€¢ Normalizes events and forwards to book_tracker.
+      â€¢ Robust against 'Blocked!' acks; auto-downgrades and re-subscribes.
+      â€¢ Comprehensive logging and metrics.
+      â€¢ Connection lifecycle management (max lifetime, reconnection with backoff).
     
     Improvements in this version:
-      • Better structured logging (logger instead of print statements).
-      • Enhanced error handling with context.
-      • Metrics availability checks.
-      • Connection state tracking.
-      • Graceful degradation when dependencies unavailable.
+      â€¢ Better structured logging (logger instead of print statements).
+      â€¢ Enhanced error handling with context.
+      â€¢ Metrics availability checks.
+      â€¢ Connection state tracking.
+      â€¢ Graceful degradation when dependencies unavailable.
     """
     MAX_TOPICS_PER_CONN = WS_MAX_TOPICS
 
@@ -390,7 +390,7 @@ class MEXCWebSocketClient:
         )
 
         # auto-downgrade state
-        self._blocked_seen = 0  # 0 → none, 1 → drop rate suffix, 2+ → also drop "aggre"
+        self._blocked_seen = 0  # 0 â†’ none, 1 â†’ drop rate suffix, 2+ â†’ also drop "aggre"
         self._downgraded_once = False
 
         # codecs
@@ -411,7 +411,7 @@ class MEXCWebSocketClient:
             summary_every_ms=int(getattr(settings, "ws_summary_every_ms", 5000)),
         )
 
-        # Callback rate limiter (защита от перегрузки)
+        # Callback rate limiter (Ð·Ð°Ñ‰Ð¸Ñ‚Ð° Ð¾Ñ‚ Ð¿ÐµÑ€ÐµÐ³Ñ€ÑƒÐ·ÐºÐ¸)
         from collections import deque
         self._callback_calls = deque(maxlen=50)
         self._callback_max_per_sec = 50
@@ -423,16 +423,16 @@ class MEXCWebSocketClient:
         self._total_deals = 0
         self._total_depth_updates = 0
 
-    # ───────────── lifecycle ─────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async def run(self) -> None:
         if not PROTO_AVAILABLE or EnvelopeModule is None:
-            print("❌ Protobuf decoders not available — cannot run WS client.", file=sys.stderr)
+            print("âŒ Protobuf decoders not available â€” cannot run WS client.", file=sys.stderr)
             return
         if not self.symbols:
-            logger.warning("⚠️ No symbols to subscribe — WS client not started.")
+            logger.warning("âš ï¸ No symbols to subscribe â€” WS client not started.")
             return
 
-        logger.info(f"🚀 Starting MEXC WS client for {len(self.symbols)} symbols")
+        logger.info(f"ðŸš€ Starting MEXC WS client for {len(self.symbols)} symbols")
         _health_started()
 
         self._want_stop = False
@@ -440,6 +440,8 @@ class MEXCWebSocketClient:
             while not self._want_stop:
                 try:
                     await self._connect()
+                    # MEXC needs time to stabilize connection before accepting subscriptions
+                    await asyncio.sleep(0.5)
                     await self._subscribe_all()
                     await self._listen_loop()
                 except asyncio.CancelledError:
@@ -448,7 +450,7 @@ class MEXCWebSocketClient:
                 except Exception as e:
                     if self._want_stop:
                         break
-                    logger.error(f"❌ WS loop error: {e}", exc_info=True)
+                    logger.error(f"âŒ WS loop error: {e}", exc_info=True)
                     self._total_reconnects += 1
                 await self._reconnect_sleep()
         except asyncio.CancelledError:
@@ -457,14 +459,14 @@ class MEXCWebSocketClient:
             await self._graceful_close()
             _health_stopped()
             logger.info(
-                f"📊 WS client stopped. Stats: reconnects={self._total_reconnects}, "
+                f"ðŸ“Š WS client stopped. Stats: reconnects={self._total_reconnects}, "
                 f"messages={self._total_messages_received}, book_tickers={self._total_book_tickers}, "
                 f"deals={self._total_deals}, depth={self._total_depth_updates}"
             )
 
     async def stop(self) -> None:
         """Gracefully stop the WebSocket client."""
-        logger.info("⏹️ Stopping MEXC WS client...")
+        logger.info("â¹ï¸ Stopping MEXC WS client...")
         self._want_stop = True
         
         # Attempt to unsubscribe
@@ -507,10 +509,10 @@ class MEXCWebSocketClient:
             self._connected = False
             self._subscribed_topics.clear()
 
-    # ───────────── connect/subscribe/listen ─────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ connect/subscribe/listen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async def _connect(self) -> None:
         """Establish WebSocket connection with comprehensive logging."""
-        logger.info(f"🔌 Connecting to {self.ws_url}...")
+        logger.info(f"ðŸ”Œ Connecting to {self.ws_url}...")
 
         # DNS diagnostics
         try:
@@ -518,7 +520,7 @@ class MEXCWebSocketClient:
             path = self.ws_url.split(host, 1)[-1]
             infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
             addrs = [f"{ai[4][0]}" for ai in infos]
-            logger.debug(f"🔎 DNS {host} → {addrs or '[]'}")
+            logger.debug(f"ðŸ”Ž DNS {host} â†’ {addrs or '[]'}")
         except Exception as e:
             logger.warning(f"DNS resolve error for {self.ws_url}: {e}")
             host = self.ws_url.split("://", 1)[-1].split("/", 1)[0]
@@ -536,7 +538,7 @@ class MEXCWebSocketClient:
             ws_uri = f"wss://{ip}{path}"
             ssl_ctx = ssl.create_default_context()
             server_hostname_kw = {"server_hostname": server_hostname}
-            logger.info(f"🛠️ WS_DNS_OVERRIDE active: connecting to {ip} with SNI={server_hostname}")
+            logger.info(f"ðŸ› ï¸ WS_DNS_OVERRIDE active: connecting to {ip} with SNI={server_hostname}")
 
         connect_kwargs = dict(
             ping_interval=None,  # Using JSON PINGs instead
@@ -552,7 +554,7 @@ class MEXCWebSocketClient:
         try:
             self._ws = await websockets.connect(ws_uri, **connect_kwargs)
         except Exception as e:
-            logger.error(f"❌ WebSocket connection failed: {e}")
+            logger.error(f"âŒ WebSocket connection failed: {e}")
             raise
 
         self._connected = True
@@ -565,7 +567,7 @@ class MEXCWebSocketClient:
         self._blocked_seen = 0
         self._downgraded_once = False
         
-        logger.info("✅ WebSocket connected successfully")
+        logger.info("âœ… WebSocket connected successfully")
 
         _metric_inc(ws_reconnects_total)
 
@@ -650,14 +652,14 @@ class MEXCWebSocketClient:
 
         if len(topics) > self.MAX_TOPICS_PER_CONN:
             logger.error(
-                f"❌ Too many topics ({len(topics)}) for single WS connection. "
+                f"âŒ Too many topics ({len(topics)}) for single WS connection. "
                 f"Max={self.MAX_TOPICS_PER_CONN}. Consider sharding."
             )
             raise RuntimeError(
                 f"Too many topics ({len(topics)}) for a single WS. Shard needed."
             )
 
-        logger.info(f"📡 Subscribing to {len(topics)} topics (rate: {self._subs_per_sec}/sec)...")
+        logger.info(f"ðŸ“¡ Subscribing to {len(topics)} topics (rate: {self._subs_per_sec}/sec)...")
         print(f"[TOPICS_DEBUG] symbols={self.symbols}, topics={topics}")
         _metric_set(ws_active_subscriptions, float(len(topics)))
 
@@ -668,19 +670,27 @@ class MEXCWebSocketClient:
                     {"method": "SUBSCRIPTION", "params": [t], "id": self._next_id()}
                 )
                 if i % 10 == 0 or i == len(topics):
-                    logger.debug(f"📡 Subscribed {i}/{len(topics)} topics")
+                    logger.debug(f"ðŸ“¡ Subscribed {i}/{len(topics)} topics")
                 await asyncio.sleep(self._sub_interval)
             except Exception as e:
                 logger.error(f"Failed to subscribe to {t}: {e}")
 
-        logger.info(f"✅ Subscription phase complete ({len(topics)} topics)")
+        logger.info(f"âœ… Subscription phase complete ({len(topics)} topics)")
+        
+        # Wait a bit for ACKs to arrive, then report status
+        await asyncio.sleep(1.0)
+        missing = set(topics) - self._subscribed_topics
+        if missing:
+            print(f"[SUB_STATUS] ⚠️ Missing ACKs for {len(missing)} topics: {list(missing)[:5]}...")
+        else:
+            print(f"[SUB_STATUS] ✅ All {len(topics)} topics confirmed")
 
     async def _listen_loop(self) -> None:
         """Main message reception loop with heartbeat and lifecycle management."""
         assert self._ws and self._connected
         ws = self._ws
         
-        logger.debug("👂 Starting listen loop...")
+        logger.debug("ðŸ‘‚ Starting listen loop...")
 
         while not self._want_stop:
             now = _now_ms()
@@ -694,7 +704,7 @@ class MEXCWebSocketClient:
                 try:
                     await self._send_json({"method": "PING", "id": self._next_id()})
                     self._last_ping_ts_ms = now
-                    logger.debug(f"↪️ JSON PING sent (idle for {idle_ms/1000:.1f}s)")
+                    logger.debug(f"â†ªï¸ JSON PING sent (idle for {idle_ms/1000:.1f}s)")
                 except Exception as e:
                     logger.warning(f"Failed to send PING: {e}")
 
@@ -702,7 +712,7 @@ class MEXCWebSocketClient:
             lifetime_sec = (now - self._started_at_ms) / 1000
             if lifetime_sec > WS_MAX_LIFETIME_SEC:
                 logger.info(
-                    f"♻️ Max lifetime reached ({lifetime_sec:.0f}s > {WS_MAX_LIFETIME_SEC}s) — cycling connection"
+                    f"â™»ï¸ Max lifetime reached ({lifetime_sec:.0f}s > {WS_MAX_LIFETIME_SEC}s) â€” cycling connection"
                 )
                 break
 
@@ -717,12 +727,12 @@ class MEXCWebSocketClient:
                 logger.debug("Listen loop cancelled")
                 break
             except websockets.exceptions.ConnectionClosed as e:
-                logger.warning(f"❌ WebSocket closed: {e}")
+                logger.warning(f"âŒ WebSocket closed: {e}")
                 break
             except Exception as e:
                 if self._want_stop:
                     break
-                logger.error(f"🟡 recv error: {e}")
+                logger.error(f"ðŸŸ¡ recv error: {e}")
                 break
 
             self._last_recv_ts_ms = _now_ms()
@@ -731,34 +741,35 @@ class MEXCWebSocketClient:
             # Route message by type
             if isinstance(message, (bytes, bytearray)):
                 if self._verbose_frames:
-                    logger.debug(f"🔹 WS frame: type=bytes len={len(message)} head={hexdump(message[:32])}")
+                    logger.debug(f"ðŸ”¹ WS frame: type=bytes len={len(message)} head={hexdump(message[:32])}")
                 await self._handle_binary(message)
             else:
                 await self._handle_text(message)
 
-        logger.debug("👂 Listen loop exited")
+        logger.debug("ðŸ‘‚ Listen loop exited")
         self._connected = False
 
-    # ───────────── handlers ─────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async def _handle_text(self, message: str) -> None:
         """Handle text (JSON) messages: ACKs, heartbeats, errors."""
         try:
             data = json.loads(message)
         except Exception as e:
             if self._verbose_frames:
-                logger.warning(f"🟡 Text message (non-JSON?): {message[:200]}")
+                logger.warning(f"ðŸŸ¡ Text message (non-JSON?): {message[:200]}")
             return
 
         # ACKs
         if "code" in data and "msg" in data:
             code = data.get("code")
             msg = str(data.get("msg", ""))
+            print(f"[ACK_RAW] code={code} msg={msg[:150]}")
             
             if code == 0:
                 # MEXC uses code=0 for both success and some "Blocked!" notices
                 if "Not Subscribed successfully" in msg and "Blocked" in msg:
                     self._blocked_seen += 1
-                    logger.warning(f"🧱 ACK Blocked! count={self._blocked_seen} msg={msg}")
+                    logger.warning(f"ðŸ§± ACK Blocked! count={self._blocked_seen} msg={msg}")
                     
                     if not self._downgraded_once or self._blocked_seen >= 2:
                         await self._downgrade_and_resubscribe()
@@ -766,24 +777,25 @@ class MEXCWebSocketClient:
                     # Successful subscription
                     if msg.startswith("spot@"):
                         self._subscribed_topics.add(msg)
-                        logger.debug(f"✅ Subscribed: {msg}")
+                        print(f"[ACK_DEBUG] ✅ Subscribed: {msg}")
+                        logger.debug(f"âœ… Subscribed: {msg}")
                     # NOTE: Don't reset _blocked_seen immediately!
                     # Let it decay naturally to avoid rapid re-triggering
                     # The counter will reset on next clean connect
-                    logger.debug(f"✅ ACK code=0 msg={msg[:100]}")
+                    logger.debug(f"âœ… ACK code=0 msg={msg[:100]}")
             else:
-                logger.error(f"❗ ACK error code={code} msg={msg}")
+                logger.error(f"â— ACK error code={code} msg={msg}")
             return
 
         # Heartbeats
         if data.get("ping") is not None or data.get("pong") is not None:
             if self._verbose_frames:
-                logger.debug(f"🫧 Heartbeat ack: {data}")
+                logger.debug(f"ðŸ«§ Heartbeat ack: {data}")
             return
 
         # Other service messages
         if self._verbose_frames:
-            logger.debug(f"ℹ️ Service message: {data}")
+            logger.debug(f"â„¹ï¸ Service message: {data}")
 
     async def _downgrade_and_resubscribe(self) -> None:
         """
@@ -801,7 +813,7 @@ class MEXCWebSocketClient:
         backoff_sec = min(60, 10 + (self._blocked_seen * 10))
         
         logger.warning(
-            f"🔽 Downgrading subscription policy: "
+            f"ðŸ”½ Downgrading subscription policy: "
             f"blocked_count={self._blocked_seen}, "
             f"backoff={backoff_sec}s"
         )
@@ -814,7 +826,7 @@ class MEXCWebSocketClient:
         self._subscribed_topics.clear()
         
         # FIXED: Exponential backoff instead of fixed 0.5s
-        logger.info(f"⏳ Waiting {backoff_sec}s before resubscribe...")
+        logger.info(f"â³ Waiting {backoff_sec}s before resubscribe...")
         await asyncio.sleep(backoff_sec)
         
         await self._subscribe_all()
@@ -837,21 +849,33 @@ class MEXCWebSocketClient:
     async def _handle_binary(self, payload: bytes) -> None:
         """Handle binary (protobuf) messages: book ticker, deals, depth."""
         if not PROTO_AVAILABLE or EnvelopeModule is None:
-            logger.warning("🟡 Binary frame but protobuf env not available")
+            logger.warning("ðŸŸ¡ Binary frame but protobuf env not available")
             return
 
         # Decompress if gzipped
         payload, was_gz = maybe_gunzip(payload)
+        
+        # DEBUG: Count binary messages
+        if not hasattr(self, '_binary_msg_count'):
+            self._binary_msg_count = 0
+        self._binary_msg_count += 1
+        if self._binary_msg_count % 100 == 1:
+            print(f"[BINARY_DEBUG] msg #{self._binary_msg_count} len={len(payload)} gz={was_gz}")
+        
+        # DEBUG: Check if VETUSDT is in raw payload
+        if b'VETUSDT' in payload or b'vetusdt' in payload.lower():
+            print(f"[RAW_VET] VETUSDT found in binary msg #{self._binary_msg_count} len={len(payload)}")
+        
         if self._verbose_hexdump and was_gz:
-            logger.debug(f"🗜️ gunzipped payload len={len(payload)} head={hexdump(payload[:32])}")
+            logger.debug(f"ðŸ—œï¸ gunzipped payload len={len(payload)} head={hexdump(payload[:32])}")
 
         try:
             desc = getattr(EnvelopeModule, "DESCRIPTOR", None)
             if not desc:
-                logger.warning("🟡 Envelope module without DESCRIPTOR")
+                logger.warning("ðŸŸ¡ Envelope module without DESCRIPTOR")
                 return
         except Exception as e:
-            logger.error(f"❌ Protobuf parse error: {e}")
+            logger.error(f"âŒ Protobuf parse error: {e}")
             return
 
         parsed_any = False
@@ -878,10 +902,15 @@ class MEXCWebSocketClient:
                     if cands:
                         cands_sorted = sorted(cands, key=lambda kv: len(kv[1]), reverse=True)
                         top = ", ".join([f"{p}={len(b)}" for p, b in cands_sorted[:6]])
-                        logger.debug(f"🧪 Wrapper bytes candidates (path=len): {top}")
+                        logger.debug(f"ðŸ§ª Wrapper bytes candidates (path=len): {top}")
                 continue
 
             parsed_any = True
+            
+            # DEBUG: Show unique symbols in this batch
+            syms_in_batch = set(f[1] for f in frames if f[1])
+            if len(syms_in_batch) > 1 or (syms_in_batch and 'VETUSDT' in syms_in_batch):
+                print(f"[BATCH_DEBUG] frames={len(frames)} symbols={syms_in_batch}")
             
             # Process each frame
             for ch, sym, ts, data_bytes in frames:
@@ -889,7 +918,7 @@ class MEXCWebSocketClient:
                 print(f"[FRAME_DEBUG] ch={ch_str} sym={sym}")
                 if self._verbose_frames:
                     logger.debug(
-                        f"🧵 Frame extracted: ch={ch_str} sym={sym or ''} "
+                        f"ðŸ§µ Frame extracted: ch={ch_str} sym={sym or ''} "
                         f"ts={int(ts or 0)} bytes={len(data_bytes)}"
                     )
                 
@@ -902,13 +931,13 @@ class MEXCWebSocketClient:
                     self._on_depth(sym or "", data_bytes, int(ts or 0))
                 else:
                     if self._verbose_frames:
-                        logger.debug(f"ℹ️ Unhandled channel: {ch_str} ({len(data_bytes)} bytes)")
+                        logger.debug(f"â„¹ï¸ Unhandled channel: {ch_str} ({len(data_bytes)} bytes)")
             break
 
         if not parsed_any and self._verbose_frames:
-            logger.warning("🟡 Protobuf envelope parsed but no frames found")
+            logger.warning("ðŸŸ¡ Protobuf envelope parsed but no frames found")
 
-    # ───────────── domain parsers ─────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ domain parsers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _can_call_callback(self) -> bool:
         """Check if we can make a callback (rate limit protection)"""
         now = time.time()
@@ -1058,7 +1087,7 @@ class MEXCWebSocketClient:
                             self._on_tick_metrics(send_time, symbol=symbol)
                             if not self._want_stop and self._can_call_callback():
                                 asyncio.create_task(_bt_cb(symbol, b, float(bq), a, float(aq), ts_ms=send_time))
-                                # ═══ Feed MarketDataHub ═══
+                                # â•â•â• Feed MarketDataHub â•â•â•
                                 if MARKET_DATA_HUB_AVAILABLE and get_market_data_hub:
                                     asyncio.create_task(
                                         get_market_data_hub().on_book_ticker(symbol, b, float(bq), a, float(aq), ts_ms=send_time)
@@ -1082,7 +1111,7 @@ class MEXCWebSocketClient:
                         self._on_tick_metrics(send_time, symbol=symbol)
                         if not self._want_stop and self._can_call_callback():
                             asyncio.create_task(_bt_cb(symbol, b, float(bq), a, float(aq), ts_ms=send_time))
-                            # ═══ Feed MarketDataHub ═══
+                            # â•â•â• Feed MarketDataHub â•â•â•
                             if MARKET_DATA_HUB_AVAILABLE and get_market_data_hub:
                                 asyncio.create_task(
                                     get_market_data_hub().on_book_ticker(symbol, b, float(bq), a, float(aq), ts_ms=send_time)
@@ -1090,7 +1119,7 @@ class MEXCWebSocketClient:
                     return
 
         if self._verbose_frames:
-            logger.warning(f"🟡 bookTicker message did not contain recognizable fields for {symbol}")
+            logger.warning(f"ðŸŸ¡ bookTicker message did not contain recognizable fields for {symbol}")
 
     def _on_tick_metrics(self, send_time_ms: Optional[int], *, symbol: Optional[str] = None) -> None:
         """Update metrics and health after receiving a tick."""
@@ -1112,10 +1141,10 @@ class MEXCWebSocketClient:
         cls = self._deals_cls
 
         if cls is None:
-            logger.debug("🟡 No suitable deals class found — skipping processing")
+            logger.debug("ðŸŸ¡ No suitable deals class found â€” skipping processing")
             return
         
-        logger.debug(f"➡️ Processing deals for {symbol}: raw len={len(data_bytes)}")
+        logger.debug(f"âž¡ï¸ Processing deals for {symbol}: raw len={len(data_bytes)}")
 
         try:
             msg = cls()
@@ -1179,12 +1208,12 @@ class MEXCWebSocketClient:
 
             if self._verbose_frames:
                 logger.debug(
-                    f"📊 {symbol} deals: usdpm={usdpm:.1f}, tpm={tpm:.1f}, "
+                    f"ðŸ“Š {symbol} deals: usdpm={usdpm:.1f}, tpm={tpm:.1f}, "
                     f"ts={send_time}, trades_len={len(trades)}"
                 )
 
         except Exception as e:
-            logger.error(f"❌ deals decode error for {symbol}: {e}", exc_info=self._verbose_frames)
+            logger.error(f"âŒ deals decode error for {symbol}: {e}", exc_info=self._verbose_frames)
 
     async def _update_live_tape(
         self, symbol: str, usdpm: float, tpm: float, trades: List[Tuple[float, float, int]]
@@ -1196,7 +1225,7 @@ class MEXCWebSocketClient:
             if self._verbose_frames:
                 logger.warning(f"Update tape metrics failed for {symbol}: {e}")
         
-        # ═══ Feed MarketDataHub ═══
+        # â•â•â• Feed MarketDataHub â•â•â•
         if MARKET_DATA_HUB_AVAILABLE and get_market_data_hub:
             try:
                 await get_market_data_hub().on_tape(symbol, usdpm, tpm, trades)
@@ -1212,7 +1241,7 @@ class MEXCWebSocketClient:
         cls = self._depth_cls or (DepthModule and find_depth_cls(DepthModule))
         if cls is None:
             if self._verbose_frames:
-                logger.warning("🟡 No suitable depth message found in PublicLimitDepthsV3Api_pb2")
+                logger.warning("ðŸŸ¡ No suitable depth message found in PublicLimitDepthsV3Api_pb2")
             return
             
         try:
@@ -1261,7 +1290,7 @@ class MEXCWebSocketClient:
                 
                 if self._can_call_callback():
                     asyncio.create_task(_depth_cb(symbol, bids, asks, ts_ms=send_time))
-                    # ═══ Feed MarketDataHub ═══
+                    # â•â•â• Feed MarketDataHub â•â•â•
                     if MARKET_DATA_HUB_AVAILABLE and get_market_data_hub:
                         asyncio.create_task(
                             get_market_data_hub().on_depth(symbol, bids, asks, ts_ms=send_time)
@@ -1269,9 +1298,9 @@ class MEXCWebSocketClient:
                 
         except Exception as e:
             if self._verbose_frames:
-                logger.error(f"❌ depth decode error for {symbol}: {e}", exc_info=True)
+                logger.error(f"âŒ depth decode error for {symbol}: {e}", exc_info=True)
 
-    # ───────────── misc ─────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ misc â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _next_id(self) -> int:
         """Get next message ID."""
         self._id_counter += 1
@@ -1295,14 +1324,14 @@ class MEXCWebSocketClient:
         jitter = random.uniform(0, 0.25 * delay)
         self._reconnect_delay = max(self._reconnect_floor, delay + jitter)
         
-        logger.info(f"🔄 Reconnecting in {self._reconnect_delay:.2f}s...")
+        logger.info(f"ðŸ”„ Reconnecting in {self._reconnect_delay:.2f}s...")
         
         try:
             await asyncio.sleep(self._reconnect_delay)
         except asyncio.CancelledError:
             pass
 
-    # ───────────── diagnostics ─────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ diagnostics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def get_stats(self) -> dict[str, Any]:
         """Get client statistics for monitoring."""
         return {
