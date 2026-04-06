@@ -53,6 +53,10 @@ data/
 .DS_Store
 Thumbs.db
 
-# ===== Node (if frontend exists) =====
+# ===== Node / Next.js (frontend-next/) =====
 node_modules/
 npm-debug.log
+frontend-next/.next/
+frontend-next/out/
+frontend-next/.env.local
+frontend-next/.env*.local
