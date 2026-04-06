@@ -151,38 +151,12 @@ export async function getWatchlist(): Promise<WatchlistBulkOut> {
     return { items: [] };
   };
 
-  const statusOf = (err: unknown): number | undefined => {
-    if (typeof err !== "object" || err === null) return undefined;
-    const resp = (err as Record<string, unknown>).response;
-    if (typeof resp !== "object" || resp === null) return undefined;
-    const st = (resp as Record<string, unknown>).status;
-    return typeof st === "number" ? st : undefined;
-  };
-
-  try {
-    const resPost = await http.post<unknown>(
-      "/api/ui/watchlist:bulk",
-      { symbols: [] as string[] },
-      { headers: { "X-Idempotency-Key": idem() } }
-    );
-    return parse(resPost.data);
-  } catch (e) {
-    const st = statusOf(e);
-    if (st === 404 || st === 405 || st === 400 || st === undefined) {
-      try {
-        const resState = await http.get<unknown>("/api/ui/state");
-        return parse(resState.data);
-      } catch {
-        try {
-          const resGet = await http.get<unknown>("/api/ui/watchlist:bulk");
-          return parse(resGet.data);
-        } catch {
-          return { items: [] };
-        }
-      }
-    }
-    throw e;
-  }
+  const res = await http.post<unknown>(
+    "/api/ui/watchlist:bulk",
+    { symbols: [] as string[] },
+    { headers: { "X-Idempotency-Key": idem() } }
+  );
+  return parse(res.data);
 }
 
 export async function setWatchlist(symbols: string[]): Promise<WatchlistBulkOut> {
@@ -333,17 +307,6 @@ export async function apiGetUISnapshot(
 
 /* ───────── scanner ───────── */
 
-/** Accept both new snake_case and legacy camelCase fields in a typed way. */
-type GetScannerOptsCompat = GetScannerOpts & {
-  // legacy camelCase accepted by older UI code
-  includeStables?: boolean;
-  excludeLeveraged?: boolean;
-  minUsd?: number;
-  minDepth5Usd?: number;
-  minDepth10Usd?: number;
-  minTradesPerMin?: number;
-};
-
 
 
 function normalizeScannerRows(rows: ScannerRow[]): ScannerRow[] {
@@ -391,7 +354,7 @@ function normalizeDepthAtBps(raw: unknown): Record<number, { bid_usd?: number; a
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-function buildScannerParams(opts: GetScannerOptsCompat): URLSearchParams {
+function buildScannerParams(opts: GetScannerOpts): URLSearchParams {
   const params = new URLSearchParams();
 
   // server-native params
@@ -418,8 +381,6 @@ function buildScannerParams(opts: GetScannerOptsCompat): URLSearchParams {
   // volumes / activity
   if (typeof opts.min_quote_vol_usd === "number") {
     params.set("min_quote_vol_usd", String(opts.min_quote_vol_usd));
-  } else if (typeof opts.minUsd === "number") {
-    params.set("min_quote_vol_usd", String(opts.minUsd));
   }
   if (typeof opts.min_usd_per_min === "number") params.set("min_usd_per_min", String(opts.min_usd_per_min));
   if (typeof (opts as { min_median_trade_usd?: number }).min_median_trade_usd === "number")
@@ -432,34 +393,13 @@ function buildScannerParams(opts: GetScannerOptsCompat): URLSearchParams {
     params.set("activity_ratio", String((opts as { activity_ratio: number }).activity_ratio));
 
   // depth / trades
-  if (typeof opts.min_depth5_usd === "number") {
-    params.set("min_depth5_usd", String(opts.min_depth5_usd));
-  } else if (typeof opts.minDepth5Usd === "number") {
-    params.set("min_depth5_usd", String(opts.minDepth5Usd));
-  }
-  if (typeof opts.min_depth10_usd === "number") {
-    params.set("min_depth10_usd", String(opts.min_depth10_usd));
-  } else if (typeof opts.minDepth10Usd === "number") {
-    params.set("min_depth10_usd", String(opts.minDepth10Usd));
-  }
-  if (typeof opts.min_trades_per_min === "number") {
-    params.set("min_trades_per_min", String(opts.min_trades_per_min));
-  } else if (typeof opts.minTradesPerMin === "number") {
-    params.set("min_trades_per_min", String(opts.minTradesPerMin));
-  }
+  if (typeof opts.min_depth5_usd === "number") params.set("min_depth5_usd", String(opts.min_depth5_usd));
+  if (typeof opts.min_depth10_usd === "number") params.set("min_depth10_usd", String(opts.min_depth10_usd));
+  if (typeof opts.min_trades_per_min === "number") params.set("min_trades_per_min", String(opts.min_trades_per_min));
 
   // booleans
-  if (typeof opts.include_stables === "boolean") {
-    params.set("include_stables", String(opts.include_stables));
-  } else if (typeof opts.includeStables === "boolean") {
-    params.set("include_stables", String(opts.includeStables));
-  }
-
-  if (typeof opts.exclude_leveraged === "boolean") {
-    params.set("exclude_leveraged", String(opts.exclude_leveraged));
-  } else if (typeof opts.excludeLeveraged === "boolean") {
-    params.set("exclude_leveraged", String(opts.excludeLeveraged));
-  }
+  if (typeof opts.include_stables === "boolean") params.set("include_stables", String(opts.include_stables));
+  if (typeof opts.exclude_leveraged === "boolean") params.set("exclude_leveraged", String(opts.exclude_leveraged));
 
   // whitelist
   if (Array.isArray((opts as { symbols?: string[] }).symbols)) {

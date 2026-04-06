@@ -48,11 +48,7 @@ const TradingBoard: React.FC = () => {
     pauseWhenHidden: true
   });
 
-  useEffect(() => {
-    console.log("🔍 [TradingBoard] positions changed:", positions);
-  }, [positions]);
-
-  // ✅ Get symbols from useSymbols store instead of positions
+  // Get symbols from useSymbols store instead of positions
   const symbolItems = useSymbolItems();
   const symbols: string[] = useMemo(() => {
   // Символы из позиций
@@ -91,17 +87,7 @@ const TradingBoard: React.FC = () => {
     setTimeout(() => {
       loadMetrics();
       window.dispatchEvent(new Event('positions-force-reload'));
-    }, 1000);
-    
-    setTimeout(() => {
-      loadMetrics();
-      window.dispatchEvent(new Event('positions-force-reload'));
-    }, 3000);
-    
-    setTimeout(() => {
-      loadMetrics();
-      window.dispatchEvent(new Event('positions-force-reload'));
-    }, 5000);
+    }, 2000);
     
   } catch (error) {
     toast.error(

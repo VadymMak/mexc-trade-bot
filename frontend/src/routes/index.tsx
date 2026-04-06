@@ -16,9 +16,8 @@ const router = createBrowserRouter(
     { path: "/trades", element: <TradeLog /> },
     { path: "/settings", element: <Settings /> },
     
-    // Redirects for old paths
+    // Redirect old path
     { path: "/trade", element: <Navigate to="/" replace /> },
-    { path: "/dashboard", element: <Navigate to="/" replace /> },
     
     // 404
     {
