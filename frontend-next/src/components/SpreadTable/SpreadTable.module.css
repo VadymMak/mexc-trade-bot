@@ -1,0 +1,172 @@
+.wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.status {
+  padding: 24px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.error {
+  color: var(--color-red);
+}
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.thead th {
+  padding: 8px 12px;
+  text-align: left;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.thead th:last-child {
+  text-align: center;
+}
+
+.row {
+  border-bottom: 1px solid var(--color-border);
+  transition: background 0.1s;
+}
+
+.row:hover {
+  background: var(--color-bg-hover) !important;
+}
+
+.rowHot {
+  background: color-mix(in srgb, var(--color-green) 8%, transparent);
+}
+
+.rowNegative {
+  background: color-mix(in srgb, var(--color-red) 8%, transparent);
+}
+
+.rowNeutral {
+  background: transparent;
+}
+
+.cell {
+  padding: 9px 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.symbol {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.exchange {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.price {
+  color: var(--color-text);
+}
+
+.spreadPositive {
+  color: var(--color-green);
+  font-weight: 600;
+}
+
+.spreadNegative {
+  color: var(--color-red);
+}
+
+.spreadNeutral {
+  color: var(--color-text-muted);
+}
+
+.volume {
+  color: var(--color-text-muted);
+}
+
+/* Signal badges */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.badgeEnter {
+  background: color-mix(in srgb, var(--color-green) 15%, transparent);
+  color: var(--color-green);
+  border: 1px solid var(--color-green);
+}
+
+.badgeWatch {
+  background: color-mix(in srgb, var(--color-yellow) 15%, transparent);
+  color: var(--color-yellow);
+  border: 1px solid var(--color-yellow);
+}
+
+.badgeSkip {
+  background: color-mix(in srgb, var(--color-red) 15%, transparent);
+  color: var(--color-red);
+  border: 1px solid var(--color-red);
+}
+
+/* Action button */
+.actionCell {
+  text-align: center;
+}
+
+.tradeBtn {
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--color-accent);
+  background: transparent;
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.tradeBtn:hover {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.lastUpdated {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-align: right;
+}

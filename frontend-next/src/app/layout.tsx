@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import BotControl from "@/components/BotControl/BotControl";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -53,31 +54,7 @@ export default function RootLayout({
             ))}
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            {/* Bot status — will be made dynamic in future */}
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{
-                width: "8px",
-                height: "8px",
-                borderRadius: "50%",
-                background: "var(--color-green)",
-                display: "inline-block",
-              }} />
-              <span style={{ color: "var(--color-text-muted)", fontSize: "12px" }}>BOT ON</span>
-            </div>
-
-            {/* PnL placeholder */}
-            <span style={{
-              color: "var(--color-text-muted)",
-              fontSize: "12px",
-              padding: "4px 10px",
-              borderRadius: "6px",
-              background: "var(--color-bg-hover)",
-              border: "1px solid var(--color-border)",
-            }}>
-              PnL: —
-            </span>
-          </div>
+          <BotControl />
         </nav>
 
         <main style={{ minHeight: "calc(100vh - 52px)" }}>

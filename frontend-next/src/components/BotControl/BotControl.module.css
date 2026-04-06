@@ -1,0 +1,102 @@
+.wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Toggle */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggleLabel {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.toggleInput {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--color-border);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.toggleInput::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  transition: transform 0.2s, background 0.2s;
+}
+
+.toggleInput:checked {
+  background: var(--color-green);
+}
+
+.toggleInput:checked::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.toggleInput:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Mode badge */
+.modeBadge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.modePaper {
+  color: var(--color-yellow);
+  border-color: var(--color-yellow);
+  background: transparent;
+}
+
+.modeLive {
+  color: var(--color-green);
+  border-color: var(--color-green);
+  background: transparent;
+}
+
+/* PnL */
+.pnl {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  font-variant-numeric: tabular-nums;
+}
+
+.pnlPositive {
+  color: var(--color-green);
+}
+
+.pnlNegative {
+  color: var(--color-red);
+}
+
+.pnlNeutral {
+  color: var(--color-text-muted);
+}
