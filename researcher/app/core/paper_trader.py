@@ -37,6 +37,9 @@ class PaperTrader:
         # {(symbol, ex_long, ex_short): _OpenState}
         self._open: dict[tuple, _OpenState] = {}
 
+        # {(symbol, ex_long, ex_short): timestamp_ms} — cooldown after STOP_LOSS
+        self._stop_loss_cooldown: dict[tuple, int] = {}
+
         # Session counters (for log summaries)
         self._total_opened  = 0
         self._total_closed  = 0
@@ -83,6 +86,15 @@ class PaperTrader:
         spread_pct: float,
         ts_ms:     int,
     ) -> None:
+        # Reject bogus data: price-scale mismatches produce absurd spreads
+        if spread_pct > self.settings.MAX_SPREAD_PCT:
+            return
+
+        # Reject entry if in STOP_LOSS cooldown for this pair
+        cooldown_until = self._stop_loss_cooldown.get(key, 0)
+        if ts_ms < cooldown_until:
+            return
+
         # Mode A: classic z-score mean reversion
         zscore_entry = (
             zscore is not None
@@ -180,6 +192,11 @@ class PaperTrader:
 
         # ── Execute close ─────────────────────────────────────────────────
         self._open.pop(key)
+
+        # Set cooldown so volatile pairs don't re-enter immediately after STOP_LOSS
+        if reason == "STOP_LOSS":
+            cooldown_ms = self.settings.STOP_LOSS_COOLDOWN_SECONDS * 1000
+            self._stop_loss_cooldown[key] = ts_ms + cooldown_ms
         symbol, ex_long, ex_short = key
 
         result = self.sim.simulate_trade(

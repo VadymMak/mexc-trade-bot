@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     # z-score exit threshold (spread reverted to mean)
     ZSCORE_EXIT: float = 0.5
 
+    # Max spread cap: ignore obviously bogus data (e.g. EDGE_USDT 759%)
+    # Spreads above this value are price-scale mismatches, not real arb
+    MAX_SPREAD_PCT: float = 50.0
+
+    # Cooldown after STOP_LOSS (seconds): prevent immediate re-entry on volatile pairs
+    STOP_LOSS_COOLDOWN_SECONDS: int = 300  # 5 minutes
+
     class Config:
         env_file = ".env"
 
