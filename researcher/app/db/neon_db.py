@@ -415,6 +415,7 @@ class NeonDB:
             "hour_utc", "day_of_week",  # 0=Mon…6=Sun
             "trading_session",          # asia / europe / overlap / us / quiet
             "is_weekend",               # 1 if Sat/Sun
+            "mins_to_funding",          # minutes until next 00/08/16h UTC funding
             "deal_size_usdt",
             # --- outcome labels ---
             "exit_reason", "exit_spread_pct", "exit_zscore",
@@ -436,12 +437,14 @@ class NeonDB:
             profitable          = 1 if net_pnl > 0 else 0
 
             if opened_at:
-                hour_utc    = opened_at.hour
-                dow         = opened_at.weekday()  # 0=Mon … 6=Sun
-                is_weekend  = 1 if dow >= 5 else 0
-                session     = _trading_session(hour_utc)
+                hour_utc       = opened_at.hour
+                dow            = opened_at.weekday()  # 0=Mon … 6=Sun
+                is_weekend     = 1 if dow >= 5 else 0
+                session        = _trading_session(hour_utc)
+                ts_ms          = int(opened_at.timestamp() * 1000)
+                mins_to_fund   = _mins_to_funding(ts_ms)
             else:
-                hour_utc = dow = is_weekend = session = ""
+                hour_utc = dow = is_weekend = session = mins_to_fund = ""
 
             writer.writerow([
                 r["symbol"], r["exchange_long"], r["exchange_short"],
@@ -450,6 +453,7 @@ class NeonDB:
                 round(s_mean, 6) if s_mean else "", round(s_std, 6) if s_std else "",
                 spread_zscore_ratio, spread_cv,
                 hour_utc, dow, session, is_weekend,
+                mins_to_fund,
                 deal_size,
                 r["exit_reason"] or "", float(r["exit_spread_pct"] or 0),
                 round(float(r["exit_zscore"]), 4) if r["exit_zscore"] is not None else "",
@@ -508,6 +512,18 @@ def _trading_session(hour_utc: int) -> str:
         return "us"
     else:  # 22-23
         return "quiet"
+
+
+# ── Funding time helper ───────────────────────────────────────────────────────
+
+_FUNDING_TIMES_SEC = (0, 28_800, 57_600)  # 00:00, 08:00, 16:00 UTC
+
+
+def _mins_to_funding(ts_ms: int) -> float:
+    """Minutes until the next perpetual futures funding payment."""
+    now_sec = (ts_ms // 1000) % 86_400
+    gaps = [((f - now_sec) % 86_400) for f in _FUNDING_TIMES_SEC]
+    return round(min(gaps) / 60, 2)
 
 
 # ── Module-level stat helpers (pure functions, reusable) ──────────────────────

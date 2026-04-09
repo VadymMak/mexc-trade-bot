@@ -272,6 +272,12 @@ async def export_dataset() -> StreamingResponse:
         if 16 <= h <= 21: return "us"
         return "quiet"
 
+    _FUNDING_SEC = (0, 28_800, 57_600)  # 00:00, 08:00, 16:00 UTC
+
+    def _mins_to_funding(ts_ms: int) -> float:
+        now_sec = (ts_ms // 1000) % 86_400
+        return round(min(((f - now_sec) % 86_400) for f in _FUNDING_SEC) / 60, 2)
+
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([
@@ -281,6 +287,7 @@ async def export_dataset() -> StreamingResponse:
         "spread_zscore_ratio", "spread_cv",
         "hour_utc", "day_of_week",
         "trading_session", "is_weekend",
+        "mins_to_funding",
         "deal_size_usdt",
         "exit_reason", "exit_spread_pct", "exit_zscore",
         "hold_seconds", "gross_pnl_usdt", "net_pnl_usdt",
@@ -299,12 +306,14 @@ async def export_dataset() -> StreamingResponse:
         cv    = round(s_std / s_mean, 4)    if s_mean > 0 else ""
 
         if opened_at:
-            h        = opened_at.hour
-            dow      = opened_at.weekday()
-            session  = _session(h)
-            weekend  = 1 if dow >= 5 else 0
+            h             = opened_at.hour
+            dow           = opened_at.weekday()
+            session       = _session(h)
+            weekend       = 1 if dow >= 5 else 0
+            ts_ms_entry   = int(opened_at.timestamp() * 1000)
+            mins_to_fund  = _mins_to_funding(ts_ms_entry)
         else:
-            h = dow = session = weekend = ""
+            h = dow = session = weekend = mins_to_fund = ""
 
         writer.writerow([
             r["symbol"], r["exchange_long"], r["exchange_short"],
@@ -314,6 +323,7 @@ async def export_dataset() -> StreamingResponse:
             round(s_std, 6)  if s_std  else "",
             ratio, cv,
             h, dow, session, weekend,
+            mins_to_fund,
             deal_size,
             r["exit_reason"] or "",
             float(r["exit_spread_pct"] or 0),

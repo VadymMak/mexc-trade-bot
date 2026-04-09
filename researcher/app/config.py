@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # Cooldown after STOP_LOSS (seconds): prevent immediate re-entry on volatile pairs
     STOP_LOSS_COOLDOWN_SECONDS: int = 300  # 5 minutes
 
+    # Funding blackout: don't open positions within N seconds before funding time.
+    # Perpetual futures funding is paid at 00:00, 08:00, 16:00 UTC (every 8h).
+    # Opening just before funding = paying entry fees + funding before spread closes.
+    FUNDING_BLACKOUT_SECONDS: int = 300  # 5 min before each funding window
+
     # Blacklisted symbols — structurally wide spreads that never revert.
     # Identified from dataset: ~0-6% win rate across 80-170 trades each.
     # Stored as comma-separated string (pydantic-settings doesn't support list from env).

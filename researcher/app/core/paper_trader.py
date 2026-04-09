@@ -25,6 +25,21 @@ from .simulator import TradingSimulator
 
 logger = logging.getLogger(__name__)
 
+# Funding windows in seconds since midnight UTC: 00:00, 08:00, 16:00
+_FUNDING_TIMES_SEC = (0, 28_800, 57_600)
+
+
+def _seconds_to_next_funding(ts_ms: int) -> int:
+    """Return seconds until the next funding payment (00:00, 08:00 or 16:00 UTC)."""
+    now_sec = (ts_ms // 1000) % 86_400
+    gaps = [((f - now_sec) % 86_400) for f in _FUNDING_TIMES_SEC]
+    return min(gaps)
+
+
+def _mins_to_funding(ts_ms: int) -> float:
+    """Return minutes until next funding — used as ML feature."""
+    return round(_seconds_to_next_funding(ts_ms) / 60, 2)
+
 
 class PaperTrader:
     def __init__(self, db: NeonDB, settings: Settings) -> None:
@@ -97,6 +112,11 @@ class PaperTrader:
 
         # Reject structurally bad pairs — spreads never revert, drain fees
         if symbol in self.settings.blacklisted_set:
+            return
+
+        # Reject entry during funding blackout window (N seconds before 00/08/16h UTC)
+        # Opening just before funding = paying entry fees + funding before spread closes
+        if _seconds_to_next_funding(ts_ms) < self.settings.FUNDING_BLACKOUT_SECONDS:
             return
 
         # Reject entry if in STOP_LOSS cooldown for this pair

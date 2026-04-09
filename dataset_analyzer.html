@@ -156,6 +156,18 @@
     <div id="session-insight" class="insight"></div>
   </div>
 
+  <div class="charts-row">
+    <div class="section">
+      <h2>Win Rate by Proximity to Funding (minutes)</h2>
+      <canvas id="chart-funding-wr"></canvas>
+      <div id="funding-insight" class="insight"></div>
+    </div>
+    <div class="section">
+      <h2>PnL by Proximity to Funding (minutes)</h2>
+      <canvas id="chart-funding-pnl"></canvas>
+    </div>
+  </div>
+
   <div class="section">
     <h2>Entry Spread vs Exit Reason — Scatter</h2>
     <canvas id="chart-scatter" style="max-height:300px"></canvas>
@@ -440,6 +452,44 @@ function analyze(rows) {
     Profitable sessions: <strong>${posSes.join(', ') || 'none yet'}</strong> &nbsp;|&nbsp;
     Bleeding: <strong style="color:#f87171">${negSes.join(', ') || 'none'}</strong><br>
     <span style="color:#64748b;font-size:12px">Note: dataset is small — patterns will stabilize after ~1000+ trades.</span>
+  `;
+
+  // ── Funding Proximity Charts ──────────────────────────────────────────────
+  // Bucket mins_to_funding: 0-5, 5-15, 15-30, 30-60, 60-120, 120-240, >240
+  const fundBins   = [0, 5, 15, 30, 60, 120, 240, 9999];
+  const fundLabels = ['0-5m','5-15m','15-30m','30-60m','1-2h','2-4h','>4h'];
+  const fundBuckets = fundLabels.map((_, i) => rows.filter(r => {
+    const v = +r.mins_to_funding;
+    return !isNaN(v) && v >= fundBins[i] && v < fundBins[i+1];
+  }));
+  const fundWR  = fundBuckets.map(g => g.length ? round2(g.filter(r=>r.exit_reason==='TAKE_PROFIT').length/g.length*100) : null);
+  const fundPnl = fundBuckets.map(g => round2(sum(g.map(r=>+r.net_pnl_usdt||0))));
+
+  makeChart('chart-funding-wr', 'bar', {
+    labels: fundLabels,
+    datasets: [{ label: 'Win Rate %', data: fundWR,
+      backgroundColor: fundWR.map(v => v===null?'#33415544':v>=50?COLORS.green+'88':COLORS.red+'88'),
+      borderColor:     fundWR.map(v => v===null?'#334155':v>=50?COLORS.green:COLORS.red),
+      borderWidth: 1, borderRadius: 4 }]
+  }, { plugins:{legend:{display:false}}, scales:{y:{ticks:{callback:v=>v+'%'},max:100}} });
+
+  makeChart('chart-funding-pnl', 'bar', {
+    labels: fundLabels,
+    datasets: [{ label: 'Net PnL (USDT)', data: fundPnl,
+      backgroundColor: fundPnl.map(v => v>=0?COLORS.green+'88':COLORS.red+'88'),
+      borderColor:     fundPnl.map(v => v>=0?COLORS.green:COLORS.red),
+      borderWidth: 1, borderRadius: 4 }]
+  }, { plugins:{legend:{display:false}} });
+
+  // Funding insight
+  const dangerZone = fundBuckets[0]; // 0-5 min before funding
+  const safeZone   = fundBuckets.slice(2).flat(); // 15+ min before
+  const dangerWR   = dangerZone.length ? round2(dangerZone.filter(r=>r.exit_reason==='TAKE_PROFIT').length/dangerZone.length*100) : null;
+  const safeWR     = safeZone.length   ? round2(safeZone.filter(r=>r.exit_reason==='TAKE_PROFIT').length/safeZone.length*100) : null;
+  document.getElementById('funding-insight').innerHTML = `
+    <strong>0-5 min before funding:</strong> ${dangerZone.length} trades, win rate <strong style="color:${dangerWR===null?'#64748b':dangerWR>=50?'#4ade80':'#f87171'}">${dangerWR !== null ? dangerWR+'%' : 'no data'}</strong><br>
+    <strong>15+ min before funding:</strong> ${safeZone.length} trades, win rate <strong style="color:${safeWR===null?'#64748b':safeWR>=50?'#4ade80':'#f87171'}">${safeWR !== null ? safeWR+'%' : 'no data'}</strong><br>
+    <span style="color:#64748b;font-size:12px">Funding times: 00:00, 08:00, 16:00 UTC. Blackout window now active: 5 min before each.</span>
   `;
 
   // ── Scatter: entry_spread vs exit_reason ───────────────────────────────────
