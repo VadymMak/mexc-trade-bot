@@ -212,6 +212,16 @@ class MexcFlowCollector:
                     except Exception:
                         continue
 
+                    # MEXC sometimes sends JSON arrays (e.g. batch updates or pong)
+                    # Unwrap single-element list; skip multi-element or non-dict
+                    if isinstance(msg, list):
+                        if len(msg) == 1 and isinstance(msg[0], dict):
+                            msg = msg[0]
+                        else:
+                            continue
+                    if not isinstance(msg, dict):
+                        continue
+
                     channel = msg.get("channel", "")
                     data    = msg.get("data", {})
 
