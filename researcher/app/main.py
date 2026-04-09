@@ -92,28 +92,64 @@ async def main() -> None:
             log.info("%s connected OK", c.name)
 
     # ── Background loops ──────────────────────────────────────────────────────
+    stats_push_url = f"{settings.TRADING_BOT_URL}/api/arbitrage/internal/stats-update"
+
     async def report_loop() -> None:
-        while True:
-            await asyncio.sleep(60)
-            spreads = matrix.get_all_spreads()
-            stats   = trader.session_summary()
-            log.info(
-                "━━ 60s report ━━  tracked=%d  open=%d  closed=%d  net_pnl=%+.4f USDT",
-                len(spreads),
-                stats["open_positions"],
-                stats["total_closed"],
-                stats["total_net_pnl"],
-            )
-            # Log top spreads
-            if spreads:
-                top = sorted(spreads, key=lambda x: x.get("spread_pct", 0), reverse=True)[:5]
-                for s in top:
-                    z = f"{s['zscore']:.2f}" if s.get("zscore") is not None else "—"
-                    log.info(
-                        "  %-10s  %-8s→%-8s  spread=%.3f%%  z=%s",
-                        s["symbol"], s["exchange_long"], s["exchange_short"],
-                        s["spread_pct"], z,
-                    )
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            while True:
+                await asyncio.sleep(60)
+                spreads    = matrix.get_all_spreads()
+                summary    = trader.session_summary()
+
+                log.info(
+                    "━━ 60s report ━━  tracked=%d  open=%d  closed=%d  net_pnl=%+.4f USDT",
+                    len(spreads),
+                    summary["open_positions"],
+                    summary["total_closed"],
+                    summary["total_net_pnl"],
+                )
+
+                # Top 5 spreads by size
+                if spreads:
+                    top = sorted(spreads, key=lambda x: x.get("spread_pct", 0), reverse=True)[:5]
+                    for s in top:
+                        z = f"{s['zscore']:.2f}" if s.get("zscore") is not None else "—"
+                        log.info(
+                            "  %-10s  %-8s→%-8s  spread=%.3f%%  z=%s",
+                            s["symbol"], s["exchange_long"], s["exchange_short"],
+                            s["spread_pct"], z,
+                        )
+
+                # Build per-pair stats list from open positions
+                open_pairs = [
+                    {
+                        "symbol":        k[0],
+                        "exchange_long":  k[1],
+                        "exchange_short": k[2],
+                        "status":         "open",
+                        "entry_spread":   v.entry_spread,
+                        "entry_zscore":   v.entry_zscore,
+                    }
+                    for k, v in trader._open.items()
+                ]
+
+                payload = {
+                    "session": summary,
+                    "pairs":   open_pairs,
+                }
+
+                try:
+                    async with session.post(
+                        stats_push_url,
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        if resp.status >= 400:
+                            log.warning("[Stats push] HTTP %d", resp.status)
+                except Exception as exc:
+                    log.debug("[Stats push] Error: %r", exc)
 
     await asyncio.gather(
         report_loop(),

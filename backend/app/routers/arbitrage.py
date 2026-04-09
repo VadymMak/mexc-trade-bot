@@ -13,10 +13,14 @@ from fastapi.responses import StreamingResponse
 router = APIRouter(prefix="/api/arbitrage", tags=["arbitrage"])
 log = logging.getLogger(__name__)
 
-# ─────────────────── in-memory spread cache ───────────────────
-# Populated by POST /api/arbitrage/internal/spread-update from researcher service.
+# ─────────────────── in-memory caches ───────────────────
+# Populated by researcher service via internal POST endpoints.
 # Key: (symbol, exchange_long, exchange_short)  Value: spread dict
 _spread_cache: dict[tuple, dict] = {}
+
+# Stats pushed by researcher every 60s
+# Shape: { "session": {...}, "pairs": [...] }
+_stats_cache: dict = {}
 
 
 # ─────────────────── helpers ───────────────────
@@ -107,6 +111,18 @@ async def internal_spread_update(spreads: List[Dict[str, Any]]) -> dict:
     return {"accepted": len(spreads)}
 
 
+@router.post("/internal/stats-update")
+async def internal_stats_update(body: Dict[str, Any]) -> dict:
+    """
+    Called by the researcher service every ~60s with paper-trading statistics.
+    Caches session summary + per-pair breakdown.
+    """
+    global _stats_cache
+    _stats_cache = {**body, "updated_at": _now_iso()}
+    log.debug("[ARB] Stats cache updated: %d pairs", len(body.get("pairs", [])))
+    return {"ok": True}
+
+
 # ─────────────────── REST endpoints ───────────────────
 
 @router.get("/research/pairs")
@@ -117,6 +133,25 @@ async def get_research_pairs() -> dict:
         "pairs": pairs,
         "total": len(pairs),
         "updated_at": _now_iso(),
+    }
+
+
+@router.get("/research/stats")
+async def get_research_stats() -> dict:
+    """Paper-trading statistics from the researcher service."""
+    if _stats_cache:
+        return _stats_cache
+    # Empty state before researcher pushes first batch
+    return {
+        "session": {
+            "open_positions": 0,
+            "total_opened": 0,
+            "total_closed": 0,
+            "total_net_pnl": 0.0,
+            "breakeven_pct": 0.0,
+        },
+        "pairs": [],
+        "updated_at": None,
     }
 
 

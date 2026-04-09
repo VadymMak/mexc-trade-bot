@@ -53,6 +53,29 @@ interface ToastItem {
   type: 'success' | 'error';
 }
 
+interface SessionStats {
+  open_positions: number;
+  total_opened: number;
+  total_closed: number;
+  total_net_pnl: number;
+  breakeven_pct: number;
+}
+
+interface PairStat {
+  symbol: string;
+  exchange_long: string;
+  exchange_short: string;
+  status: string;
+  entry_spread: number;
+  entry_zscore: number | null;
+}
+
+interface ResearchStats {
+  session: SessionStats;
+  pairs: PairStat[];
+  updated_at: string | null;
+}
+
 /* ─────────────────── Helpers ─────────────────── */
 
 function fmtPct(v: number): string {
@@ -92,6 +115,72 @@ function StatusBadge({ status }: { status: ArbPair['status'] }) {
   return <span className={`${styles.badge} ${cls}`}>{status}</span>;
 }
 
+/* ─────────────────── Stats panel ─────────────────── */
+
+function StatsPanel({ stats }: { stats: ResearchStats | null }) {
+  if (!stats) {
+    return (
+      <div className={styles.statsPanel}>
+        <span className={styles.muted}>Simulator stats load after first 60s report…</span>
+      </div>
+    );
+  }
+
+  const s = stats.session;
+  const winRate = s.total_closed > 0
+    ? ((stats.pairs.filter((p) => p.status === 'open').length / Math.max(s.total_opened, 1)) * 100)
+    : null;
+  const pnlPos = s.total_net_pnl >= 0;
+
+  return (
+    <div className={styles.statsPanel}>
+      <div className={styles.statsPanelTitle}>📊 Paper Simulator</div>
+      <div className={styles.statsGrid}>
+        <div className={styles.statCell}>
+          <div className={styles.statLabel}>Open</div>
+          <div className={styles.statValue}>{s.open_positions}</div>
+        </div>
+        <div className={styles.statCell}>
+          <div className={styles.statLabel}>Opened</div>
+          <div className={styles.statValue}>{s.total_opened}</div>
+        </div>
+        <div className={styles.statCell}>
+          <div className={styles.statLabel}>Closed</div>
+          <div className={styles.statValue}>{s.total_closed}</div>
+        </div>
+        <div className={styles.statCell}>
+          <div className={styles.statLabel}>Net PnL</div>
+          <div className={`${styles.statValue} ${pnlPos ? styles.pnlPos : styles.pnlNeg}`}>
+            {pnlPos ? '+' : ''}${s.total_net_pnl.toFixed(4)}
+          </div>
+        </div>
+        <div className={styles.statCell}>
+          <div className={styles.statLabel}>Breakeven</div>
+          <div className={styles.statValue}>{s.breakeven_pct.toFixed(3)}%</div>
+        </div>
+        {winRate !== null && (
+          <div className={styles.statCell}>
+            <div className={styles.statLabel}>Open rate</div>
+            <div className={styles.statValue}>{winRate.toFixed(0)}%</div>
+          </div>
+        )}
+      </div>
+      {stats.pairs.length > 0 && (
+        <div className={styles.openPositionsLabel}>
+          Open positions: {stats.pairs.map((p) =>
+            `${p.symbol} ${p.exchange_long}→${p.exchange_short} @${p.entry_spread.toFixed(3)}%`
+          ).join(' · ')}
+        </div>
+      )}
+      {stats.updated_at && (
+        <div className={styles.statsUpdated}>
+          Stats updated: {new Date(stats.updated_at).toLocaleTimeString()}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─────────────────── Tab 1: Research ─────────────────── */
 
 const REFRESH_INTERVAL = 30_000;
@@ -99,6 +188,7 @@ const REFRESH_SECONDS = REFRESH_INTERVAL / 1000;
 
 function ResearchTab() {
   const [pairs, setPairs] = useState<ArbPair[]>([]);
+  const [stats, setStats] = useState<ResearchStats | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(REFRESH_SECONDS);
 
@@ -111,7 +201,17 @@ function ResearchTab() {
     setCountdown(REFRESH_SECONDS);
   }, []);
 
+  const fetchStats = useCallback(async () => {
+    try {
+      const r = await fetch('/api/proxy/api/arbitrage/research/stats');
+      if (!r.ok) return;
+      const data = await r.json() as ResearchStats;
+      if (data.session) setStats(data);
+    } catch { /* ignore */ }
+  }, []);
+
   usePolling(fetchPairs, REFRESH_INTERVAL);
+  usePolling(fetchStats, 60_000);   // stats update every 60s (matches researcher report_loop)
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -174,6 +274,8 @@ function ResearchTab() {
           </tbody>
         </table>
       </div>
+
+      <StatsPanel stats={stats} />
     </div>
   );
 }
