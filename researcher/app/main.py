@@ -158,11 +158,59 @@ async def main() -> None:
                 except Exception as exc:
                     log.debug("[Stats push] Error: %r", exc)
 
+    async def symbol_reload_loop() -> None:
+        """
+        Every 24h: re-discover symbols, compare with current list,
+        reconnect collectors to NEW symbols only (hot reload — no restart needed).
+        """
+        while True:
+            await asyncio.sleep(24 * 3600)
+            log.info("[Watcher] Running 24h symbol refresh…")
+            try:
+                new_symbols = await discover_symbols(save=True)
+            except Exception as exc:
+                log.error("[Watcher] Refresh failed: %r", exc)
+                continue
+
+            current = set(symbols)
+            added   = [s for s in new_symbols if s not in current]
+            removed = [s for s in symbols     if s not in new_symbols]
+
+            if not added and not removed:
+                log.info("[Watcher] Symbol list unchanged (%d symbols)", len(new_symbols))
+                continue
+
+            log.info(
+                "[Watcher] Symbol update: +%d added, -%d removed",
+                len(added), len(removed),
+            )
+            if added:
+                log.info("[Watcher] New symbols to subscribe: %s", ", ".join(added[:10]))
+
+            # Subscribe collectors to newly added symbols only
+            if added:
+                sub_results = await asyncio.gather(
+                    *[c.connect(added) for c in collectors],
+                    return_exceptions=True,
+                )
+                for c, r in zip(collectors, sub_results):
+                    if isinstance(r, Exception):
+                        log.warning("[Watcher] %s re-subscribe failed: %r", c.name, r)
+                    else:
+                        log.info("[Watcher] %s subscribed to %d new symbols", c.name, len(added))
+
+            # Update our local reference
+            symbols.clear()
+            symbols.extend(new_symbols)
+
+    # Make symbols mutable for hot reload
+    symbols = list(symbols)
+
     await asyncio.gather(
         report_loop(),
         matrix.push_loop(),
         promoter.run(),
-        symbol_watch_loop(interval_hours=24.0),   # rediscover every 24h
+        symbol_reload_loop(),   # 24h hot reload — no restart needed
     )
 
 
