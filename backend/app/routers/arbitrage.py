@@ -22,6 +22,11 @@ _spread_cache: dict[tuple, dict] = {}
 # Shape: { "session": {...}, "pairs": [...] }
 _stats_cache: dict = {}
 
+# Queue items suggested by pair_promoter
+# List of dicts with id, symbol, exchange_long, exchange_short, score, etc.
+_queue_items: list[dict] = []
+_queue_id_counter = 0
+
 
 # ─────────────────── helpers ───────────────────
 
@@ -155,28 +160,64 @@ async def get_research_stats() -> dict:
     }
 
 
+@router.post("/internal/queue-suggest")
+async def internal_queue_suggest(body: Dict[str, Any]) -> dict:
+    """
+    Called by pair_promoter when a pair meets promotion criteria.
+    Adds to the approval queue with a unique id.
+    """
+    global _queue_id_counter
+    _queue_id_counter += 1
+    item = {
+        "id": _queue_id_counter,
+        "symbol":         body.get("symbol", ""),
+        "exchange_long":  body.get("exchange_long", ""),
+        "exchange_short": body.get("exchange_short", ""),
+        "score":          float(body.get("score", 0)),
+        "win_rate":       float(body.get("win_rate", 0)),
+        "signals_per_day": float(body.get("signals_per_day", 0)),
+        "avg_hold_minutes": float(body.get("avg_hold_minutes", 0)),
+        "avg_net_pnl_usdt": float(body.get("avg_net_pnl_usdt", 0)),
+        "total_paper_trades": int(body.get("total_trades", 0)),
+        "days_observed":  int(body.get("days_observed", 0)),
+        "sharpe":         float(body.get("sharpe", 0)),
+        "max_drawdown_pct": float(body.get("max_drawdown_pct", 0)),
+        "submitted_at":   _now_iso(),
+    }
+    _queue_items.append(item)
+    log.info("[ARB] Queue item added: %s %s/%s score=%.1f",
+             item["symbol"], item["exchange_long"], item["exchange_short"], item["score"])
+    return {"id": _queue_id_counter}
+
+
 @router.get("/queue")
 async def get_queue() -> dict:
-    """Pairs pending manual approval (mock)."""
-    return {"items": _mock_queue()}
+    """Pairs pending manual approval from pair_promoter."""
+    return {"items": _queue_items}
 
 
 @router.post("/queue/{id}/approve")
 async def approve_queue_item(id: int) -> dict:
+    global _queue_items
+    _queue_items = [i for i in _queue_items if i["id"] != id]
     log.info("[ARB] Approved queue item id=%s", id)
     return {"status": "approved", "id": id}
 
 
 @router.post("/queue/{id}/reject")
 async def reject_queue_item(id: int) -> dict:
+    global _queue_items
+    _queue_items = [i for i in _queue_items if i["id"] != id]
     log.info("[ARB] Rejected queue item id=%s", id)
     return {"status": "rejected", "id": id}
 
 
 @router.post("/queue/{id}/snooze")
 async def snooze_queue_item(id: int, body: dict = Body(default={})) -> dict:
+    global _queue_items
     hours = int(body.get("hours", 24))
     until = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+    _queue_items = [i for i in _queue_items if i["id"] != id]
     log.info("[ARB] Snoozed queue item id=%s for %sh until %s", id, hours, until)
     return {"status": "snoozed", "until": until}
 
