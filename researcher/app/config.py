@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     @property
     def symbols_list(self) -> list[str]:
         return [s.strip() for s in self.SYMBOLS.split(",") if s.strip()]
-    MIN_SPREAD_PCT: float = 0.0012        # 0.12% — minimum spread to consider entry
+    MIN_SPREAD_PCT: float = 0.003          # 0.30% — minimum spread for z-score entry (must exceed breakeven ~0.22%)
     ZSCORE_THRESHOLD: float = 2.5         # z-score entry threshold (mean-reversion)
     MAX_SPREAD_LAG_MS: int = 500
     SPREAD_WINDOW_TICKS: int = 300
