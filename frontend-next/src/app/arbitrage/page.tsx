@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { usePolling } from '@/hooks/usePolling';
 import styles from './page.module.css';
 
@@ -96,41 +96,23 @@ function StatusBadge({ status }: { status: ArbPair['status'] }) {
 
 function ResearchTab() {
   const [pairs, setPairs] = useState<ArbPair[]>([]);
-  const [connected, setConnected] = useState(false);
-  const [statusMsg, setStatusMsg] = useState('Connecting…');
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
-  useEffect(() => {
-    const es = new EventSource('/api/proxy/api/arbitrage/sse');
-
-    es.onopen = () => {
-      setConnected(true);
-      setStatusMsg('Live via SSE');
-    };
-
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data as string);
-        if (data.type === 'spread_update') {
-          setPairs(data.pairs ?? []);
-        }
-      } catch {
-        // ignore parse errors
-      }
-    };
-
-    es.onerror = () => {
-      setConnected(false);
-      setStatusMsg('Connection lost — reconnecting…');
-    };
-
-    return () => es.close();
+  const fetchPairs = useCallback(async () => {
+    const r = await fetch('/api/proxy/api/arbitrage/research/pairs');
+    if (!r.ok) return;
+    const data = await r.json() as { pairs: ArbPair[] };
+    setPairs(data.pairs ?? []);
+    setUpdatedAt(new Date().toLocaleTimeString());
   }, []);
+
+  usePolling(fetchPairs, 10_000);
 
   return (
     <div>
       <div className={styles.sseIndicator}>
-        <span className={connected ? styles.sseDot : styles.sseDotOff} />
-        {statusMsg}
+        <span className={updatedAt ? styles.sseDot : styles.sseDotOff} />
+        {updatedAt ? `Updated ${updatedAt}` : 'Loading…'}
       </div>
 
       <div className={styles.tableCard}>
