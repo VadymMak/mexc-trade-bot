@@ -26,7 +26,7 @@ async def main() -> None:
     )
     log = logging.getLogger("researcher")
 
-    log.info("Starting researcher. Symbols: %s", settings.SYMBOLS)
+    log.info("Starting researcher. Symbols: %s", settings.symbols_list)
 
     # DB
     db = NeonDB(settings.NEON_DATABASE_URL)
@@ -57,7 +57,7 @@ async def main() -> None:
         c.set_callback(matrix.on_price)
 
     # Connect all (gather, don't fail if one exchange is down)
-    connect_tasks = [c.connect(settings.SYMBOLS) for c in collectors]
+    connect_tasks = [c.connect(settings.symbols_list) for c in collectors]
     results = await asyncio.gather(*connect_tasks, return_exceptions=True)
     for c, r in zip(collectors, results):
         if isinstance(r, Exception):

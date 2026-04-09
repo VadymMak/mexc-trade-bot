@@ -6,7 +6,11 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     NEON_DATABASE_URL: str = ""
     TRADING_BOT_URL: str = "http://localhost:8000"
-    SYMBOLS: list[str] = ["BTC_USDT", "ETH_USDT", "SOL_USDT", "BNB_USDT", "XRP_USDT"]
+    SYMBOLS: str = "BTC_USDT,ETH_USDT,SOL_USDT,BNB_USDT,XRP_USDT"
+
+    @property
+    def symbols_list(self) -> list[str]:
+        return [s.strip() for s in self.SYMBOLS.split(",") if s.strip()]
     MIN_SPREAD_PCT: float = 0.0012        # 0.12%
     ZSCORE_THRESHOLD: float = 2.5
     MAX_SPREAD_LAG_MS: int = 30
