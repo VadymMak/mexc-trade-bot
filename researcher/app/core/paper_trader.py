@@ -1,11 +1,15 @@
 """
 PaperTrader — listens to SpreadMatrix events, opens/closes paper positions.
 
-Entry condition:
-  |zscore| >= ZSCORE_THRESHOLD  AND  spread_pct >= MIN_SPREAD_PCT * 100
+Entry condition (either):
+  A) z-score mode:  |zscore| >= ZSCORE_THRESHOLD  AND  spread >= MIN_SPREAD_PCT * 100
+  B) large spread:  spread >= 5%  (no z-score required — catches new listings)
 
-Exit conditions:
-  |zscore| < 0.5  OR  spread_pct < 0.03 %
+Exit conditions (first match wins, reason logged):
+  1. TAKE_PROFIT   — spread narrowed to <= entry * TAKE_PROFIT_RATIO   (default 50% of entry)
+  2. ZSCORE_REVERT — |zscore| < ZSCORE_EXIT  (spread mean-reverted, default z<0.5)
+  3. STOP_LOSS     — spread widened to >= entry * STOP_LOSS_RATIO      (default 2×)
+  4. TIME_STOP     — held longer than MAX_HOLD_SECONDS                 (default 4h)
 
 Uses TradingSimulator for realistic P&L (fees + slippage + market impact).
 """
@@ -79,11 +83,16 @@ class PaperTrader:
         spread_pct: float,
         ts_ms:     int,
     ) -> None:
-        if (
+        # Mode A: classic z-score mean reversion
+        zscore_entry = (
             zscore is not None
             and abs(zscore) >= self.settings.ZSCORE_THRESHOLD
             and spread_pct >= self.settings.MIN_SPREAD_PCT * 100
-        ):
+        )
+        # Mode B: large-spread entry (new listings, no z-score history needed)
+        large_spread_entry = spread_pct >= 5.0
+
+        if zscore_entry or large_spread_entry:
             entry_costs = self.sim.simulate_entry(ex_long, ex_short, spread_pct)
             pos_id      = 0
 
@@ -99,6 +108,7 @@ class PaperTrader:
                     fee_usdt=entry_costs["fee_usdt"],
                 )
 
+            entry_mode = "zscore" if zscore_entry else "large_spread"
             self._open[key] = _OpenState(
                 pos_id=pos_id,
                 opened_ms=ts_ms,
@@ -106,19 +116,27 @@ class PaperTrader:
                 entry_zscore=zscore,
                 slip_entry=entry_costs["slippage_usdt"],
                 fee_entry=entry_costs["fee_usdt"],
+                entry_mode=entry_mode,
             )
             self._total_opened += 1
 
             # Breakeven: total round-trip cost as % of entry spread
             be = entry_costs["total_cost_usdt"] * 2 / self.sim.deal_size * 100
+            tp_target = spread_pct * self.settings.TAKE_PROFIT_RATIO
+            sl_target = spread_pct * self.settings.STOP_LOSS_RATIO
             logger.info(
-                "[OPEN]  %s %s/%s  spread=%.3f%%  z=%+.2f  "
-                "size=%.0f USDT  slip=%.4f  fee=%.4f  breakeven=%.3f%%",
-                symbol, ex_long, ex_short, spread_pct, zscore,
+                "[OPEN %s]  %s %s/%s  spread=%.3f%%  z=%s  "
+                "size=%.0f USDT  slip=%.4f  fee=%.4f  breakeven=%.3f%%  "
+                "TP@%.3f%%  SL@%.3f%%  timeout=%dh",
+                entry_mode.upper(), symbol, ex_long, ex_short, spread_pct,
+                f"{zscore:+.2f}" if zscore is not None else "n/a",
                 self.sim.deal_size,
                 entry_costs["slippage_usdt"],
                 entry_costs["fee_usdt"],
                 be,
+                tp_target,
+                sl_target,
+                self.settings.MAX_HOLD_SECONDS // 3600,
             )
 
     async def _maybe_close(
@@ -128,21 +146,41 @@ class PaperTrader:
         spread_pct: float,
         ts_ms:     int,
     ) -> None:
-        should_exit = (
-            (zscore is not None and abs(zscore) < 0.5)
-            or spread_pct < 0.03
-        )
-        if not should_exit:
+        state    = self._open[key]
+        hold_sec = max(0, (ts_ms - state.opened_ms) // 1000)
+        entry    = state.entry_spread
+
+        # ── Exit condition checks (first match wins) ──────────────────────
+        reason: Optional[str] = None
+
+        # 1. Take-profit: spread narrowed to ≤ entry × TAKE_PROFIT_RATIO
+        tp_threshold = entry * self.settings.TAKE_PROFIT_RATIO
+        if spread_pct <= tp_threshold:
+            reason = "TAKE_PROFIT"
+
+        # 2. Z-score revert: spread returned to mean (only if z-score available)
+        elif zscore is not None and abs(zscore) < self.settings.ZSCORE_EXIT:
+            reason = "ZSCORE_REVERT"
+
+        # 3. Stop-loss: spread grew too wide (position moving against us)
+        elif spread_pct >= entry * self.settings.STOP_LOSS_RATIO:
+            reason = "STOP_LOSS"
+
+        # 4. Time stop: max hold exceeded
+        elif hold_sec >= self.settings.MAX_HOLD_SECONDS:
+            reason = "TIME_STOP"
+
+        if reason is None:
             return
 
-        state    = self._open.pop(key)
+        # ── Execute close ─────────────────────────────────────────────────
+        self._open.pop(key)
         symbol, ex_long, ex_short = key
-        hold_sec = max(0, (ts_ms - state.opened_ms) // 1000)
 
         result = self.sim.simulate_trade(
             exchange_long=ex_long,
             exchange_short=ex_short,
-            entry_spread_pct=state.entry_spread,
+            entry_spread_pct=entry,
             exit_spread_pct=spread_pct,
         )
 
@@ -163,12 +201,14 @@ class PaperTrader:
         verdict = "WIN " if result.net_pnl_usdt > 0 else "LOSS"
 
         logger.info(
-            "[CLOSE %s] %s %s/%s  "
-            "spread %.3f%%→%.3f%%  "
+            "[CLOSE %s | %s] %s %s/%s  "
+            "spread %.3f%%→%.3f%%  (entry_mode=%s)  "
             "gross=%+.4f  slip=%.4f  fee=%.4f  net=%+.4f USDT  "
             "pnl%%=%+.3f%%  hold=%ds",
-            verdict, symbol, ex_long, ex_short,
-            state.entry_spread, spread_pct,
+            verdict, reason,
+            symbol, ex_long, ex_short,
+            entry, spread_pct,
+            state.entry_mode,
             result.gross_pnl_usdt,
             result.slippage_entry_usdt + result.slippage_exit_usdt,
             result.fee_usdt,
@@ -181,16 +221,17 @@ class PaperTrader:
 class _OpenState:
     """Lightweight container for an open position's state."""
     __slots__ = ("pos_id", "opened_ms", "entry_spread", "entry_zscore",
-                 "slip_entry", "fee_entry")
+                 "slip_entry", "fee_entry", "entry_mode")
 
     def __init__(
         self,
         pos_id:       int,
         opened_ms:    int,
         entry_spread: float,
-        entry_zscore: float,
+        entry_zscore: Optional[float],
         slip_entry:   float,
         fee_entry:    float,
+        entry_mode:   str = "zscore",
     ) -> None:
         self.pos_id       = pos_id
         self.opened_ms    = opened_ms
@@ -198,3 +239,4 @@ class _OpenState:
         self.entry_zscore = entry_zscore
         self.slip_entry   = slip_entry
         self.fee_entry    = fee_entry
+        self.entry_mode   = entry_mode
