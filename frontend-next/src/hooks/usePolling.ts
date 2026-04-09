@@ -16,8 +16,10 @@ export function usePolling(
     let timerId: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
-    const tick = async () => {
-      if (cancelled || document.hidden) return;
+    const tick = async (skipHiddenCheck = false) => {
+      if (cancelled) return;
+      // Skip if tab is hidden — except for the very first fetch (skipHiddenCheck=true)
+      if (!skipHiddenCheck && document.hidden) return;
       await fnRef.current().catch(() => {/* errors handled by caller */});
       if (!cancelled) {
         timerId = setTimeout(tick, intervalMs);
@@ -38,7 +40,8 @@ export function usePolling(
     };
 
     document.addEventListener('visibilitychange', onVisibility);
-    tick();
+    // Always run the initial fetch regardless of visibility state
+    tick(true);
 
     return () => {
       cancelled = true;
