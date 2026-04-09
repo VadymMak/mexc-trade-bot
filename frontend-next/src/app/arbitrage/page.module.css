@@ -188,6 +188,13 @@
   font-weight: 600;
 }
 
+.priceValue {
+  color: var(--color-text);
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
 .muted {
   color: var(--color-text-muted);
 }

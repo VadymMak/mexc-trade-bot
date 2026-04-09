@@ -61,10 +61,24 @@ class SpreadMatrix:
                 spread_pct = abs(ratio - 1.0) * 100
                 zscore = self._compute_zscore(symbol, ratio, now)
 
+                if ratio > 1:
+                    # ex_a is more expensive → short ex_a, long ex_b
+                    price_long  = price_b
+                    price_short = price_a
+                    exch_long   = ex_b
+                    exch_short  = ex_a
+                else:
+                    price_long  = price_a
+                    price_short = price_b
+                    exch_long   = ex_a
+                    exch_short  = ex_b
+
                 entry = {
                     "symbol": symbol,
-                    "exchange_long": ex_b if ratio > 1 else ex_a,
-                    "exchange_short": ex_a if ratio > 1 else ex_b,
+                    "exchange_long":  exch_long,
+                    "exchange_short": exch_short,
+                    "price_long":     price_long,
+                    "price_short":    price_short,
                     "spread_pct": spread_pct,
                     "ratio": ratio,
                     "zscore": zscore,

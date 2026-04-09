@@ -12,6 +12,8 @@ interface ArbPair {
   symbol: string;
   exchange_long: string;
   exchange_short: string;
+  price_long?: number;
+  price_short?: number;
   spread_pct: number;
   zscore: number | null;
   status: 'watching' | 'signal' | 'trading';
@@ -80,6 +82,13 @@ interface ResearchStats {
 
 function fmtPct(v: number): string {
   return `${(v * 100).toFixed(3)}%`;
+}
+
+function fmtPrice(v: number | undefined): string {
+  if (v == null) return '—';
+  if (v >= 1000) return `$${v.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  if (v >= 1)    return `$${v.toFixed(4)}`;
+  return `$${v.toFixed(6)}`;
 }
 
 function fmtHold(minutes: number): string {
@@ -234,6 +243,8 @@ function ResearchTab() {
               <th className={styles.th}>Symbol</th>
               <th className={styles.th}>Long Exchange</th>
               <th className={styles.th}>Short Exchange</th>
+              <th className={styles.th}>Price (long)</th>
+              <th className={styles.th}>Price (short)</th>
               <th className={styles.th}>Spread %</th>
               <th className={styles.th}>Z-Score</th>
               <th className={styles.th}>Status</th>
@@ -252,6 +263,12 @@ function ResearchTab() {
                   <span className={styles.exchange}>{row.exchange_short}</span>
                 </td>
                 <td className={styles.td}>
+                  <span className={styles.priceValue}>{fmtPrice(row.price_long)}</span>
+                </td>
+                <td className={styles.td}>
+                  <span className={styles.priceValue}>{fmtPrice(row.price_short)}</span>
+                </td>
+                <td className={styles.td}>
                   <span className={styles.spreadValue}>{fmtPct(row.spread_pct)}</span>
                 </td>
                 <td className={styles.td}>
@@ -266,7 +283,7 @@ function ResearchTab() {
             ))}
             {pairs.length === 0 && (
               <tr>
-                <td colSpan={6} className={styles.emptyCell}>
+                <td colSpan={8} className={styles.emptyCell}>
                   Waiting for data…
                 </td>
               </tr>

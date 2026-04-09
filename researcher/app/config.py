@@ -13,7 +13,7 @@ class Settings(BaseSettings):
         return [s.strip() for s in self.SYMBOLS.split(",") if s.strip()]
     MIN_SPREAD_PCT: float = 0.0012        # 0.12%
     ZSCORE_THRESHOLD: float = 2.5
-    MAX_SPREAD_LAG_MS: int = 30
+    MAX_SPREAD_LAG_MS: int = 500
     SPREAD_WINDOW_TICKS: int = 300
     PAPER_DEAL_SIZE_USDT: float = 10.0
     PROMOTE_THRESHOLD: float = 0.75
