@@ -25,8 +25,14 @@ export function usePolling(
     };
 
     const onVisibility = () => {
-      if (!document.hidden && !cancelled) {
-        // Tab became visible — run immediately then resume polling
+      if (document.hidden) {
+        // Tab hidden — cancel pending tick so no requests fire in background
+        if (timerId !== null) {
+          clearTimeout(timerId);
+          timerId = null;
+        }
+      } else if (!cancelled) {
+        // Tab visible — fetch immediately then resume polling
         tick();
       }
     };

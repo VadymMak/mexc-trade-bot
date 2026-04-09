@@ -52,7 +52,7 @@ export default function BotControl() {
     }
   }, []);
 
-  usePolling(fetchMetrics, 10_000);
+  usePolling(fetchMetrics, 30_000);
 
   const toggle = async () => {
     if (busy) return;

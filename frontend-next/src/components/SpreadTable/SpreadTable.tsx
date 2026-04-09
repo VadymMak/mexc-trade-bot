@@ -112,7 +112,7 @@ export default function SpreadTable({ search, minSpreadPct }: SpreadTableProps) 
     }
   }, []);
 
-  usePolling(fetchData, 2_000);
+  usePolling(fetchData, 15_000);
 
   // Filter
   const minBps = minSpreadPct * 100;

@@ -16,7 +16,12 @@ export async function GET(
   });
 
   const data = await response.json();
-  return Response.json(data, { status: response.status });
+  return Response.json(data, {
+    status: response.status,
+    headers: {
+      'Cache-Control': 'public, s-maxage=10, stale-while-revalidate=20',
+    },
+  });
 }
 
 export async function POST(
