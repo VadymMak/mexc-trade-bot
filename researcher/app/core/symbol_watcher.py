@@ -218,10 +218,10 @@ async def discover_symbols(save: bool = True) -> list[str]:
             per_exchange.append(r)
             log.info("[Watcher] %s: %d symbols", name, len(r))
 
-    # Union of all symbols
+    # Union of all symbols (valid only)
     all_symbols: set[str] = set()
     for ex in per_exchange:
-        all_symbols.update(ex.keys())
+        all_symbols.update(s for s in ex.keys() if _is_valid_symbol(s))
 
     scored: list[dict] = []
     for sym in all_symbols:
@@ -316,13 +316,25 @@ async def watch_loop(interval_hours: float = 24.0) -> None:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _binance_to_norm(sym: str) -> Optional[str]:
-    """Convert BTCUSDT → BTC_USDT. Skips non-USDT pairs."""
+    """Convert BTCUSDT → BTC_USDT. Skips non-USDT pairs and invalid symbols."""
     if not sym.endswith("USDT"):
         return None
     base = sym[:-4]   # strip USDT
     if not base:
         return None
+    # Skip: non-ASCII (Chinese chars etc), pure numbers, too short
+    if not base.isascii() or base.isdigit() or len(base) < 2:
+        return None
     return f"{base}_USDT"
+
+
+def _is_valid_symbol(sym: str) -> bool:
+    """Validate normalised symbol like BTC_USDT."""
+    if not sym.endswith("_USDT"):
+        return False
+    base = sym[:-5]
+    # Must be ASCII letters only (no digits-only, no Chinese, no special chars)
+    return base.isascii() and base.replace("1000", "").isalpha() and len(base) >= 2
 
 
 # ── Standalone run ────────────────────────────────────────────────────────────
