@@ -107,6 +107,11 @@ class NeonDB:
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS net_pnl_usdt        NUMERIC(12,6)",
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS hold_seconds        INT",
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS closed_at           TIMESTAMPTZ",
+            # ML dataset columns — features & labels for model training
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS exit_reason   TEXT",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_mode    TEXT",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS spread_mean   NUMERIC(10,6)",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS spread_std    NUMERIC(10,6)",
         ]:
             await self._pool.execute(col_ddl)
         await self._pool.execute("""
@@ -173,6 +178,9 @@ class NeonDB:
         deal_size_usdt:       float,
         slippage_entry_usdt:  float,
         fee_usdt:             float,
+        entry_mode:           Optional[str] = None,
+        spread_mean:          Optional[float] = None,
+        spread_std:           Optional[float] = None,
     ) -> int:
         """Insert open position; returns its auto-generated id."""
         assert self._pool
@@ -181,13 +189,15 @@ class NeonDB:
             INSERT INTO paper_positions
                 (symbol, exchange_long, exchange_short,
                  entry_spread_pct, entry_zscore,
-                 deal_size_usdt, slippage_entry_usdt, fee_usdt)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 deal_size_usdt, slippage_entry_usdt, fee_usdt,
+                 entry_mode, spread_mean, spread_std)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id
             """,
             symbol, exchange_long, exchange_short,
             entry_spread_pct, entry_zscore,
             deal_size_usdt, slippage_entry_usdt, fee_usdt,
+            entry_mode, spread_mean, spread_std,
         )
         return int(row["id"])
 
@@ -200,6 +210,7 @@ class NeonDB:
         gross_pnl_usdt:      float,
         net_pnl_usdt:        float,
         hold_seconds:        int,
+        exit_reason:         Optional[str] = None,
     ) -> None:
         """Mark position as closed with full P&L."""
         assert self._pool
@@ -213,11 +224,13 @@ class NeonDB:
                 gross_pnl_usdt      = $5,
                 net_pnl_usdt        = $6,
                 hold_seconds        = $7,
-                closed_at           = NOW()
+                closed_at           = NOW(),
+                exit_reason         = $8
             WHERE id = $1
             """,
             pos_id, exit_spread_pct, exit_zscore,
             slippage_exit_usdt, gross_pnl_usdt, net_pnl_usdt, hold_seconds,
+            exit_reason,
         )
 
     # ── pair_stats ────────────────────────────────────────────────────────────
@@ -350,6 +363,93 @@ class NeonDB:
         )
 
     # ── spread_ticks ──────────────────────────────────────────────────────────
+
+    async def export_dataset_csv(self) -> str:
+        """
+        Export all closed paper_positions as a CSV string for ML training.
+
+        Features (known at entry time):
+          symbol, exchange_long, exchange_short, entry_mode,
+          entry_spread_pct, entry_zscore, spread_mean, spread_std,
+          spread_zscore_ratio (entry_spread / spread_mean),
+          spread_cv (spread_std / spread_mean — coefficient of variation),
+          hour_of_day, day_of_week, deal_size_usdt
+
+        Labels (outcome):
+          exit_reason, exit_spread_pct, exit_zscore,
+          hold_seconds, gross_pnl_usdt, net_pnl_usdt,
+          pnl_pct (net_pnl / deal_size * 100),
+          profitable (1 if net_pnl > 0 else 0)
+        """
+        import csv, io
+        assert self._pool
+        rows = await self._pool.fetch(
+            """
+            SELECT
+                symbol, exchange_long, exchange_short,
+                entry_mode, entry_spread_pct, entry_zscore,
+                spread_mean, spread_std,
+                exit_reason, exit_spread_pct, exit_zscore,
+                deal_size_usdt, gross_pnl_usdt, net_pnl_usdt,
+                hold_seconds, opened_at, closed_at
+            FROM paper_positions
+            WHERE status = 'closed'
+              AND entry_spread_pct IS NOT NULL
+            ORDER BY opened_at ASC
+            """,
+        )
+        if not rows:
+            return "no data"
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            # --- identifiers ---
+            "symbol", "exchange_long", "exchange_short",
+            # --- entry features ---
+            "entry_mode", "entry_spread_pct", "entry_zscore",
+            "spread_mean", "spread_std",
+            "spread_zscore_ratio",   # entry_spread / spread_mean
+            "spread_cv",             # spread_std / spread_mean (volatility)
+            "hour_of_day", "day_of_week",
+            "deal_size_usdt",
+            # --- outcome labels ---
+            "exit_reason", "exit_spread_pct", "exit_zscore",
+            "hold_seconds", "gross_pnl_usdt", "net_pnl_usdt",
+            "pnl_pct", "profitable",
+        ])
+
+        for r in rows:
+            e_spread  = float(r["entry_spread_pct"] or 0)
+            s_mean    = float(r["spread_mean"] or 0)
+            s_std     = float(r["spread_std"] or 0)
+            net_pnl   = float(r["net_pnl_usdt"] or 0)
+            deal_size = float(r["deal_size_usdt"] or 10)
+            opened_at = r["opened_at"]
+
+            spread_zscore_ratio = round(e_spread / s_mean, 4) if s_mean > 0 else None
+            spread_cv           = round(s_std / s_mean, 4)    if s_mean > 0 else None
+            pnl_pct             = round(net_pnl / deal_size * 100, 4)
+            profitable          = 1 if net_pnl > 0 else 0
+            hour_of_day         = opened_at.hour       if opened_at else None
+            day_of_week         = opened_at.weekday()  if opened_at else None
+
+            writer.writerow([
+                r["symbol"], r["exchange_long"], r["exchange_short"],
+                r["entry_mode"] or "", e_spread,
+                round(float(r["entry_zscore"]), 4) if r["entry_zscore"] is not None else "",
+                round(s_mean, 6), round(s_std, 6),
+                spread_zscore_ratio, spread_cv,
+                hour_of_day, day_of_week,
+                deal_size,
+                r["exit_reason"] or "", float(r["exit_spread_pct"] or 0),
+                round(float(r["exit_zscore"]), 4) if r["exit_zscore"] is not None else "",
+                r["hold_seconds"] or 0,
+                round(float(r["gross_pnl_usdt"] or 0), 6), round(net_pnl, 6),
+                pnl_pct, profitable,
+            ])
+
+        return buf.getvalue()
 
     async def insert_spread_tick(
         self,

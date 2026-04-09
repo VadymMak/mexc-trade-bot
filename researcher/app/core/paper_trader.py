@@ -51,15 +51,18 @@ class PaperTrader:
         ex_long    = data["exchange_long"]
         ex_short   = data["exchange_short"]
         zscore: Optional[float] = data.get("zscore")
-        spread_pct = data["spread_pct"]
-        ts_ms      = data.get("ts_ms", int(time.time() * 1000))
+        spread_pct  = data["spread_pct"]
+        spread_mean = data.get("spread_mean")
+        spread_std  = data.get("spread_std")
+        ts_ms       = data.get("ts_ms", int(time.time() * 1000))
 
         key = (symbol, ex_long, ex_short)
 
         if key in self._open:
             await self._maybe_close(key, zscore, spread_pct, ts_ms)
         else:
-            await self._maybe_open(key, symbol, ex_long, ex_short, zscore, spread_pct, ts_ms)
+            await self._maybe_open(key, symbol, ex_long, ex_short, zscore, spread_pct, ts_ms,
+                                   spread_mean=spread_mean, spread_std=spread_std)
 
     # ── Session stats (called from report_loop) ───────────────────────────────
 
@@ -78,13 +81,15 @@ class PaperTrader:
 
     async def _maybe_open(
         self,
-        key:       tuple,
-        symbol:    str,
-        ex_long:   str,
-        ex_short:  str,
-        zscore:    Optional[float],
+        key:        tuple,
+        symbol:     str,
+        ex_long:    str,
+        ex_short:   str,
+        zscore:     Optional[float],
         spread_pct: float,
-        ts_ms:     int,
+        ts_ms:      int,
+        spread_mean: Optional[float] = None,
+        spread_std:  Optional[float] = None,
     ) -> None:
         # Reject bogus data: price-scale mismatches produce absurd spreads
         if spread_pct > self.settings.MAX_SPREAD_PCT:
@@ -134,6 +139,9 @@ class PaperTrader:
                     deal_size_usdt=self.sim.deal_size,
                     slippage_entry_usdt=entry_costs["slippage_usdt"],
                     fee_usdt=entry_costs["fee_usdt"],
+                    entry_mode=entry_mode,
+                    spread_mean=spread_mean,
+                    spread_std=spread_std,
                 )
                 self._open[key].pos_id = pos_id  # update with real id
 
@@ -215,6 +223,7 @@ class PaperTrader:
                 gross_pnl_usdt=result.gross_pnl_usdt,
                 net_pnl_usdt=result.net_pnl_usdt,
                 hold_seconds=hold_sec,
+                exit_reason=reason,
             )
             await self.db.upsert_pair_stats(symbol, ex_long, ex_short)
 

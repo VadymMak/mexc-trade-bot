@@ -222,6 +222,105 @@ async def snooze_queue_item(id: int, body: dict = Body(default={})) -> dict:
     return {"status": "snoozed", "until": until}
 
 
+@router.get("/research/export-dataset")
+async def export_dataset() -> StreamingResponse:
+    """
+    Export all closed paper_positions as a CSV file for ML model training.
+    Connects directly to Neon DB (NEON_DATABASE_URL env var).
+
+    Features: entry_mode, entry_spread_pct, entry_zscore, spread_mean, spread_std,
+              spread_zscore_ratio, spread_cv, hour_of_day, day_of_week
+    Labels:   exit_reason, hold_seconds, net_pnl_usdt, pnl_pct, profitable
+    """
+    import csv
+    import io
+    import os
+    import asyncpg
+
+    neon_dsn = os.getenv("NEON_DATABASE_URL", "")
+    if not neon_dsn:
+        return StreamingResponse(
+            iter(["error: NEON_DATABASE_URL not set"]),
+            media_type="text/plain",
+            status_code=500,
+        )
+
+    conn = await asyncpg.connect(dsn=neon_dsn, statement_cache_size=0)
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT
+                symbol, exchange_long, exchange_short,
+                entry_mode, entry_spread_pct, entry_zscore,
+                spread_mean, spread_std,
+                exit_reason, exit_spread_pct, exit_zscore,
+                deal_size_usdt, gross_pnl_usdt, net_pnl_usdt,
+                hold_seconds, opened_at, closed_at
+            FROM paper_positions
+            WHERE status = 'closed'
+              AND entry_spread_pct IS NOT NULL
+            ORDER BY opened_at ASC
+            """
+        )
+    finally:
+        await conn.close()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "symbol", "exchange_long", "exchange_short",
+        "entry_mode", "entry_spread_pct", "entry_zscore",
+        "spread_mean", "spread_std",
+        "spread_zscore_ratio", "spread_cv",
+        "hour_of_day", "day_of_week",
+        "deal_size_usdt",
+        "exit_reason", "exit_spread_pct", "exit_zscore",
+        "hold_seconds", "gross_pnl_usdt", "net_pnl_usdt",
+        "pnl_pct", "profitable",
+    ])
+
+    for r in rows:
+        e_spread  = float(r["entry_spread_pct"] or 0)
+        s_mean    = float(r["spread_mean"] or 0)
+        s_std     = float(r["spread_std"] or 0)
+        net_pnl   = float(r["net_pnl_usdt"] or 0)
+        deal_size = float(r["deal_size_usdt"] or 10)
+        opened_at = r["opened_at"]
+
+        ratio = round(e_spread / s_mean, 4) if s_mean > 0 else ""
+        cv    = round(s_std / s_mean, 4)    if s_mean > 0 else ""
+
+        writer.writerow([
+            r["symbol"], r["exchange_long"], r["exchange_short"],
+            r["entry_mode"] or "large_spread", e_spread,
+            round(float(r["entry_zscore"]), 4) if r["entry_zscore"] is not None else "",
+            round(s_mean, 6) if s_mean else "",
+            round(s_std, 6)  if s_std  else "",
+            ratio, cv,
+            opened_at.hour if opened_at else "",
+            opened_at.weekday() if opened_at else "",
+            deal_size,
+            r["exit_reason"] or "",
+            float(r["exit_spread_pct"] or 0),
+            round(float(r["exit_zscore"]), 4) if r["exit_zscore"] is not None else "",
+            r["hold_seconds"] or 0,
+            round(float(r["gross_pnl_usdt"] or 0), 6),
+            round(net_pnl, 6),
+            round(net_pnl / deal_size * 100, 4),
+            1 if net_pnl > 0 else 0,
+        ])
+
+    from datetime import date
+    filename = f"arb_dataset_{date.today().isoformat()}.csv"
+    csv_content = buf.getvalue()
+
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/active")
 async def get_active_positions() -> dict:
     """Active paper positions (empty until trading engine is wired)."""

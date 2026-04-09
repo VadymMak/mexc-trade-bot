@@ -59,7 +59,7 @@ class SpreadMatrix:
 
                 ratio = price_a / price_b
                 spread_pct = abs(ratio - 1.0) * 100
-                zscore = self._compute_zscore(symbol, ratio, now)
+                zscore, spread_mean, spread_std = self._compute_zscore(symbol, ratio, now)
 
                 if ratio > 1:
                     # ex_a is more expensive → short ex_a, long ex_b
@@ -79,10 +79,12 @@ class SpreadMatrix:
                     "exchange_short": exch_short,
                     "price_long":     price_long,
                     "price_short":    price_short,
-                    "spread_pct": spread_pct,
-                    "ratio": ratio,
-                    "zscore": zscore,
-                    "ts_ms": now,
+                    "spread_pct":     spread_pct,
+                    "ratio":          ratio,
+                    "zscore":         zscore,
+                    "spread_mean":    spread_mean,
+                    "spread_std":     spread_std,
+                    "ts_ms":          now,
                 }
 
                 # Store latest result per directed pair
@@ -95,20 +97,29 @@ class SpreadMatrix:
             for cb in self._callbacks:
                 await cb(r)
 
-    def _compute_zscore(self, symbol: str, ratio: float, ts_ms: int) -> float | None:
+    def _compute_zscore(
+        self, symbol: str, ratio: float, ts_ms: int
+    ) -> tuple[float | None, float | None, float | None]:
+        """Returns (zscore, spread_mean_pct, spread_std_pct).
+        spread_mean/std are expressed in same units as spread_pct (percentage points).
+        """
         if symbol not in self._history:
             self._history[symbol] = deque(maxlen=self._window)
         self._history[symbol].append((ratio, ts_ms))
         hist = self._history[symbol]
         if len(hist) < 30:
-            return None
+            return None, None, None
         ratios = [r for r, _ in hist]
         mean = sum(ratios) / len(ratios)
         variance = sum((r - mean) ** 2 for r in ratios) / len(ratios)
         std = variance ** 0.5
         if std < 0.0001:
-            return None
-        return (ratio - mean) / std
+            return None, abs(mean - 1.0) * 100, std * 100
+        zscore = (ratio - mean) / std
+        # Convert ratio mean/std to spread percentage-point units
+        spread_mean_pct = abs(mean - 1.0) * 100
+        spread_std_pct  = std * 100
+        return zscore, spread_mean_pct, spread_std_pct
 
     def add_callback(self, cb: Callable) -> None:
         """Register callback for spread updates."""
