@@ -19,6 +19,7 @@ from .collectors.mexc_collector import MexcCollector
 from .core.pair_promoter import PairPromoter
 from .core.paper_trader import PaperTrader
 from .core.spread_matrix import SpreadMatrix
+from .core.symbol_watcher import watch_loop as symbol_watch_loop, discover_symbols
 from .db.neon_db import NeonDB
 
 
@@ -36,16 +37,22 @@ async def main() -> None:
         try:
             discovered = json.loads(symbols_file.read_text())
             symbols    = discovered["symbols"]
+            new_count  = len(discovered.get("new_listings", []))
             log.info(
-                "Loaded %d symbols from %s (generated %s)",
-                len(symbols), symbols_file, discovered.get("generated_at", "?"),
+                "Loaded %d symbols from %s (%d new listings, generated %s)",
+                len(symbols), symbols_file, new_count, discovered.get("generated_at", "?"),
             )
         except Exception as exc:
-            log.warning("Failed to load %s: %r — falling back to env var", symbols_file, exc)
-            symbols = settings.symbols_list
+            log.warning("Failed to load %s: %r — running discovery now", symbols_file, exc)
+            symbols = await discover_symbols(save=True)
     else:
-        symbols = settings.symbols_list
-        log.info("No symbols file — using env var: %s", symbols)
+        log.info("No symbols file — running live discovery…")
+        try:
+            symbols = await discover_symbols(save=True)
+            log.info("Discovery found %d symbols", len(symbols))
+        except Exception as exc:
+            log.warning("Discovery failed: %r — using env var fallback", exc)
+            symbols = settings.symbols_list
 
     # ── Database ──────────────────────────────────────────────────────────────
     db = NeonDB(settings.NEON_DATABASE_URL)
@@ -155,6 +162,7 @@ async def main() -> None:
         report_loop(),
         matrix.push_loop(),
         promoter.run(),
+        symbol_watch_loop(interval_hours=24.0),   # rediscover every 24h
     )
 
 

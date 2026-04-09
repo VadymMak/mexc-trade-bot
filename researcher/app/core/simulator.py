@@ -5,13 +5,22 @@ Accounts for:
   - Per-exchange taker fees
   - Base slippage (per exchange) + market-impact component
   - 4-leg round-trip cost (long entry, short entry, long exit, short exit)
-  - Position sizing (fixed-fractional / Kelly-inspired)
+  - Leverage-aware position sizing with margin buffer
+  - Drawdown guard: stops new positions when account drawdown exceeds threshold
   - Sharpe ratio (annualised) and max drawdown utilities
+
+Leverage notes (based on research):
+  - Cross-exchange arb is delta-neutral → direction risk is low
+  - Real risk: ONE leg gets liquidated while other stays open → full loss
+  - Safe leverage for arb: 2–3× maximum
+  - Each exchange requires margin = notional / leverage
+  - Liquidation price buffer: keep 30% margin above maintenance
+  - Max total exposure: 25% of account per exchange, 30% total
 """
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 # ── Per-exchange taker fee rates ──────────────────────────────────────────────
@@ -35,6 +44,25 @@ DEFAULT_SLIPPAGE_BPS  = 2.0
 
 # Market-impact: extra bps per $100 k notional (linear)
 MARKET_IMPACT_BPS_PER_100K = 2.0
+
+# ── Leverage / margin constants ───────────────────────────────────────────────
+# Safe max leverage for cross-exchange arb (delta-neutral but liquidation risk)
+MAX_SAFE_LEVERAGE = 3.0
+
+# Margin buffer above maintenance (30% safety cushion against liquidation)
+MARGIN_BUFFER_PCT = 0.30
+
+# Max % of account to put into a single pair (both legs combined)
+MAX_PAIR_EXPOSURE_PCT = 0.03   # 3% of account per pair
+
+# Max % of account in all open positions combined
+MAX_TOTAL_EXPOSURE_PCT = 0.25  # 25% total
+
+# Stop opening new positions if drawdown exceeds this
+MAX_DRAWDOWN_STOP_PCT = 0.10   # 10% drawdown → pause new entries
+
+# New listing score boost threshold (from symbol_watcher)
+NEW_LISTING_SPREAD_MULT = 1.5  # allow 1.5× larger position for new listings
 
 
 @dataclass
@@ -130,6 +158,7 @@ class TradingSimulator:
         risk_pct: float,
         entry_spread_pct: float,
         max_usdt: float = 500.0,
+        is_new_listing: bool = False,
     ) -> float:
         """
         Fixed-fractional position sizing scaled by spread edge.
@@ -139,13 +168,87 @@ class TradingSimulator:
             risk_pct:         Fraction of account to risk per trade (e.g. 0.01 = 1 %).
             entry_spread_pct: Entry spread — larger edge → bigger size.
             max_usdt:         Hard cap on position size.
+            is_new_listing:   New listings get a 1.5× boost (larger spreads expected).
 
         Returns USDT notional for one leg (long = short = this amount).
         """
         base = account_usdt * risk_pct
         # Scale: 1× at 0.30 %, 2× at 0.60 %, capped at 3×
         spread_mult = min(entry_spread_pct / 0.30, 3.0)
+        if is_new_listing:
+            spread_mult = min(spread_mult * NEW_LISTING_SPREAD_MULT, 4.0)
         return min(base * spread_mult, max_usdt)
+
+    def leverage_position_size(
+        self,
+        account_usdt: float,
+        open_positions_count: int,
+        entry_spread_pct: float,
+        leverage: float = 2.0,
+        is_new_listing: bool = False,
+        current_drawdown_pct: float = 0.0,
+    ) -> dict:
+        """
+        Leverage-aware position sizing with full risk checks.
+
+        Returns dict with:
+          - notional_usdt:   trade size (what gets sent to exchange)
+          - margin_usdt:     collateral needed per leg (notional / leverage)
+          - leverage:        actual leverage used (capped at MAX_SAFE_LEVERAGE)
+          - allowed:         False if any risk gate blocks the trade
+          - reason:          why blocked (if not allowed)
+          - liquidation_gap: % move on one leg that triggers liquidation
+
+        Cross-exchange arb risk model:
+          - Each leg requires margin = notional / leverage at its exchange
+          - Liquidation happens if price moves against ONE leg by (1/leverage - buffer)
+          - Since legs are on DIFFERENT exchanges, they can diverge temporarily
+          - Buffer of 30% above maintenance keeps us safe from temporary divergence
+        """
+        leverage = min(max(leverage, 1.0), MAX_SAFE_LEVERAGE)
+
+        # ── Risk gates ────────────────────────────────────────────────────────
+        if current_drawdown_pct >= MAX_DRAWDOWN_STOP_PCT:
+            return {
+                "notional_usdt": 0, "margin_usdt": 0, "leverage": leverage,
+                "allowed": False,
+                "reason": f"Drawdown {current_drawdown_pct*100:.1f}% ≥ stop {MAX_DRAWDOWN_STOP_PCT*100:.0f}%",
+            }
+
+        max_per_pair = account_usdt * MAX_PAIR_EXPOSURE_PCT
+        max_total    = account_usdt * MAX_TOTAL_EXPOSURE_PCT
+        already_used = open_positions_count * self.deal_size  # approximate
+        if already_used >= max_total:
+            return {
+                "notional_usdt": 0, "margin_usdt": 0, "leverage": leverage,
+                "allowed": False,
+                "reason": f"Total exposure {already_used:.0f} USDT ≥ {max_total:.0f} limit",
+            }
+
+        # ── Size calculation ──────────────────────────────────────────────────
+        base_size    = account_usdt * MAX_PAIR_EXPOSURE_PCT
+        spread_mult  = min(entry_spread_pct / 0.30, 3.0)
+        if is_new_listing:
+            spread_mult = min(spread_mult * NEW_LISTING_SPREAD_MULT, 4.0)
+
+        notional = min(base_size * spread_mult, max_per_pair)
+        margin_per_leg = notional / leverage
+
+        # How far price can move before liquidation (per leg, with buffer)
+        # maintenance_margin typically 0.5% on most exchanges
+        maintenance_pct = 0.005
+        liquidation_gap_pct = (1 / leverage - maintenance_pct) * (1 - MARGIN_BUFFER_PCT) * 100
+
+        return {
+            "notional_usdt":    round(notional, 2),
+            "margin_usdt":      round(margin_per_leg, 2),
+            "margin_total":     round(margin_per_leg * 2, 2),  # both legs
+            "leverage":         leverage,
+            "allowed":          True,
+            "reason":           None,
+            "liquidation_gap_pct": round(liquidation_gap_pct, 2),
+            "is_new_listing":   is_new_listing,
+        }
 
     @staticmethod
     def compute_sharpe(net_pnl_pcts: list[float], avg_hold_minutes: float = 15.0) -> Optional[float]:
