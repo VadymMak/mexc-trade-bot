@@ -78,6 +78,17 @@ class NeonDB:
                 ON paper_positions(symbol, exchange_long, exchange_short);
             CREATE INDEX IF NOT EXISTS idx_pp_status
                 ON paper_positions(status);
+        """)
+        # Migrate: add columns that may be missing from older schema versions
+        for col_ddl in [
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_spread_pct NUMERIC(10,4) NOT NULL DEFAULT 0",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_zscore     NUMERIC(10,4)",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS slippage_entry_usdt NUMERIC(10,6) NOT NULL DEFAULT 0",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS slippage_exit_usdt  NUMERIC(10,6) NOT NULL DEFAULT 0",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS fee_usdt            NUMERIC(10,6) NOT NULL DEFAULT 0",
+        ]:
+            await self._pool.execute(col_ddl)
+        await self._pool.execute("""
             CREATE INDEX IF NOT EXISTS idx_pp_opened
                 ON paper_positions(opened_at DESC);
 

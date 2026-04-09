@@ -90,7 +90,9 @@ class PaperTrader:
             and spread_pct >= self.settings.MIN_SPREAD_PCT * 100
         )
         # Mode B: large-spread entry (new listings, no z-score history needed)
-        large_spread_entry = spread_pct >= 5.0
+        # spread_pct is stored as decimal percent (0.92 = 92% displayed after ×100)
+        # Threshold 0.05 = 5% displayed on screen
+        large_spread_entry = spread_pct >= 0.05
 
         if zscore_entry or large_spread_entry:
             entry_costs = self.sim.simulate_entry(ex_long, ex_short, spread_pct)
