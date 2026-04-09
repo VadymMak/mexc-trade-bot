@@ -90,14 +90,28 @@ class PaperTrader:
             and spread_pct >= self.settings.MIN_SPREAD_PCT * 100
         )
         # Mode B: large-spread entry (new listings, no z-score history needed)
-        # spread_pct is stored as decimal percent (0.92 = 92% displayed after ×100)
-        # Threshold 0.05 = 5% displayed on screen
-        large_spread_entry = spread_pct >= 0.05
+        # spread_pct is in percentage-point units: 0.070 = 0.07%, 3.8 = 3.8%
+        # Threshold 0.50 = 0.50% — above breakeven (~0.26%) so trades can profit
+        large_spread_entry = spread_pct >= 0.50
 
         if zscore_entry or large_spread_entry:
+            entry_mode = "zscore" if zscore_entry else "large_spread"
             entry_costs = self.sim.simulate_entry(ex_long, ex_short, spread_pct)
-            pos_id      = 0
 
+            # Reserve the key BEFORE the async DB insert to prevent duplicate opens
+            # from concurrent ticks arriving while the INSERT is in flight.
+            self._open[key] = _OpenState(
+                pos_id=0,  # placeholder until DB insert completes
+                opened_ms=ts_ms,
+                entry_spread=spread_pct,
+                entry_zscore=zscore,
+                slip_entry=entry_costs["slippage_usdt"],
+                fee_entry=entry_costs["fee_usdt"],
+                entry_mode=entry_mode,
+            )
+            self._total_opened += 1
+
+            pos_id = 0
             if self.db._pool:
                 pos_id = await self.db.insert_paper_position(
                     symbol=symbol,
@@ -109,18 +123,7 @@ class PaperTrader:
                     slippage_entry_usdt=entry_costs["slippage_usdt"],
                     fee_usdt=entry_costs["fee_usdt"],
                 )
-
-            entry_mode = "zscore" if zscore_entry else "large_spread"
-            self._open[key] = _OpenState(
-                pos_id=pos_id,
-                opened_ms=ts_ms,
-                entry_spread=spread_pct,
-                entry_zscore=zscore,
-                slip_entry=entry_costs["slippage_usdt"],
-                fee_entry=entry_costs["fee_usdt"],
-                entry_mode=entry_mode,
-            )
-            self._total_opened += 1
+                self._open[key].pos_id = pos_id  # update with real id
 
             # Breakeven: total round-trip cost as % of entry spread
             be = entry_costs["total_cost_usdt"] * 2 / self.sim.deal_size * 100

@@ -146,6 +146,19 @@ class NeonDB:
             CREATE INDEX IF NOT EXISTS idx_spread_ticks_sym_ts
                 ON spread_ticks(symbol, ts_ms DESC);
         """)
+        # Migrate pair_stats — add columns missing from older schema versions
+        for col_ddl in [
+            "ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS win_trades       INT           NOT NULL DEFAULT 0",
+            "ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS total_gross_pnl  NUMERIC(14,4) NOT NULL DEFAULT 0",
+            "ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS total_net_pnl    NUMERIC(14,4) NOT NULL DEFAULT 0",
+            "ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS total_fees       NUMERIC(14,4) NOT NULL DEFAULT 0",
+            "ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS avg_hold_seconds NUMERIC",
+            "ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS sharpe           NUMERIC(8,4)",
+            "ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS max_drawdown_pct NUMERIC(8,4)",
+            "ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS score            NUMERIC(6,2)",
+            "ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS promoted         BOOLEAN       NOT NULL DEFAULT FALSE",
+        ]:
+            await self._pool.execute(col_ddl)
         logger.info("[DB] Schema verified / created OK")
 
     # ── paper_positions ───────────────────────────────────────────────────────
