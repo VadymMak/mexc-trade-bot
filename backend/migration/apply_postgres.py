@@ -38,4 +38,13 @@ def apply_migrations():
     print("All migrations applied!")
 
 if __name__ == '__main__':
-    apply_migrations()
+    if not DATABASE_URL:
+        print("No DATABASE_URL — skipping postgres migrations, using SQLite")
+        exit(0)
+
+    try:
+        apply_migrations()
+    except Exception as e:
+        print(f"WARNING: Postgres migration failed: {e}")
+        print("Continuing with SQLite fallback...")
+        exit(0)
