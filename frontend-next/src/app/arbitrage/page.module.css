@@ -188,11 +188,18 @@
   font-weight: 600;
 }
 
-.priceValue {
-  color: var(--color-text);
+.priceLow {
+  color: #16a34a;
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
   font-size: 0.8rem;
-  opacity: 0.85;
+  font-weight: 600;
+}
+
+.priceHigh {
+  color: #dc2626;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .muted {

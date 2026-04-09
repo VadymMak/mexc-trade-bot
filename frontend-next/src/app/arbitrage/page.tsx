@@ -243,8 +243,8 @@ function ResearchTab() {
               <th className={styles.th}>Symbol</th>
               <th className={styles.th}>Long Exchange</th>
               <th className={styles.th}>Short Exchange</th>
-              <th className={styles.th}>Price (long)</th>
-              <th className={styles.th}>Price (short)</th>
+              <th className={styles.th}>Price ↓ buy</th>
+              <th className={styles.th}>Price ↑ sell</th>
               <th className={styles.th}>Spread %</th>
               <th className={styles.th}>Z-Score</th>
               <th className={styles.th}>Status</th>
@@ -263,10 +263,10 @@ function ResearchTab() {
                   <span className={styles.exchange}>{row.exchange_short}</span>
                 </td>
                 <td className={styles.td}>
-                  <span className={styles.priceValue}>{fmtPrice(row.price_long)}</span>
+                  <span className={styles.priceLow}>{fmtPrice(row.price_long)}</span>
                 </td>
                 <td className={styles.td}>
-                  <span className={styles.priceValue}>{fmtPrice(row.price_short)}</span>
+                  <span className={styles.priceHigh}>{fmtPrice(row.price_short)}</span>
                 </td>
                 <td className={styles.td}>
                   <span className={styles.spreadValue}>{fmtPct(row.spread_pct)}</span>
