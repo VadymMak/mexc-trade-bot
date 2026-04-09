@@ -411,7 +411,10 @@ class NeonDB:
             "spread_mean", "spread_std",
             "spread_zscore_ratio",   # entry_spread / spread_mean
             "spread_cv",             # spread_std / spread_mean (volatility)
-            "hour_of_day", "day_of_week",
+            # --- time features (UTC) ---
+            "hour_utc", "day_of_week",  # 0=Mon…6=Sun
+            "trading_session",          # asia / europe / overlap / us / quiet
+            "is_weekend",               # 1 if Sat/Sun
             "deal_size_usdt",
             # --- outcome labels ---
             "exit_reason", "exit_spread_pct", "exit_zscore",
@@ -431,16 +434,22 @@ class NeonDB:
             spread_cv           = round(s_std / s_mean, 4)    if s_mean > 0 else None
             pnl_pct             = round(net_pnl / deal_size * 100, 4)
             profitable          = 1 if net_pnl > 0 else 0
-            hour_of_day         = opened_at.hour       if opened_at else None
-            day_of_week         = opened_at.weekday()  if opened_at else None
+
+            if opened_at:
+                hour_utc    = opened_at.hour
+                dow         = opened_at.weekday()  # 0=Mon … 6=Sun
+                is_weekend  = 1 if dow >= 5 else 0
+                session     = _trading_session(hour_utc)
+            else:
+                hour_utc = dow = is_weekend = session = ""
 
             writer.writerow([
                 r["symbol"], r["exchange_long"], r["exchange_short"],
                 r["entry_mode"] or "", e_spread,
                 round(float(r["entry_zscore"]), 4) if r["entry_zscore"] is not None else "",
-                round(s_mean, 6), round(s_std, 6),
+                round(s_mean, 6) if s_mean else "", round(s_std, 6) if s_std else "",
                 spread_zscore_ratio, spread_cv,
-                hour_of_day, day_of_week,
+                hour_utc, dow, session, is_weekend,
                 deal_size,
                 r["exit_reason"] or "", float(r["exit_spread_pct"] or 0),
                 round(float(r["exit_zscore"]), 4) if r["exit_zscore"] is not None else "",
@@ -470,6 +479,35 @@ class NeonDB:
             """,
             symbol, exchange_long, exchange_short, spread_pct, zscore, ts_ms,
         )
+
+
+# ── Time session helper ───────────────────────────────────────────────────────
+
+def _trading_session(hour_utc: int) -> str:
+    """
+    Classify UTC hour into a named crypto trading session.
+
+    Sessions (UTC):
+      asia      00-06  — Tokyo + Sydney dominant
+      europe    07-12  — London open, EU activity picks up
+      overlap   13-15  — EU + US both active (highest liquidity)
+      us        16-21  — New York session dominant
+      quiet     22-23  — Low volume, thin order books
+
+    Model hypothesis: overlap hours may have tighter real spreads
+    (arbitrage closes faster → more TAKE_PROFIT), while quiet/asia
+    hours may have wider, stickier spreads → more TIME_STOP losses.
+    """
+    if 0 <= hour_utc <= 6:
+        return "asia"
+    elif 7 <= hour_utc <= 12:
+        return "europe"
+    elif 13 <= hour_utc <= 15:
+        return "overlap"
+    elif 16 <= hour_utc <= 21:
+        return "us"
+    else:  # 22-23
+        return "quiet"
 
 
 # ── Module-level stat helpers (pure functions, reusable) ──────────────────────

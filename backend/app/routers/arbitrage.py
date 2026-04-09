@@ -265,6 +265,13 @@ async def export_dataset() -> StreamingResponse:
     finally:
         await conn.close()
 
+    def _session(h: int) -> str:
+        if 0 <= h <= 6:   return "asia"
+        if 7 <= h <= 12:  return "europe"
+        if 13 <= h <= 15: return "overlap"
+        if 16 <= h <= 21: return "us"
+        return "quiet"
+
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([
@@ -272,7 +279,8 @@ async def export_dataset() -> StreamingResponse:
         "entry_mode", "entry_spread_pct", "entry_zscore",
         "spread_mean", "spread_std",
         "spread_zscore_ratio", "spread_cv",
-        "hour_of_day", "day_of_week",
+        "hour_utc", "day_of_week",
+        "trading_session", "is_weekend",
         "deal_size_usdt",
         "exit_reason", "exit_spread_pct", "exit_zscore",
         "hold_seconds", "gross_pnl_usdt", "net_pnl_usdt",
@@ -290,6 +298,14 @@ async def export_dataset() -> StreamingResponse:
         ratio = round(e_spread / s_mean, 4) if s_mean > 0 else ""
         cv    = round(s_std / s_mean, 4)    if s_mean > 0 else ""
 
+        if opened_at:
+            h        = opened_at.hour
+            dow      = opened_at.weekday()
+            session  = _session(h)
+            weekend  = 1 if dow >= 5 else 0
+        else:
+            h = dow = session = weekend = ""
+
         writer.writerow([
             r["symbol"], r["exchange_long"], r["exchange_short"],
             r["entry_mode"] or "large_spread", e_spread,
@@ -297,8 +313,7 @@ async def export_dataset() -> StreamingResponse:
             round(s_mean, 6) if s_mean else "",
             round(s_std, 6)  if s_std  else "",
             ratio, cv,
-            opened_at.hour if opened_at else "",
-            opened_at.weekday() if opened_at else "",
+            h, dow, session, weekend,
             deal_size,
             r["exit_reason"] or "",
             float(r["exit_spread_pct"] or 0),
