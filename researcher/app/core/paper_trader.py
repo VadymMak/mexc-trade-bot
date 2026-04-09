@@ -95,6 +95,10 @@ class PaperTrader:
         if spread_pct > self.settings.MAX_SPREAD_PCT:
             return
 
+        # Reject structurally bad pairs — spreads never revert, drain fees
+        if symbol in self.settings.blacklisted_set:
+            return
+
         # Reject entry if in STOP_LOSS cooldown for this pair
         cooldown_until = self._stop_loss_cooldown.get(key, 0)
         if ts_ms < cooldown_until:

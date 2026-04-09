@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     # Cooldown after STOP_LOSS (seconds): prevent immediate re-entry on volatile pairs
     STOP_LOSS_COOLDOWN_SECONDS: int = 300  # 5 minutes
 
+    # Blacklisted symbols — structurally wide spreads that never revert.
+    # Identified from dataset: ~0-6% win rate across 80-170 trades each.
+    # Stored as comma-separated string (pydantic-settings doesn't support list from env).
+    BLACKLISTED_SYMBOLS: str = "ENJ_USDT,BLUR_USDT,ONT_USDT,DRIFT_USDT,ONG_USDT,SIREN_USDT"
+
+    @property
+    def blacklisted_set(self) -> set[str]:
+        return {s.strip().upper() for s in self.BLACKLISTED_SYMBOLS.split(",") if s.strip()}
+
     # Stop-loss ratio reduced: 2.0 meant loss = 2× potential win → terrible R/R.
     # At 1.5×: SL loss = entry×0.5×0.1+0.026 vs TP win = entry×0.5×0.1−0.026
     STOP_LOSS_RATIO: float = 1.5

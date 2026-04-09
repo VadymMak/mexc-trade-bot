@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Paper Trading Dataset Analyzer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+  .header { background: #1e293b; border-bottom: 1px solid #334155; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+  .header h1 { font-size: 18px; font-weight: 700; color: #f1f5f9; }
+  .header .badge { background: #16a34a22; border: 1px solid #16a34a; color: #4ade80; font-size: 11px; padding: 2px 8px; border-radius: 99px; }
+  .drop-zone { margin: 32px auto; max-width: 600px; border: 2px dashed #334155; border-radius: 16px; padding: 48px; text-align: center; cursor: pointer; transition: all .2s; background: #1e293b; }
+  .drop-zone:hover, .drop-zone.drag { border-color: #16a34a; background: #16a34a11; }
+  .drop-zone svg { width: 48px; height: 48px; color: #475569; margin-bottom: 12px; }
+  .drop-zone p { color: #94a3b8; font-size: 14px; }
+  .drop-zone .hint { font-size: 12px; color: #475569; margin-top: 8px; }
+  #file-input { display: none; }
+  .dashboard { display: none; padding: 0 24px 32px; }
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .stat-card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 16px; }
+  .stat-card .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  .stat-card .value { font-size: 26px; font-weight: 700; }
+  .stat-card .sub { font-size: 12px; color: #64748b; margin-top: 4px; }
+  .green { color: #4ade80; }
+  .red { color: #f87171; }
+  .yellow { color: #fbbf24; }
+  .blue { color: #60a5fa; }
+  .gray { color: #94a3b8; }
+  .section { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .section h2 { font-size: 14px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 16px; }
+  .charts-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 16px; }
+  canvas { max-height: 240px; }
+  .table-wrap { overflow-x: auto; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { border-bottom: 1px solid #334155; }
+  th { color: #64748b; font-weight: 500; text-align: left; padding: 8px 10px; font-size: 11px; text-transform: uppercase; }
+  td { padding: 7px 10px; border-bottom: 1px solid #1e293b22; }
+  tr:hover { background: #ffffff08; }
+  .tag { display: inline-block; padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+  .tag-tp { background: #16a34a22; color: #4ade80; }
+  .tag-sl { background: #dc262622; color: #f87171; }
+  .tag-exp { background: #92400e22; color: #fbbf24; }
+  .tag-zs { background: #2563eb22; color: #60a5fa; }
+  .tag-ls { background: #7c3aed22; color: #a78bfa; }
+  .insight { background: #0f172a; border-left: 3px solid #16a34a; padding: 10px 14px; border-radius: 0 8px 8px 0; margin-top: 12px; font-size: 13px; color: #94a3b8; line-height: 1.6; }
+  .insight strong { color: #e2e8f0; }
+  .pnl-bar { height: 6px; border-radius: 3px; margin-top: 4px; }
+  .hint-url { font-size: 12px; color: #4ade80; word-break: break-all; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="#16a34a" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-4 4 4 4-4"/></svg>
+  <h1>Paper Trading Analyzer</h1>
+  <span class="badge">mexc-trade-bot</span>
+</div>
+
+<div id="drop-zone" class="drop-zone" onclick="document.getElementById('file-input').click()">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+  </svg>
+  <p><strong>Drop your dataset CSV here</strong> or click to browse</p>
+  <p class="hint">Download from your endpoint then drag here:</p>
+  <p class="hint-url">https://mexc-trade-bot-production.up.railway.app/api/arbitrage/research/export-dataset</p>
+  <input type="file" id="file-input" accept=".csv">
+</div>
+
+<div id="dashboard" class="dashboard">
+  <div class="stats-row" id="stats-row"></div>
+
+  <div class="charts-row">
+    <div class="section">
+      <h2>Exit Reason Split</h2>
+      <canvas id="chart-exit"></canvas>
+    </div>
+    <div class="section">
+      <h2>Entry Mode Split</h2>
+      <canvas id="chart-mode"></canvas>
+    </div>
+    <div class="section">
+      <h2>PnL by Trading Session</h2>
+      <canvas id="chart-session"></canvas>
+    </div>
+    <div class="section">
+      <h2>PnL by Day of Week</h2>
+      <canvas id="chart-dow"></canvas>
+    </div>
+  </div>
+
+  <div class="charts-row">
+    <div class="section">
+      <h2>Entry Spread Distribution (% bins)</h2>
+      <canvas id="chart-spread-dist"></canvas>
+    </div>
+    <div class="section">
+      <h2>Win Rate by Entry Spread Bucket</h2>
+      <canvas id="chart-spread-wr"></canvas>
+    </div>
+    <div class="section">
+      <h2>Hold Time Distribution (minutes)</h2>
+      <canvas id="chart-hold"></canvas>
+    </div>
+    <div class="section">
+      <h2>Hourly Win Rate (UTC)</h2>
+      <canvas id="chart-hour-wr"></canvas>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Breakdown by Exchange Pair</h2>
+    <div class="table-wrap">
+      <table id="table-exchanges">
+        <thead>
+          <tr>
+            <th>Exchange Long</th><th>Exchange Short</th><th>Trades</th><th>TP</th><th>ZS Revert</th><th>SL</th>
+            <th>Win Rate</th><th>Avg Entry%</th><th>Avg Hold</th><th>Net PnL</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="exchange-insight" class="insight"></div>
+  </div>
+
+  <div class="section">
+    <h2>Breakdown by Symbol</h2>
+    <div class="table-wrap">
+      <table id="table-symbols">
+        <thead>
+          <tr>
+            <th>Symbol</th><th>Trades</th><th>TP</th><th>ZS Revert</th><th>SL</th><th>Expired</th>
+            <th>Win Rate</th><th>Avg Entry%</th><th>Avg Hold</th><th>Net PnL</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Session Deep Dive</h2>
+    <div class="table-wrap">
+      <table id="table-session">
+        <thead>
+          <tr>
+            <th>Session</th><th>Trades</th><th>Win Rate</th><th>Avg Entry%</th>
+            <th>Avg Net PnL</th><th>Total Net PnL</th><th>Avg Hold (min)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="session-insight" class="insight"></div>
+  </div>
+
+  <div class="section">
+    <h2>Entry Spread vs Exit Reason — Scatter</h2>
+    <canvas id="chart-scatter" style="max-height:300px"></canvas>
+    <div id="spread-insight" class="insight"></div>
+  </div>
+</div>
+
+<script>
+const COLORS = {
+  green: '#4ade80', red: '#f87171', yellow: '#fbbf24',
+  blue: '#60a5fa', purple: '#a78bfa', orange: '#fb923c',
+  teal: '#2dd4bf', pink: '#f472b6',
+};
+const SESSION_ORDER = ['asia','europe','overlap','us','quiet'];
+const DOW_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+let charts = {};
+
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function makeChart(id, type, data, options={}) {
+  destroyChart(id);
+  const ctx = document.getElementById(id).getContext('2d');
+  charts[id] = new Chart(ctx, { type, data, options: {
+    responsive: true, maintainAspectRatio: true,
+    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
+    scales: type !== 'pie' && type !== 'doughnut' ? {
+      x: { ticks: { color: '#64748b', font:{size:10} }, grid: { color: '#1e293b' } },
+      y: { ticks: { color: '#64748b', font:{size:10} }, grid: { color: '#334155' } },
+    } : undefined,
+    ...options
+  }});
+}
+
+function pct(n, total) { return total ? ((n/total)*100).toFixed(1)+'%' : '0%'; }
+function avg(arr) { return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0; }
+function sum(arr) { return arr.reduce((a,b)=>a+b,0); }
+function round2(v) { return Math.round(v*100)/100; }
+
+function groupBy(rows, key) {
+  return rows.reduce((acc, r) => {
+    const k = (typeof key === 'function' ? key(r) : r[key]) || 'unknown';
+    if (!acc[k]) acc[k] = [];
+    acc[k].push(r); return acc;
+  }, {});
+}
+
+function analyze(rows) {
+  // ── Top Stats ──────────────────────────────────────────────────────────────
+  const total = rows.length;
+  const tpRows = rows.filter(r => r.exit_reason === 'TAKE_PROFIT');
+  const slRows = rows.filter(r => r.exit_reason === 'STOP_LOSS');
+  const expRows = rows.filter(r => r.exit_reason === 'EXPIRED');
+  const netPnl = sum(rows.map(r => +r.net_pnl_usdt || 0));
+  const winRate = (tpRows.length / total * 100).toFixed(1);
+  const avgEntry = avg(rows.map(r => +r.entry_spread_pct || 0));
+
+  document.getElementById('stats-row').innerHTML = `
+    <div class="stat-card"><div class="label">Total Trades</div><div class="value blue">${total}</div><div class="sub">closed positions</div></div>
+    <div class="stat-card"><div class="label">Net PnL</div><div class="value ${netPnl>=0?'green':'red'}">${netPnl>=0?'+':''}$${round2(netPnl)}</div><div class="sub">USDT total</div></div>
+    <div class="stat-card"><div class="label">Win Rate (TP)</div><div class="value ${+winRate>=50?'green':'red'}">${winRate}%</div><div class="sub">${tpRows.length} of ${total}</div></div>
+    <div class="stat-card"><div class="label">Stop-Loss</div><div class="value red">${pct(slRows.length,total)}</div><div class="sub">${slRows.length} trades</div></div>
+    <div class="stat-card"><div class="label">Expired</div><div class="value yellow">${pct(expRows.length,total)}</div><div class="sub">${expRows.length} trades</div></div>
+    <div class="stat-card"><div class="label">Avg Entry Spread</div><div class="value gray">${avgEntry.toFixed(3)}%</div><div class="sub">entry_spread_pct</div></div>
+    <div class="stat-card"><div class="label">Avg Hold Time</div><div class="value blue">${(avg(rows.map(r=>+r.hold_seconds||0))/60).toFixed(1)} min</div><div class="sub">per trade</div></div>
+    <div class="stat-card"><div class="label">Avg Net PnL</div><div class="value ${netPnl/total>=0?'green':'red'}">${netPnl>=0?'+':''}$${(netPnl/total).toFixed(4)}</div><div class="sub">per trade</div></div>
+  `;
+
+  // ── Exit Reason Pie ─────────────────────────────────────────────────────────
+  const zsRevRows  = rows.filter(r => r.exit_reason === 'ZSCORE_REVERT');
+  const timeRows   = rows.filter(r => r.exit_reason === 'TIME_STOP');
+  const otherRows  = rows.filter(r => !['TAKE_PROFIT','STOP_LOSS','EXPIRED','ZSCORE_REVERT','TIME_STOP'].includes(r.exit_reason));
+  makeChart('chart-exit', 'doughnut', {
+    labels: ['TAKE_PROFIT', 'ZSCORE_REVERT', 'STOP_LOSS', 'TIME_STOP', 'EXPIRED', 'OTHER/NULL'],
+    datasets: [{ data: [tpRows.length, zsRevRows.length, slRows.length, timeRows.length, expRows.length, otherRows.length],
+      backgroundColor: [COLORS.green+'cc', COLORS.blue+'cc', COLORS.red+'cc', COLORS.yellow+'cc', COLORS.orange+'cc', '#475569cc'],
+      borderWidth: 0 }]
+  });
+
+  // ── Entry Mode Pie ─────────────────────────────────────────────────────────
+  const modeGroups = groupBy(rows, 'entry_mode');
+  makeChart('chart-mode', 'doughnut', {
+    labels: Object.keys(modeGroups),
+    datasets: [{ data: Object.values(modeGroups).map(g=>g.length),
+      backgroundColor: [COLORS.blue+'cc', COLORS.purple+'cc', COLORS.teal+'cc'],
+      borderWidth: 0 }]
+  });
+
+  // ── PnL by Session ─────────────────────────────────────────────────────────
+  const sessionGroups = groupBy(rows, 'trading_session');
+  const sessionLabels = SESSION_ORDER.filter(s => sessionGroups[s]);
+  const sessionPnl = sessionLabels.map(s => round2(sum(sessionGroups[s].map(r => +r.net_pnl_usdt||0))));
+  makeChart('chart-session', 'bar', {
+    labels: sessionLabels,
+    datasets: [{ label: 'Net PnL (USDT)', data: sessionPnl,
+      backgroundColor: sessionPnl.map(v => v >= 0 ? COLORS.green+'99' : COLORS.red+'99'),
+      borderColor: sessionPnl.map(v => v >= 0 ? COLORS.green : COLORS.red),
+      borderWidth: 1, borderRadius: 4 }]
+  });
+
+  // ── PnL by DoW ─────────────────────────────────────────────────────────────
+  const dowGroups = groupBy(rows, 'day_of_week');
+  const dowPnl = [0,1,2,3,4,5,6].map(d => round2(sum((dowGroups[d]||[]).map(r=>+r.net_pnl_usdt||0))));
+  makeChart('chart-dow', 'bar', {
+    labels: DOW_LABELS,
+    datasets: [{ label: 'Net PnL (USDT)', data: dowPnl,
+      backgroundColor: dowPnl.map(v => v >= 0 ? COLORS.green+'99' : COLORS.red+'99'),
+      borderColor: dowPnl.map(v => v >= 0 ? COLORS.green : COLORS.red),
+      borderWidth: 1, borderRadius: 4 }]
+  });
+
+  // ── Entry Spread Distribution ──────────────────────────────────────────────
+  const bins = [0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0, 1.5, 2.0, 5.0, 999];
+  const binLabels = ['<0.3','0.3-0.4','0.4-0.5','0.5-0.6','0.6-0.7','0.7-0.8','0.8-1.0','1.0-1.5','1.5-2.0','2.0-5.0','>5.0'];
+  const binCounts = new Array(binLabels.length).fill(0);
+  rows.forEach(r => {
+    const v = +r.entry_spread_pct || 0;
+    for (let i = 0; i < bins.length-1; i++) {
+      if (v >= bins[i] && v < bins[i+1]) { binCounts[i]++; break; }
+    }
+  });
+  makeChart('chart-spread-dist', 'bar', {
+    labels: binLabels,
+    datasets: [{ label: 'Trades', data: binCounts,
+      backgroundColor: COLORS.blue+'88', borderColor: COLORS.blue, borderWidth: 1, borderRadius: 3 }]
+  }, { plugins: { legend: { display: false } } });
+
+  // ── Win Rate by Entry Spread Bucket ───────────────────────────────────────
+  const bucketWR = binLabels.map((_, i) => {
+    const inBucket = rows.filter(r => {
+      const v = +r.entry_spread_pct||0;
+      return v >= bins[i] && v < bins[i+1];
+    });
+    if (!inBucket.length) return null;
+    return round2(inBucket.filter(r=>r.exit_reason==='TAKE_PROFIT').length / inBucket.length * 100);
+  });
+  makeChart('chart-spread-wr', 'bar', {
+    labels: binLabels,
+    datasets: [{ label: 'Win Rate %', data: bucketWR,
+      backgroundColor: bucketWR.map(v => v === null ? '#33415588' : v >= 50 ? COLORS.green+'88' : COLORS.red+'88'),
+      borderColor: bucketWR.map(v => v === null ? '#334155' : v >= 50 ? COLORS.green : COLORS.red),
+      borderWidth: 1, borderRadius: 3 }]
+  }, { plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => v+'%' }, max: 100 } } });
+
+  // ── Hold Time Distribution ─────────────────────────────────────────────────
+  const holdBins = [0,60,120,300,600,900,1800,3600,7200,14400,999999];
+  const holdLabels = ['<1m','1-2m','2-5m','5-10m','10-15m','15-30m','30-60m','1-2h','2-4h','>4h'];
+  const holdCounts = new Array(holdLabels.length).fill(0);
+  rows.forEach(r => {
+    const v = +r.hold_seconds||0;
+    for (let i = 0; i < holdBins.length-1; i++) {
+      if (v >= holdBins[i] && v < holdBins[i+1]) { holdCounts[i]++; break; }
+    }
+  });
+  makeChart('chart-hold', 'bar', {
+    labels: holdLabels,
+    datasets: [{ label: 'Trades', data: holdCounts,
+      backgroundColor: COLORS.teal+'88', borderColor: COLORS.teal, borderWidth: 1, borderRadius: 3 }]
+  }, { plugins: { legend: { display: false } } });
+
+  // ── Hourly Win Rate ─────────────────────────────────────────────────────────
+  const hourGroups = groupBy(rows, 'hour_utc');
+  const hourWR = Array.from({length:24},(_,h)=>{
+    const g = hourGroups[h] || [];
+    return g.length ? round2(g.filter(r=>r.exit_reason==='TAKE_PROFIT').length/g.length*100) : null;
+  });
+  const hourCount = Array.from({length:24},(_,h)=> (hourGroups[h]||[]).length);
+  makeChart('chart-hour-wr', 'bar', {
+    labels: Array.from({length:24},(_,h)=>h+'h'),
+    datasets: [
+      { label: 'Win Rate %', data: hourWR, backgroundColor: hourWR.map(v=>v===null?'#33415544':v>=50?COLORS.green+'88':COLORS.red+'88'), borderColor: hourWR.map(v=>v===null?'#334155':v>=50?COLORS.green:COLORS.red), borderWidth:1, borderRadius:2, yAxisID:'y' },
+      { label: 'Trades', data: hourCount, type:'line', borderColor:COLORS.blue+'88', backgroundColor:'transparent', pointRadius:2, yAxisID:'y1' }
+    ]
+  }, { scales: {
+    x:{ticks:{color:'#64748b',font:{size:9}}},
+    y:{ticks:{color:'#64748b',callback:v=>v+'%'},grid:{color:'#334155'},max:100},
+    y1:{ticks:{color:'#475569'},grid:{display:false},position:'right'},
+  }});
+
+  // ── Exchange Pair Table ────────────────────────────────────────────────────
+  const exGroups = groupBy(rows, r => `${r.exchange_long}|${r.exchange_short}`);
+  const exData = Object.entries(exGroups).map(([combo, g]) => {
+    const [exL, exS] = combo.split('|');
+    const tp  = g.filter(r=>r.exit_reason==='TAKE_PROFIT').length;
+    const zsr = g.filter(r=>r.exit_reason==='ZSCORE_REVERT').length;
+    const sl  = g.filter(r=>r.exit_reason==='STOP_LOSS').length;
+    return {
+      exL, exS, count: g.length, tp, zsr, sl,
+      wr: tp/g.length*100,
+      avgEntry: avg(g.map(r=>+r.entry_spread_pct||0)),
+      avgHold: avg(g.map(r=>+r.hold_seconds||0))/60,
+      netPnl: sum(g.map(r=>+r.net_pnl_usdt||0)),
+    };
+  }).sort((a,b)=>b.count-a.count);
+
+  const exTbody = document.querySelector('#table-exchanges tbody');
+  exTbody.innerHTML = exData.map(d => `
+    <tr>
+      <td><strong style="color:#60a5fa">${d.exL}</strong></td>
+      <td><strong style="color:#a78bfa">${d.exS}</strong></td>
+      <td>${d.count}</td>
+      <td><span class="tag tag-tp">TP ${d.tp}</span></td>
+      <td><span class="tag tag-zs">ZR ${d.zsr}</span></td>
+      <td><span class="tag tag-sl">SL ${d.sl}</span></td>
+      <td style="color:${d.wr>=50?'#4ade80':'#f87171'}">${d.wr.toFixed(1)}%</td>
+      <td>${d.avgEntry.toFixed(3)}%</td>
+      <td>${d.avgHold.toFixed(1)}m</td>
+      <td style="color:${d.netPnl>=0?'#4ade80':'#f87171'};font-weight:700">${d.netPnl>=0?'+':''}$${round2(d.netPnl)}</td>
+    </tr>
+  `).join('');
+
+  const bestEx  = [...exData].sort((a,b)=>b.wr-a.wr)[0];
+  const worstEx = [...exData].sort((a,b)=>a.netPnl-b.netPnl)[0];
+  document.getElementById('exchange-insight').innerHTML = `
+    <strong>Best win rate combo:</strong> ${bestEx?.exL} / ${bestEx?.exS} — ${bestEx?.wr.toFixed(1)}% TP rate (${bestEx?.count} trades)<br>
+    <strong>Biggest loser combo:</strong> ${worstEx?.exL} / ${worstEx?.exS} — $${round2(worstEx?.netPnl)} net PnL<br>
+    <span style="color:#64748b;font-size:12px">Exchange combos affect fee structure and slippage — some pairs may have systematic price lag on one side.</span>
+  `;
+
+  // ── Symbol Table ───────────────────────────────────────────────────────────
+  const symGroups = groupBy(rows, 'symbol');
+  const symData = Object.entries(symGroups).map(([sym, g]) => ({
+    sym, count: g.length,
+    tp:  g.filter(r=>r.exit_reason==='TAKE_PROFIT').length,
+    sl:  g.filter(r=>r.exit_reason==='STOP_LOSS').length,
+    zsr: g.filter(r=>r.exit_reason==='ZSCORE_REVERT').length,
+    exp: g.filter(r=>r.exit_reason==='EXPIRED').length,
+    wr: g.filter(r=>r.exit_reason==='TAKE_PROFIT').length/g.length*100,
+    avgEntry: avg(g.map(r=>+r.entry_spread_pct||0)),
+    avgHold: avg(g.map(r=>+r.hold_seconds||0))/60,
+    netPnl: sum(g.map(r=>+r.net_pnl_usdt||0)),
+  })).sort((a,b)=>a.netPnl-b.netPnl);
+
+  const symTbody = document.querySelector('#table-symbols tbody');
+  symTbody.innerHTML = symData.map(d => `
+    <tr>
+      <td><strong style="color:#e2e8f0">${d.sym}</strong></td>
+      <td>${d.count}</td>
+      <td><span class="tag tag-tp">TP ${d.tp}</span></td>
+      <td><span class="tag tag-zs">ZR ${d.zsr}</span></td>
+      <td><span class="tag tag-sl">SL ${d.sl}</span></td>
+      <td><span class="tag tag-exp">EX ${d.exp}</span></td>
+      <td style="color:${d.wr>=50?'#4ade80':'#f87171'}">${d.wr.toFixed(1)}%</td>
+      <td>${d.avgEntry.toFixed(3)}%</td>
+      <td>${d.avgHold.toFixed(1)}m</td>
+      <td style="color:${d.netPnl>=0?'#4ade80':'#f87171'};font-weight:700">${d.netPnl>=0?'+':''}$${round2(d.netPnl)}</td>
+    </tr>
+  `).join('');
+
+  // ── Session Table + Insight ─────────────────────────────────────────────────
+  const sesTbody = document.querySelector('#table-session tbody');
+  const sesData = SESSION_ORDER.filter(s=>sessionGroups[s]).map(s => {
+    const g = sessionGroups[s];
+    const tp = g.filter(r=>r.exit_reason==='TAKE_PROFIT').length;
+    const wr = tp/g.length*100;
+    const totalPnl = sum(g.map(r=>+r.net_pnl_usdt||0));
+    return { s, count:g.length, wr, avgEntry:avg(g.map(r=>+r.entry_spread_pct||0)), avgPnl:totalPnl/g.length, totalPnl, avgHold:avg(g.map(r=>+r.hold_seconds||0))/60 };
+  });
+  sesTbody.innerHTML = sesData.map(d=>`
+    <tr>
+      <td><strong style="color:#e2e8f0;text-transform:capitalize">${d.s}</strong></td>
+      <td>${d.count}</td>
+      <td style="color:${d.wr>=50?'#4ade80':'#f87171'}">${d.wr.toFixed(1)}%</td>
+      <td>${d.avgEntry.toFixed(3)}%</td>
+      <td style="color:${d.avgPnl>=0?'#4ade80':'#f87171'}">${d.avgPnl>=0?'+':''}$${d.avgPnl.toFixed(5)}</td>
+      <td style="color:${d.totalPnl>=0?'#4ade80':'#f87171'};font-weight:600">${d.totalPnl>=0?'+':''}$${round2(d.totalPnl)}</td>
+      <td>${d.avgHold.toFixed(1)}m</td>
+    </tr>
+  `).join('');
+
+  // Session insight
+  const bestSes = [...sesData].sort((a,b)=>b.wr-a.wr)[0];
+  const worstSes = [...sesData].sort((a,b)=>a.wr-b.wr)[0];
+  const posSes = sesData.filter(d=>d.totalPnl>0).map(d=>d.s);
+  const negSes = sesData.filter(d=>d.totalPnl<0).map(d=>d.s);
+  document.getElementById('session-insight').innerHTML = `
+    <strong>Key observations:</strong><br>
+    Best win rate: <strong style="color:#4ade80">${bestSes?.s} (${bestSes?.wr.toFixed(1)}%)</strong> &nbsp;|&nbsp;
+    Worst: <strong style="color:#f87171">${worstSes?.s} (${worstSes?.wr.toFixed(1)}%)</strong><br>
+    Profitable sessions: <strong>${posSes.join(', ') || 'none yet'}</strong> &nbsp;|&nbsp;
+    Bleeding: <strong style="color:#f87171">${negSes.join(', ') || 'none'}</strong><br>
+    <span style="color:#64748b;font-size:12px">Note: dataset is small — patterns will stabilize after ~1000+ trades.</span>
+  `;
+
+  // ── Scatter: entry_spread vs exit_reason ───────────────────────────────────
+  const scatterDataTP = tpRows.map(r=>({x:+r.entry_spread_pct||0, y:+r.hold_seconds/60||0}));
+  const scatterDataSL = slRows.map(r=>({x:+r.entry_spread_pct||0, y:+r.hold_seconds/60||0}));
+  const scatterDataEX = expRows.map(r=>({x:+r.entry_spread_pct||0, y:+r.hold_seconds/60||0}));
+  makeChart('chart-scatter', 'scatter', {
+    datasets: [
+      { label: 'TAKE_PROFIT', data: scatterDataTP, backgroundColor: COLORS.green+'88', pointRadius: 4 },
+      { label: 'STOP_LOSS',   data: scatterDataSL, backgroundColor: COLORS.red+'88',   pointRadius: 4 },
+      { label: 'EXPIRED',     data: scatterDataEX, backgroundColor: COLORS.yellow+'88', pointRadius: 4 },
+    ]
+  }, { scales: {
+    x: { title:{ display:true, text:'Entry Spread %', color:'#64748b' }, ticks:{color:'#64748b'} },
+    y: { title:{ display:true, text:'Hold Time (min)', color:'#64748b' }, ticks:{color:'#64748b'} },
+  }});
+
+  // Spread insight
+  const avgTPspread = avg(tpRows.map(r=>+r.entry_spread_pct||0));
+  const avgSLspread = avg(slRows.map(r=>+r.entry_spread_pct||0));
+  const avgTPhold = avg(tpRows.map(r=>+r.hold_seconds||0))/60;
+  const avgSLhold = avg(slRows.map(r=>+r.hold_seconds||0))/60;
+  document.getElementById('spread-insight').innerHTML = `
+    <strong>TP trades:</strong> avg entry <strong>${avgTPspread.toFixed(3)}%</strong>, avg hold <strong>${avgTPhold.toFixed(1)} min</strong><br>
+    <strong>SL trades:</strong> avg entry <strong>${avgSLspread.toFixed(3)}%</strong>, avg hold <strong>${avgSLhold.toFixed(1)} min</strong><br>
+    ${avgSLspread > avgTPspread
+      ? `<span style="color:#f87171">⚠ SL entries have <strong>higher</strong> spread than TP — might be bogus/volatile pairs.</span>`
+      : `<span style="color:#4ade80">✓ TP entries have higher spread — larger spread = better reversion signal.</span>`
+    }
+  `;
+
+  document.getElementById('drop-zone').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+}
+
+// ── CSV Loading ───────────────────────────────────────────────────────────────
+function loadCSV(file) {
+  Papa.parse(file, {
+    header: true,
+    dynamicTyping: false,
+    skipEmptyLines: true,
+    complete: (results) => {
+      if (!results.data.length) { alert('CSV is empty or invalid'); return; }
+      analyze(results.data);
+    }
+  });
+}
+
+document.getElementById('file-input').addEventListener('change', e => {
+  if (e.target.files[0]) loadCSV(e.target.files[0]);
+});
+
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.endsWith('.csv')) loadCSV(f);
+  else alert('Please drop a .csv file');
+});
+</script>
+</body>
+</html>
