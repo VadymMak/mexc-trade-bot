@@ -173,6 +173,28 @@
     <canvas id="chart-scatter" style="max-height:300px"></canvas>
     <div id="spread-insight" class="insight"></div>
   </div>
+
+  <div class="section">
+    <h2>📡 Market Flow Features (tape + order book at entry)</h2>
+    <div id="flow-notice" class="insight" style="margin-bottom:16px">
+      <strong>Note:</strong> Flow features (buy_pressure, trade_velocity, book_imbalance) are only populated for trades opened after the flow collectors were deployed. Empty values = older trades without flow data.
+    </div>
+    <div class="charts-row">
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px">
+        <h2 style="font-size:13px;color:#94a3b8;text-transform:uppercase;margin-bottom:12px">Win Rate by Buy Pressure</h2>
+        <canvas id="chart-flow-bp"></canvas>
+      </div>
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px">
+        <h2 style="font-size:13px;color:#94a3b8;text-transform:uppercase;margin-bottom:12px">Win Rate by Book Imbalance</h2>
+        <canvas id="chart-flow-bi"></canvas>
+      </div>
+      <div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:16px">
+        <h2 style="font-size:13px;color:#94a3b8;text-transform:uppercase;margin-bottom:12px">Trade Velocity Distribution</h2>
+        <canvas id="chart-flow-tv"></canvas>
+      </div>
+    </div>
+    <div id="flow-insight" class="insight"></div>
+  </div>
 </div>
 
 <script>
@@ -520,6 +542,97 @@ function analyze(rows) {
       : `<span style="color:#4ade80">✓ TP entries have higher spread — larger spread = better reversion signal.</span>`
     }
   `;
+
+  // ── Flow Feature Charts ────────────────────────────────────────────────────
+  const flowRows = rows.filter(r => r.buy_pressure !== '' && r.buy_pressure !== undefined && r.buy_pressure !== null && !isNaN(+r.buy_pressure));
+  const flowNotice = document.getElementById('flow-notice');
+  if (flowRows.length === 0) {
+    flowNotice.innerHTML = '<strong style="color:#fbbf24">⚠ No flow data yet</strong> — flow collectors (buy_pressure, trade_velocity, book_imbalance) were just deployed. These charts will populate after new trades are recorded. Come back after the next CSV export.';
+    ['chart-flow-bp','chart-flow-bi','chart-flow-tv'].forEach(id => {
+      const canvas = document.getElementById(id);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    });
+  } else {
+    flowNotice.innerHTML = `<strong style="color:#4ade80">✓ ${flowRows.length} trades with flow data</strong> (${total - flowRows.length} older trades without flow).`;
+
+    // Buy Pressure buckets: 0-0.3 sell pressure, 0.3-0.45 neutral, 0.45-0.55 balanced, 0.55-0.7 mild buy, 0.7-1.0 strong buy
+    const bpBins   = [0, 0.30, 0.45, 0.55, 0.70, 1.01];
+    const bpLabels = ['<0.3 (sell)', '0.3-0.45', '0.45-0.55', '0.55-0.7', '>0.7 (buy)'];
+    const bpBuckets = bpLabels.map((_, i) => flowRows.filter(r => {
+      const v = +r.buy_pressure;
+      return v >= bpBins[i] && v < bpBins[i+1];
+    }));
+    const bpWR  = bpBuckets.map(g => g.length >= 3 ? round2(g.filter(r=>r.exit_reason==='TAKE_PROFIT').length/g.length*100) : null);
+    const bpCnt = bpBuckets.map(g => g.length);
+    makeChart('chart-flow-bp', 'bar', {
+      labels: bpLabels,
+      datasets: [
+        { label: 'Win Rate %', data: bpWR, backgroundColor: bpWR.map(v=>v===null?'#33415544':v>=50?COLORS.green+'88':COLORS.red+'88'), borderColor: bpWR.map(v=>v===null?'#334155':v>=50?COLORS.green:COLORS.red), borderWidth:1, borderRadius:3, yAxisID:'y' },
+        { label: 'Trades', data: bpCnt, type:'line', borderColor: COLORS.blue+'88', backgroundColor:'transparent', pointRadius:3, yAxisID:'y1' }
+      ]
+    }, { scales: {
+      x:{ticks:{color:'#64748b',font:{size:9}}},
+      y:{ticks:{color:'#64748b',callback:v=>v+'%'},max:100},
+      y1:{ticks:{color:'#475569'},grid:{display:false},position:'right'},
+    }});
+
+    // Book Imbalance buckets: -1 to -0.5 ask heavy, -0.5 to -0.1 mild ask, -0.1 to 0.1 balanced, 0.1 to 0.5 mild bid, 0.5 to 1 bid heavy
+    const biRows = rows.filter(r => r.book_imbalance !== '' && r.book_imbalance !== undefined && r.book_imbalance !== null && !isNaN(+r.book_imbalance));
+    const biBins   = [-1.01, -0.5, -0.1, 0.1, 0.5, 1.01];
+    const biLabels = ['Ask heavy (<-0.5)', 'Mild ask', 'Balanced', 'Mild bid', 'Bid heavy (>0.5)'];
+    const biBuckets = biLabels.map((_, i) => biRows.filter(r => {
+      const v = +r.book_imbalance;
+      return v >= biBins[i] && v < biBins[i+1];
+    }));
+    const biWR  = biBuckets.map(g => g.length >= 3 ? round2(g.filter(r=>r.exit_reason==='TAKE_PROFIT').length/g.length*100) : null);
+    const biCnt = biBuckets.map(g => g.length);
+    makeChart('chart-flow-bi', 'bar', {
+      labels: biLabels,
+      datasets: [
+        { label: 'Win Rate %', data: biWR, backgroundColor: biWR.map(v=>v===null?'#33415544':v>=50?COLORS.green+'88':COLORS.red+'88'), borderColor: biWR.map(v=>v===null?'#334155':v>=50?COLORS.green:COLORS.red), borderWidth:1, borderRadius:3, yAxisID:'y' },
+        { label: 'Trades', data: biCnt, type:'line', borderColor: COLORS.teal+'88', backgroundColor:'transparent', pointRadius:3, yAxisID:'y1' }
+      ]
+    }, { scales: {
+      x:{ticks:{color:'#64748b',font:{size:9}}},
+      y:{ticks:{color:'#64748b',callback:v=>v+'%'},max:100},
+      y1:{ticks:{color:'#475569'},grid:{display:false},position:'right'},
+    }});
+
+    // Trade Velocity histogram (trades/min): 0-5, 5-10, 10-20, 20-50, 50-100, >100
+    const tvRows = rows.filter(r => r.trade_velocity !== '' && r.trade_velocity !== undefined && r.trade_velocity !== null && !isNaN(+r.trade_velocity));
+    const tvBins   = [0, 5, 10, 20, 50, 100, 9999];
+    const tvLabels = ['0-5/m','5-10/m','10-20/m','20-50/m','50-100/m','>100/m'];
+    const tvBuckets = tvLabels.map((_, i) => tvRows.filter(r => {
+      const v = +r.trade_velocity;
+      return v >= tvBins[i] && v < tvBins[i+1];
+    }));
+    const tvWR  = tvBuckets.map(g => g.length >= 3 ? round2(g.filter(r=>r.exit_reason==='TAKE_PROFIT').length/g.length*100) : null);
+    const tvCnt = tvBuckets.map(g => g.length);
+    makeChart('chart-flow-tv', 'bar', {
+      labels: tvLabels,
+      datasets: [
+        { label: 'Trades', data: tvCnt, backgroundColor: COLORS.orange+'88', borderColor: COLORS.orange, borderWidth:1, borderRadius:3, yAxisID:'y' },
+        { label: 'Win Rate %', data: tvWR, type:'line', borderColor: COLORS.green+'cc', backgroundColor:'transparent', pointRadius:3, yAxisID:'y1' }
+      ]
+    }, { scales: {
+      x:{ticks:{color:'#64748b',font:{size:9}}},
+      y:{ticks:{color:'#64748b'}},
+      y1:{ticks:{color:'#4ade80',callback:v=>v+'%'},grid:{display:false},position:'right',max:100},
+    }});
+
+    // Flow insight summary
+    const bestBP = bpLabels[bpWR.indexOf(Math.max(...bpWR.filter(v=>v!==null)))];
+    const bestBI = biLabels[biWR.indexOf(Math.max(...biWR.filter(v=>v!==null)))];
+    const avgBP  = flowRows.length ? (flowRows.reduce((s,r)=>s+(+r.buy_pressure||0),0)/flowRows.length).toFixed(3) : 'N/A';
+    document.getElementById('flow-insight').innerHTML = `
+      <strong>Best buy_pressure bucket:</strong> ${bestBP || 'N/A'} — highest TP rate<br>
+      <strong>Best book_imbalance bucket:</strong> ${bestBI || 'N/A'} — highest TP rate<br>
+      <strong>Avg buy_pressure at entry:</strong> ${avgBP} (0.5 = neutral, >0.5 = buy side dominant)<br>
+      <span style="color:#64748b;font-size:12px">Hypothesis: high buy pressure on long-side exchange = real demand = spread more likely to close. Book imbalance = liquidity signal. Needs 100+ flow trades to be statistically meaningful.</span>
+    `;
+  }
 
   document.getElementById('drop-zone').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';

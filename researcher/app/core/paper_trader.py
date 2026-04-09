@@ -70,6 +70,9 @@ class PaperTrader:
         spread_mean = data.get("spread_mean")
         spread_std  = data.get("spread_std")
         ts_ms       = data.get("ts_ms", int(time.time() * 1000))
+        buy_pressure   = data.get("buy_pressure")
+        trade_velocity = data.get("trade_velocity")
+        book_imbalance = data.get("book_imbalance")
 
         key = (symbol, ex_long, ex_short)
 
@@ -77,7 +80,9 @@ class PaperTrader:
             await self._maybe_close(key, zscore, spread_pct, ts_ms)
         else:
             await self._maybe_open(key, symbol, ex_long, ex_short, zscore, spread_pct, ts_ms,
-                                   spread_mean=spread_mean, spread_std=spread_std)
+                                   spread_mean=spread_mean, spread_std=spread_std,
+                                   buy_pressure=buy_pressure, trade_velocity=trade_velocity,
+                                   book_imbalance=book_imbalance)
 
     # ── Session stats (called from report_loop) ───────────────────────────────
 
@@ -103,8 +108,11 @@ class PaperTrader:
         zscore:     Optional[float],
         spread_pct: float,
         ts_ms:      int,
-        spread_mean: Optional[float] = None,
-        spread_std:  Optional[float] = None,
+        spread_mean:    Optional[float] = None,
+        spread_std:     Optional[float] = None,
+        buy_pressure:   Optional[float] = None,
+        trade_velocity: Optional[float] = None,
+        book_imbalance: Optional[float] = None,
     ) -> None:
         # Reject bogus data: price-scale mismatches produce absurd spreads
         if spread_pct > self.settings.MAX_SPREAD_PCT:
@@ -167,6 +175,9 @@ class PaperTrader:
                     entry_mode=entry_mode,
                     spread_mean=spread_mean,
                     spread_std=spread_std,
+                    buy_pressure=buy_pressure,
+                    trade_velocity=trade_velocity,
+                    book_imbalance=book_imbalance,
                 )
                 self._open[key].pos_id = pos_id  # update with real id
 

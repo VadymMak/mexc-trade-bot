@@ -16,6 +16,7 @@ from .collectors.binance_collector import BinanceCollector
 from .collectors.bybit_collector import BybitCollector
 from .collectors.gate_collector import GateCollector
 from .collectors.mexc_collector import MexcCollector
+from .core.market_flow import FlowTracker, MexcFlowCollector, GateFlowCollector
 from .core.pair_promoter import PairPromoter
 from .core.paper_trader import PaperTrader
 from .core.spread_matrix import SpreadMatrix
@@ -70,6 +71,12 @@ async def main() -> None:
     trader   = PaperTrader(db=db, settings=settings)
     promoter = PairPromoter(db=db, settings=settings)
 
+    # ── Flow tracker (tape + order book metrics for ML features) ──────────────
+    flow_tracker    = FlowTracker()
+    mexc_flow       = MexcFlowCollector(flow_tracker)
+    gate_flow       = GateFlowCollector(flow_tracker)
+    matrix.set_flow_tracker(flow_tracker)
+
     matrix.add_callback(trader.on_spread)
 
     # Push spread snapshots to the trading bot every 5 s
@@ -97,6 +104,15 @@ async def main() -> None:
             log.error("%s failed to connect: %r", c.name, r)
         else:
             log.info("%s connected OK", c.name)
+
+    # Start flow collectors (tape + book — MEXC and Gate only, no Binance/Bybit)
+    flow_syms = [s for s in symbols if s.endswith("_USDT")]  # MEXC/Gate use underscore format
+    try:
+        await mexc_flow.connect(flow_syms)
+        await gate_flow.connect(flow_syms)
+        log.info("Flow collectors started for %d symbols", len(flow_syms))
+    except Exception as exc:
+        log.warning("Flow collectors failed to start: %r — continuing without flow data", exc)
 
     # ── Background loops ──────────────────────────────────────────────────────
     stats_push_url = f"{settings.TRADING_BOT_URL}/api/arbitrage/internal/stats-update"

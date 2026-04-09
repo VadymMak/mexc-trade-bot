@@ -108,10 +108,14 @@ class NeonDB:
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS hold_seconds        INT",
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS closed_at           TIMESTAMPTZ",
             # ML dataset columns — features & labels for model training
-            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS exit_reason   TEXT",
-            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_mode    TEXT",
-            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS spread_mean   NUMERIC(10,6)",
-            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS spread_std    NUMERIC(10,6)",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS exit_reason     TEXT",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_mode      TEXT",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS spread_mean     NUMERIC(10,6)",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS spread_std      NUMERIC(10,6)",
+            # Flow features (tape + order book at entry time)
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS buy_pressure    NUMERIC(6,4)",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS trade_velocity  NUMERIC(8,2)",
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS book_imbalance  NUMERIC(6,4)",
         ]:
             await self._pool.execute(col_ddl)
         await self._pool.execute("""
@@ -178,9 +182,12 @@ class NeonDB:
         deal_size_usdt:       float,
         slippage_entry_usdt:  float,
         fee_usdt:             float,
-        entry_mode:           Optional[str] = None,
+        entry_mode:           Optional[str]   = None,
         spread_mean:          Optional[float] = None,
         spread_std:           Optional[float] = None,
+        buy_pressure:         Optional[float] = None,
+        trade_velocity:       Optional[float] = None,
+        book_imbalance:       Optional[float] = None,
     ) -> int:
         """Insert open position; returns its auto-generated id."""
         assert self._pool
@@ -190,14 +197,16 @@ class NeonDB:
                 (symbol, exchange_long, exchange_short,
                  entry_spread_pct, entry_zscore,
                  deal_size_usdt, slippage_entry_usdt, fee_usdt,
-                 entry_mode, spread_mean, spread_std)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 entry_mode, spread_mean, spread_std,
+                 buy_pressure, trade_velocity, book_imbalance)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
             RETURNING id
             """,
             symbol, exchange_long, exchange_short,
             entry_spread_pct, entry_zscore,
             deal_size_usdt, slippage_entry_usdt, fee_usdt,
             entry_mode, spread_mean, spread_std,
+            buy_pressure, trade_velocity, book_imbalance,
         )
         return int(row["id"])
 
@@ -389,6 +398,7 @@ class NeonDB:
                 symbol, exchange_long, exchange_short,
                 entry_mode, entry_spread_pct, entry_zscore,
                 spread_mean, spread_std,
+                buy_pressure, trade_velocity, book_imbalance,
                 exit_reason, exit_spread_pct, exit_zscore,
                 deal_size_usdt, gross_pnl_usdt, net_pnl_usdt,
                 hold_seconds, opened_at, closed_at
@@ -411,6 +421,10 @@ class NeonDB:
             "spread_mean", "spread_std",
             "spread_zscore_ratio",   # entry_spread / spread_mean
             "spread_cv",             # spread_std / spread_mean (volatility)
+            # --- flow features (tape + book at entry time) ---
+            "buy_pressure",          # buy_vol / total_vol last 60s (0–1)
+            "trade_velocity",        # trades per minute last 60s
+            "book_imbalance",        # (bid_qty - ask_qty) / total top-5 (-1…+1)
             # --- time features (UTC) ---
             "hour_utc", "day_of_week",  # 0=Mon…6=Sun
             "trading_session",          # asia / europe / overlap / us / quiet
@@ -452,6 +466,9 @@ class NeonDB:
                 round(float(r["entry_zscore"]), 4) if r["entry_zscore"] is not None else "",
                 round(s_mean, 6) if s_mean else "", round(s_std, 6) if s_std else "",
                 spread_zscore_ratio, spread_cv,
+                round(float(r["buy_pressure"]),   4) if r["buy_pressure"]   is not None else "",
+                round(float(r["trade_velocity"]), 2) if r["trade_velocity"] is not None else "",
+                round(float(r["book_imbalance"]), 4) if r["book_imbalance"] is not None else "",
                 hour_utc, dow, session, is_weekend,
                 mins_to_fund,
                 deal_size,

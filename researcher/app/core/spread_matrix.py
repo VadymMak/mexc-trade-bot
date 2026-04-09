@@ -3,7 +3,10 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
+
+if TYPE_CHECKING:
+    from .market_flow import FlowTracker
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +28,15 @@ class SpreadMatrix:
         self._callbacks: list[Callable] = []
         # { (symbol, ex_a, ex_b): spread_dict } — latest result per directed pair
         self._latest_spreads: dict[tuple[str, str, str], dict] = {}
+        # optional flow tracker (tape + book metrics)
+        self._flow: Optional[FlowTracker] = None
         # push config
         self._push_url: Optional[str] = None
         self._push_interval: float = 5.0
+
+    def set_flow_tracker(self, tracker: FlowTracker) -> None:
+        """Attach a FlowTracker so spread dicts include tape/book metrics."""
+        self._flow = tracker
 
     async def on_price(self, symbol: str, exchange: str, price: float, ts_ms: int) -> None:
         """Called by each collector on every tick."""
@@ -73,6 +82,10 @@ class SpreadMatrix:
                     exch_long   = ex_a
                     exch_short  = ex_b
 
+                # Tape + book metrics from FlowTracker (None if not yet available)
+                flow_long  = self._flow.get_metrics(symbol, exch_long)  if self._flow else {}
+                flow_short = self._flow.get_metrics(symbol, exch_short) if self._flow else {}
+
                 entry = {
                     "symbol": symbol,
                     "exchange_long":  exch_long,
@@ -85,6 +98,10 @@ class SpreadMatrix:
                     "spread_mean":    spread_mean,
                     "spread_std":     spread_std,
                     "ts_ms":          now,
+                    # flow features (long-side exchange)
+                    "buy_pressure":   flow_long.get("buy_pressure"),
+                    "trade_velocity": flow_long.get("trade_velocity"),
+                    "book_imbalance": flow_long.get("book_imbalance"),
                 }
 
                 # Store latest result per directed pair
