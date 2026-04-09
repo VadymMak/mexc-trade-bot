@@ -222,23 +222,42 @@ class MexcFlowCollector:
                     if not isinstance(msg, dict):
                         continue
 
-                    channel = msg.get("channel", "")
-                    data    = msg.get("data", {})
+                    channel        = msg.get("channel", "")
+                    data           = msg.get("data", {})
+                    top_sym        = msg.get("symbol", "")  # MEXC puts symbol at top level
 
-                    if channel == "push.deal":
-                        self._handle_deals(data)
-                    elif channel == "push.depth":
-                        self._handle_depth(data)
+                    try:
+                        if channel == "push.deal":
+                            self._handle_deals(data, top_sym)
+                        elif channel == "push.depth":
+                            self._handle_depth(data, top_sym)
+                    except Exception:
+                        pass  # never crash the stream on a bad message
             finally:
                 hb.cancel()
                 with suppress(Exception):
                     await hb
 
-    def _handle_deals(self, data: dict) -> None:
-        symbol = data.get("symbol", "")
+    def _handle_deals(self, data, fallback_symbol: str = "") -> None:
+        """
+        MEXC push.deal comes in two formats:
+          Format A (old): data = {"symbol": "X", "deals": [{p, v, T, t}, ...]}
+          Format B (live): data = [{p, v, T, t}, ...]  +  top-level msg.symbol = "X"
+        """
+        if isinstance(data, list):
+            # Format B — deals list directly, symbol from top-level msg
+            symbol = fallback_symbol
+            deals  = data
+        elif isinstance(data, dict):
+            # Format A — nested
+            symbol = data.get("symbol", "") or fallback_symbol
+            deals  = data.get("deals", [])
+        else:
+            return
+
         if not symbol:
             return
-        for deal in data.get("deals", []):
+        for deal in deals:
             try:
                 price  = float(deal["p"])
                 size   = float(deal["v"])
@@ -248,13 +267,34 @@ class MexcFlowCollector:
             except (KeyError, ValueError, TypeError):
                 continue
 
-    def _handle_depth(self, data: dict) -> None:
-        symbol = data.get("symbol", "")
+    def _handle_depth(self, data, fallback_symbol: str = "") -> None:
+        """
+        MEXC push.depth:
+          Format A: data = {"symbol": "X", "bids": [[p,s],...], "asks": [[p,s],...]}
+          Format B: data = {"symbol": "X", "bids": [{"p":p,"v":s},...], ...}
+          In all formats symbol may also be at top-level msg.
+        """
+        if not isinstance(data, dict):
+            return
+        symbol = data.get("symbol", "") or fallback_symbol
         if not symbol:
             return
         try:
-            bids = [(float(p), float(s)) for p, s in data.get("bids", [])]
-            asks = [(float(p), float(s)) for p, s in data.get("asks", [])]
+            raw_bids = data.get("bids", [])
+            raw_asks = data.get("asks", [])
+            # Handle both [price, size] lists and {"p":price, "v":size} dicts
+            def _parse_levels(levels):
+                result = []
+                for lvl in levels:
+                    if isinstance(lvl, (list, tuple)) and len(lvl) >= 2:
+                        result.append((float(lvl[0]), float(lvl[1])))
+                    elif isinstance(lvl, dict):
+                        p = lvl.get("p") or lvl.get("price", 0)
+                        s = lvl.get("v") or lvl.get("size") or lvl.get("quantity", 0)
+                        result.append((float(p), float(s)))
+                return result
+            bids = _parse_levels(raw_bids)
+            asks = _parse_levels(raw_asks)
             self._tracker.on_book(symbol, "mexc", bids, asks)
         except (ValueError, TypeError):
             pass
