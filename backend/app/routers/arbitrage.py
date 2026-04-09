@@ -13,6 +13,11 @@ from fastapi.responses import StreamingResponse
 router = APIRouter(prefix="/api/arbitrage", tags=["arbitrage"])
 log = logging.getLogger(__name__)
 
+# ─────────────────── in-memory spread cache ───────────────────
+# Populated by POST /api/arbitrage/internal/spread-update from researcher service.
+# Key: (symbol, exchange_long, exchange_short)  Value: spread dict
+_spread_cache: dict[tuple, dict] = {}
+
 
 # ─────────────────── helpers ───────────────────
 
@@ -25,7 +30,14 @@ def _sse(data: dict) -> bytes:
     return f"data: {payload}\n\n".encode("utf-8")
 
 
-# ─────────────────── mock data ───────────────────
+def _cache_or_mock() -> List[Dict[str, Any]]:
+    """Return live data from cache if available, else fall back to mock."""
+    if _spread_cache:
+        return list(_spread_cache.values())
+    return _mock_pairs()
+
+
+# ─────────────────── mock data (fallback) ───────────────────
 
 def _mock_pairs() -> List[Dict[str, Any]]:
     now = _now_iso()
@@ -75,10 +87,32 @@ def _mock_queue() -> List[Dict[str, Any]]:
 
 # ─────────────────── REST endpoints ───────────────────
 
+# ─────────────────── internal push endpoint (researcher → bot) ───────────────────
+
+@router.post("/internal/spread-update")
+async def internal_spread_update(spreads: List[Dict[str, Any]]) -> dict:
+    """
+    Called by the researcher service every ~5s with the latest spread snapshot.
+    Updates in-memory cache — no auth required (internal Railway network only).
+    """
+    for item in spreads:
+        key = (
+            item.get("symbol", ""),
+            item.get("exchange_long", ""),
+            item.get("exchange_short", ""),
+        )
+        if all(key):
+            _spread_cache[key] = item
+    log.debug("[ARB] Spread cache updated: %d pairs", len(_spread_cache))
+    return {"accepted": len(spreads)}
+
+
+# ─────────────────── REST endpoints ───────────────────
+
 @router.get("/research/pairs")
 async def get_research_pairs() -> dict:
-    """Monitored pairs with current spread data (mock)."""
-    pairs = _mock_pairs()
+    """Monitored pairs with current spread data (live or mock fallback)."""
+    pairs = _cache_or_mock()
     return {
         "pairs": pairs,
         "total": len(pairs),
@@ -133,12 +167,12 @@ async def arbitrage_sse() -> StreamingResponse:
     async def event_generator():
         try:
             # Immediate snapshot on connect
-            yield _sse({"type": "spread_update", "pairs": _mock_pairs()})
+            yield _sse({"type": "spread_update", "pairs": _cache_or_mock()})
 
             while True:
                 await asyncio.sleep(10)
                 yield _sse({"type": "heartbeat", "ts": _now_iso()})
-                yield _sse({"type": "spread_update", "pairs": _mock_pairs()})
+                yield _sse({"type": "spread_update", "pairs": _cache_or_mock()})
 
         except (asyncio.CancelledError, GeneratorExit):
             return

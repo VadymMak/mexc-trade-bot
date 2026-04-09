@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections import deque
-from typing import Callable
+from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class SpreadMatrix:
@@ -22,6 +25,9 @@ class SpreadMatrix:
         self._callbacks: list[Callable] = []
         # { (symbol, ex_a, ex_b): spread_dict } — latest result per directed pair
         self._latest_spreads: dict[tuple[str, str, str], dict] = {}
+        # push config
+        self._push_url: Optional[str] = None
+        self._push_interval: float = 5.0
 
     async def on_price(self, symbol: str, exchange: str, price: float, ts_ms: int) -> None:
         """Called by each collector on every tick."""
@@ -97,3 +103,48 @@ class SpreadMatrix:
     def get_all_spreads(self) -> list[dict]:
         """Snapshot of latest spreads for API."""
         return list(self._latest_spreads.values())
+
+    def set_push_url(self, url: str, interval_s: float = 5.0) -> None:
+        """Configure periodic push of spread snapshots to the trading bot."""
+        self._push_url = url
+        self._push_interval = interval_s
+
+    async def push_loop(self) -> None:
+        """
+        Background task: POST get_all_spreads() to _push_url every _push_interval seconds.
+        No-op if _push_url is not set.
+        """
+        if not self._push_url:
+            # Nothing to push — just park forever so gather() doesn't exit
+            import asyncio
+            await asyncio.Event().wait()
+            return
+
+        import asyncio
+        import json
+        try:
+            import aiohttp
+        except ImportError:
+            logger.warning("aiohttp not installed — spread push disabled")
+            await asyncio.Event().wait()
+            return
+
+        logger.info("[SpreadMatrix] Push loop started → %s every %.0fs", self._push_url, self._push_interval)
+
+        async with aiohttp.ClientSession() as session:
+            while True:
+                await asyncio.sleep(self._push_interval)
+                spreads = self.get_all_spreads()
+                if not spreads:
+                    continue
+                try:
+                    async with session.post(
+                        self._push_url,
+                        data=json.dumps(spreads),
+                        headers={"Content-Type": "application/json"},
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        if resp.status >= 400:
+                            logger.warning("[SpreadMatrix] Push failed: HTTP %d", resp.status)
+                except Exception as exc:
+                    logger.warning("[SpreadMatrix] Push error: %r", exc)
