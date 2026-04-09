@@ -7,7 +7,9 @@ Run from the researcher/ directory:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 
 from .config import Settings
 from .collectors.binance_collector import BinanceCollector
@@ -27,7 +29,22 @@ async def main() -> None:
     )
     log = logging.getLogger("researcher")
 
-    log.info("Starting researcher. Symbols: %s", settings.symbols_list)
+    # Resolve symbols — prefer discovered file, fall back to env var
+    symbols_file = Path(settings.SYMBOLS_FILE)
+    if symbols_file.exists():
+        try:
+            discovered = json.loads(symbols_file.read_text())
+            symbols = discovered["symbols"]
+            log.info(
+                "Loaded %d symbols from %s (generated %s)",
+                len(symbols), symbols_file, discovered.get("generated_at", "?"),
+            )
+        except Exception as exc:
+            log.warning("Failed to load %s: %r — falling back to env var", symbols_file, exc)
+            symbols = settings.symbols_list
+    else:
+        symbols = settings.symbols_list
+        log.info("No symbols file found at %s — using env var: %s", symbols_file, symbols)
 
     # DB
     db = NeonDB(settings.NEON_DATABASE_URL)
@@ -59,7 +76,7 @@ async def main() -> None:
         c.set_callback(matrix.on_price)
 
     # Connect all (gather, don't fail if one exchange is down)
-    connect_tasks = [c.connect(settings.symbols_list) for c in collectors]
+    connect_tasks = [c.connect(symbols) for c in collectors]
     results = await asyncio.gather(*connect_tasks, return_exceptions=True)
     for c, r in zip(collectors, results):
         if isinstance(r, Exception):

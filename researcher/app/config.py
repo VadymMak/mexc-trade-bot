@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     PROMOTE_THRESHOLD: float = 0.75
     MIN_TRADES_TO_PROMOTE: int = 50
     LOG_LEVEL: str = "INFO"
+    SYMBOLS_FILE: str = "data/discovered_symbols.json"
 
     class Config:
         env_file = ".env"
