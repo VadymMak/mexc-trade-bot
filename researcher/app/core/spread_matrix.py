@@ -1,140 +1,99 @@
-"""
-SpreadMatrix — in-memory price book for cross-exchange spread computation.
-
-Responsibilities:
-  1. Store the latest mark price per (symbol, exchange).
-  2. On every new tick, compute pairwise spreads for that symbol.
-  3. Maintain a rolling window of spread history to compute z-scores.
-  4. Return SpreadSnapshot objects only when spread >= MIN_SPREAD_PCT.
-
-Usage:
-    matrix = SpreadMatrix()
-    matrix.on_price  ← pass as callback to all collectors via set_callback()
-"""
 from __future__ import annotations
 
-import asyncio
-import logging
 import time
 from collections import deque
-from dataclasses import dataclass
-from statistics import mean, stdev
-from typing import Dict, Optional, Tuple
-
-from ..config import settings
-
-logger = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class Tick:
-    exchange: str
-    price: float
-    ts_ms: int
-
-
-@dataclass(slots=True)
-class SpreadSnapshot:
-    symbol: str
-    exchange_long: str    # buy here (lower price)
-    exchange_short: str   # sell here (higher price)
-    long_price: float
-    short_price: float
-    spread_pct: float     # (short - long) / long
-    zscore: Optional[float]
-    ts_ms: int
-
-
-# Internal key for per-pair history
-_HistKey = Tuple[str, str, str]   # (symbol, exchange_long, exchange_short)
+from typing import Callable
 
 
 class SpreadMatrix:
-    """Thread-safe (asyncio.Lock) price matrix with z-score computation."""
+    """
+    Receives price updates from multiple collectors.
+    For each symbol, tracks latest price per exchange.
+    Computes spread between all exchange pairs.
+    """
 
-    def __init__(self) -> None:
-        # Latest tick per (symbol → exchange → Tick)
-        self._prices: Dict[str, Dict[str, Tick]] = {}
-        # Rolling spread history per direction
-        self._history: Dict[_HistKey, deque[float]] = {}
+    def __init__(self, max_lag_ms: int = 30) -> None:
+        self.max_lag_ms = max_lag_ms
+        # { symbol: { exchange: (price, ts_ms) } }
+        self._prices: dict[str, dict[str, tuple[float, int]]] = {}
+        # { symbol: deque of (ratio, ts_ms) } for zscore
+        self._history: dict[str, deque] = {}
+        self._window = 300
+        self._callbacks: list[Callable] = []
+        # { (symbol, ex_a, ex_b): spread_dict } — latest result per directed pair
+        self._latest_spreads: dict[tuple[str, str, str], dict] = {}
 
-        self._window: int = settings.SPREAD_WINDOW_TICKS
-        self._min_spread: float = settings.MIN_SPREAD_PCT
-        self._max_lag_ms: int = settings.MAX_SPREAD_LAG_MS
-        self._lock = asyncio.Lock()
+    async def on_price(self, symbol: str, exchange: str, price: float, ts_ms: int) -> None:
+        """Called by each collector on every tick."""
+        if symbol not in self._prices:
+            self._prices[symbol] = {}
+        self._prices[symbol][exchange] = (price, ts_ms)
+        await self._compute_spreads(symbol)
 
-    async def on_price(
-        self, symbol: str, exchange: str, price: float, ts_ms: int
-    ) -> list[SpreadSnapshot]:
-        """
-        Called by every collector tick.
-        Updates internal state and returns triggered SpreadSnapshot list
-        (only entries where spread >= MIN_SPREAD_PCT).
-        """
-        async with self._lock:
-            book = self._prices.setdefault(symbol, {})
-            book[exchange] = Tick(exchange=exchange, price=price, ts_ms=ts_ms)
-            return self._compute(symbol, ts_ms)
-
-    def snapshot_all(self) -> list[SpreadSnapshot]:
-        """
-        Synchronous read of latest spread for every known pair.
-        Used for the API/SSE response layer.
-        """
-        results: list[SpreadSnapshot] = []
-        for symbol in list(self._prices):
-            results.extend(self._compute(symbol, int(time.time() * 1000)))
-        return results
-
-    # ─── private ───
-
-    def _compute(self, symbol: str, now_ms: int) -> list[SpreadSnapshot]:
-        book = self._prices.get(symbol, {})
-        exchanges = list(book)
+    async def _compute_spreads(self, symbol: str) -> None:
+        """Compute all exchange pair combinations for this symbol."""
+        exchanges = list(self._prices.get(symbol, {}).items())
         if len(exchanges) < 2:
-            return []
+            return
 
-        snapshots: list[SpreadSnapshot] = []
+        now = int(time.time() * 1000)
+        results = []
 
-        for i, ex_a in enumerate(exchanges):
-            for ex_b in exchanges[i + 1:]:
-                tick_a = book[ex_a]
-                tick_b = book[ex_b]
+        for i in range(len(exchanges)):
+            for j in range(i + 1, len(exchanges)):
+                ex_a, (price_a, ts_a) = exchanges[i]
+                ex_b, (price_b, ts_b) = exchanges[j]
 
-                # Reject stale data: timestamps too far apart
-                if abs(tick_a.ts_ms - tick_b.ts_ms) > self._max_lag_ms:
+                # Skip if prices are too stale vs each other
+                if abs(ts_a - ts_b) > self.max_lag_ms:
                     continue
 
-                # Evaluate both directions; emit the positive one
-                for ex_long, ex_short in ((ex_a, ex_b), (ex_b, ex_a)):
-                    p_long = book[ex_long].price
-                    p_short = book[ex_short].price
-                    if p_long <= 0 or p_short <= 0:
-                        continue
+                if price_b == 0:
+                    continue
 
-                    spread_pct = (p_short - p_long) / p_long
+                ratio = price_a / price_b
+                spread_pct = abs(ratio - 1.0) * 100
+                zscore = self._compute_zscore(symbol, ratio, now)
 
-                    key: _HistKey = (symbol, ex_long, ex_short)
-                    hist = self._history.setdefault(key, deque(maxlen=self._window))
-                    hist.append(spread_pct)
+                entry = {
+                    "symbol": symbol,
+                    "exchange_long": ex_b if ratio > 1 else ex_a,
+                    "exchange_short": ex_a if ratio > 1 else ex_b,
+                    "spread_pct": spread_pct,
+                    "ratio": ratio,
+                    "zscore": zscore,
+                    "ts_ms": now,
+                }
 
-                    zscore: Optional[float] = None
-                    if len(hist) >= 30:
-                        mu = mean(hist)
-                        sigma = stdev(hist)
-                        if sigma > 0:
-                            zscore = (spread_pct - mu) / sigma
+                # Store latest result per directed pair
+                key = (symbol, entry["exchange_long"], entry["exchange_short"])
+                self._latest_spreads[key] = entry
 
-                    if spread_pct >= self._min_spread:
-                        snapshots.append(SpreadSnapshot(
-                            symbol=symbol,
-                            exchange_long=ex_long,
-                            exchange_short=ex_short,
-                            long_price=p_long,
-                            short_price=p_short,
-                            spread_pct=spread_pct,
-                            zscore=zscore,
-                            ts_ms=now_ms,
-                        ))
+                results.append(entry)
 
-        return snapshots
+        for r in results:
+            for cb in self._callbacks:
+                await cb(r)
+
+    def _compute_zscore(self, symbol: str, ratio: float, ts_ms: int) -> float | None:
+        if symbol not in self._history:
+            self._history[symbol] = deque(maxlen=self._window)
+        self._history[symbol].append((ratio, ts_ms))
+        hist = self._history[symbol]
+        if len(hist) < 30:
+            return None
+        ratios = [r for r, _ in hist]
+        mean = sum(ratios) / len(ratios)
+        variance = sum((r - mean) ** 2 for r in ratios) / len(ratios)
+        std = variance ** 0.5
+        if std < 0.0001:
+            return None
+        return (ratio - mean) / std
+
+    def add_callback(self, cb: Callable) -> None:
+        """Register callback for spread updates."""
+        self._callbacks.append(cb)
+
+    def get_all_spreads(self) -> list[dict]:
+        """Snapshot of latest spreads for API."""
+        return list(self._latest_spreads.values())
