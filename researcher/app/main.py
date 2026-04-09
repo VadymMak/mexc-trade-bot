@@ -13,6 +13,7 @@ from .config import Settings
 from .collectors.binance_collector import BinanceCollector
 from .collectors.bybit_collector import BybitCollector
 from .collectors.gate_collector import GateCollector
+from .collectors.mexc_collector import MexcCollector
 from .core.spread_matrix import SpreadMatrix
 from .core.paper_trader import PaperTrader
 from .db.neon_db import NeonDB
@@ -52,6 +53,7 @@ async def main() -> None:
         BinanceCollector(),
         BybitCollector(),
         GateCollector(),
+        MexcCollector(),
     ]
     for c in collectors:
         c.set_callback(matrix.on_price)
