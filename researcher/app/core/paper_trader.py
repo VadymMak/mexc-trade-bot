@@ -108,8 +108,9 @@ class PaperTrader:
         )
         # Mode B: large-spread entry (new listings, no z-score history needed)
         # spread_pct is in percentage-point units: 0.070 = 0.07%, 3.8 = 3.8%
-        # Threshold 0.50 = 0.50% — above breakeven (~0.26%) so trades can profit
-        large_spread_entry = spread_pct >= 0.50
+        # Threshold 0.55 = 0.55% — above breakeven for TP: entry > cost/(1-TP_ratio) = 0.026/0.5 = 0.052 ✗
+        # At 0.55%: gross=0.0275 USDT, costs≈0.026 USDT → net≈+$0.0015 per TP win
+        large_spread_entry = spread_pct >= 0.55
 
         if zscore_entry or large_spread_entry:
             entry_mode = "zscore" if zscore_entry else "large_spread"

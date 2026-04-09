@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     TAKE_PROFIT_RATIO: float = 0.50
 
     # Stop-loss: close if spread grows by this multiplier from entry
-    # e.g. 2.0 → entered at 20%, stop-loss at 40%
-    STOP_LOSS_RATIO: float = 2.0
+    # e.g. 1.5 → entered at 0.50%, stop-loss at 0.75%
+    # Reduced from 2.0: at 2.0× SL loss was 76× larger than TP win → terrible R/R
 
     # Max hold time in seconds — close regardless of spread/zscore
     # Default 4 hours = 14400s
@@ -43,6 +43,10 @@ class Settings(BaseSettings):
 
     # Cooldown after STOP_LOSS (seconds): prevent immediate re-entry on volatile pairs
     STOP_LOSS_COOLDOWN_SECONDS: int = 300  # 5 minutes
+
+    # Stop-loss ratio reduced: 2.0 meant loss = 2× potential win → terrible R/R.
+    # At 1.5×: SL loss = entry×0.5×0.1+0.026 vs TP win = entry×0.5×0.1−0.026
+    STOP_LOSS_RATIO: float = 1.5
 
     class Config:
         env_file = ".env"
