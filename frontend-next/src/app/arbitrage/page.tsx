@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { usePolling } from '@/hooks/usePolling';
 import styles from './page.module.css';
 
@@ -94,9 +94,13 @@ function StatusBadge({ status }: { status: ArbPair['status'] }) {
 
 /* ─────────────────── Tab 1: Research ─────────────────── */
 
+const REFRESH_INTERVAL = 30_000;
+const REFRESH_SECONDS = REFRESH_INTERVAL / 1000;
+
 function ResearchTab() {
   const [pairs, setPairs] = useState<ArbPair[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState(REFRESH_SECONDS);
 
   const fetchPairs = useCallback(async () => {
     const r = await fetch('/api/proxy/api/arbitrage/research/pairs');
@@ -104,15 +108,23 @@ function ResearchTab() {
     const data = await r.json() as { pairs: ArbPair[] };
     setPairs(data.pairs ?? []);
     setUpdatedAt(new Date().toLocaleTimeString());
+    setCountdown(REFRESH_SECONDS);
   }, []);
 
-  usePolling(fetchPairs, 10_000);
+  usePolling(fetchPairs, REFRESH_INTERVAL);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCountdown((prev) => (prev <= 1 ? REFRESH_SECONDS : prev - 1));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <div>
       <div className={styles.sseIndicator}>
         <span className={updatedAt ? styles.sseDot : styles.sseDotOff} />
-        {updatedAt ? `Updated ${updatedAt}` : 'Loading…'}
+        {updatedAt ? `Updated ${updatedAt} · next in ${countdown}s` : 'Loading…'}
       </div>
 
       <div className={styles.tableCard}>
