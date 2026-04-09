@@ -81,6 +81,20 @@ class NeonDB:
         """)
         # Migrate: add ALL columns that may be missing from older schema versions
         for col_ddl in [
+            # Fix old column name (spread_pct_entry → entry_spread_pct):
+            # set DEFAULT 0 so NOT NULL constraint doesn't crash on new INSERTs.
+            # Wrapped in DO block — safe to run even if column doesn't exist.
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='paper_positions' AND column_name='spread_pct_entry'
+                ) THEN
+                    ALTER TABLE paper_positions ALTER COLUMN spread_pct_entry SET DEFAULT 0;
+                END IF;
+            END $$
+            """,
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_spread_pct    NUMERIC(10,4) NOT NULL DEFAULT 0",
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS entry_zscore        NUMERIC(10,4)",
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS exit_spread_pct     NUMERIC(10,4)",
