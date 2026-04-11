@@ -36,6 +36,7 @@ export default function RootLayout({
               { href: "/", label: "Trading" },
               { href: "/scanner", label: "Scanner" },
               { href: "/arbitrage", label: "Arbitrage" },
+              { href: "/arbitrage/analyzer", label: "Analyzer" },
               { href: "/history", label: "History" },
               { href: "/settings", label: "Settings" },
             ].map(({ href, label }) => (
