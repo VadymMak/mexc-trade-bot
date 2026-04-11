@@ -35,6 +35,43 @@
 }
 .resetBtn:hover { background: #334155; color: #e2e8f0; }
 
+.badgeDirty {
+  background: #92400e22;
+  border: 1px solid #92400e88;
+  color: #fbbf24;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+.cleanToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #94a3b8;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 4px 10px;
+  user-select: none;
+}
+.cleanToggle input[type="checkbox"] {
+  accent-color: #16a34a;
+  cursor: pointer;
+}
+.cleanToggle span { color: #e2e8f0; font-weight: 600; }
+.cleanHint {
+  color: #64748b !important;
+  font-weight: 400 !important;
+  font-size: 11px !important;
+}
+.rawHint {
+  font-size: 11px;
+  color: #475569;
+}
+
 /* Drop zone */
 .dropZone {
   margin: 60px auto;

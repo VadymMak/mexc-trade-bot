@@ -73,8 +73,25 @@ const SESSION_ORDER = ['asia', 'europe', 'overlap', 'us', 'quiet'];
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 /* ─── Main component ─── */
+/* ─── Dirty data filters ─── */
+const PHANTOM_EXCHANGES = new Set(['binance', 'bybit']);
+const ZR_MIN_HOLD = 120;
+
+function applyFilters(rows: Row[], clean: boolean): Row[] {
+  if (!clean) return rows;
+  return rows.filter(r => {
+    // Remove phantom binance/bybit pairs
+    if (PHANTOM_EXCHANGES.has(r.exchange_long?.toLowerCase()) ||
+        PHANTOM_EXCHANGES.has(r.exchange_short?.toLowerCase())) return false;
+    // Remove ZSCORE_REVERT exits that fired before min-hold fix (hold < 120s)
+    if (r.exit_reason === 'ZSCORE_REVERT' && parseFloat(r.hold_seconds) < ZR_MIN_HOLD) return false;
+    return true;
+  });
+}
+
 export default function AnalyzerPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
+  const [clean, setClean] = useState(true);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -113,11 +130,30 @@ export default function AnalyzerPage() {
     );
   }
 
-  return <Dashboard rows={rows} onReset={() => setRows(null)} />;
+  const filtered = applyFilters(rows, clean);
+  const removed  = rows.length - filtered.length;
+
+  return (
+    <Dashboard
+      rows={filtered}
+      totalRaw={rows.length}
+      removed={removed}
+      clean={clean}
+      onCleanToggle={() => setClean(v => !v)}
+      onReset={() => setRows(null)}
+    />
+  );
 }
 
 /* ─── Dashboard ─── */
-function Dashboard({ rows, onReset }: { rows: Row[]; onReset: () => void }) {
+function Dashboard({ rows, totalRaw, removed, clean, onCleanToggle, onReset }: {
+  rows: Row[];
+  totalRaw: number;
+  removed: number;
+  clean: boolean;
+  onCleanToggle: () => void;
+  onReset: () => void;
+}) {
   const total   = rows.length;
   const netPnl  = sum(rows.map(r => parseFloat(r.net_pnl_usdt) || 0));
   const grossPnl = sum(rows.map(r => parseFloat(r.gross_pnl_usdt) || 0));
@@ -261,6 +297,19 @@ function Dashboard({ rows, onReset }: { rows: Row[]; onReset: () => void }) {
       <div className={styles.header}>
         <span className={styles.title}>📊 Dataset Analyzer</span>
         <span className={styles.badge}>{total.toLocaleString()} trades</span>
+        {clean && removed > 0 && (
+          <span className={styles.badgeDirty}>🧹 {removed} dirty removed</span>
+        )}
+        <label className={styles.cleanToggle}>
+          <input type="checkbox" checked={clean} onChange={onCleanToggle} />
+          <span>Clean data</span>
+          <span className={styles.cleanHint}>
+            {clean
+              ? '✓ removing binance/bybit phantom pairs + ZR exits &lt;120s'
+              : '⚠ showing raw data including dirty trades'}
+          </span>
+        </label>
+        <span className={styles.rawHint}>Raw: {totalRaw.toLocaleString()}</span>
         <button className={styles.resetBtn} onClick={onReset}>Load new CSV</button>
       </div>
 
