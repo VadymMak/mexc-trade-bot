@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     # Opening just before funding = paying entry fees + funding before spread closes.
     FUNDING_BLACKOUT_SECONDS: int = 300  # 5 min before each funding window
 
+    # Trading exchanges whitelist — ONLY open positions between these exchanges.
+    # Binance and Bybit are mark-price references, NOT tradable venues.
+    # Their prices structurally diverge from Gate/MEXC futures → phantom spreads.
+    TRADING_EXCHANGES: str = "gate,mexc"
+
+    @property
+    def trading_exchanges_set(self) -> set[str]:
+        return {s.strip().lower() for s in self.TRADING_EXCHANGES.split(",") if s.strip()}
+
     # Blacklisted symbols — structurally wide spreads that never revert.
     # Identified from dataset: ~0-6% win rate across 80-170 trades each.
     # Stored as comma-separated string (pydantic-settings doesn't support list from env).

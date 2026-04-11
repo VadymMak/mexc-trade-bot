@@ -118,6 +118,13 @@ class PaperTrader:
         if spread_pct > self.settings.MAX_SPREAD_PCT:
             return
 
+        # Only trade between whitelisted exchanges (gate + mexc).
+        # Binance/Bybit are mark-price references — their prices structurally
+        # diverge from Gate/MEXC futures, producing phantom spreads that never close.
+        allowed = self.settings.trading_exchanges_set
+        if ex_long not in allowed or ex_short not in allowed:
+            return
+
         # Reject structurally bad pairs — spreads never revert, drain fees
         if symbol in self.settings.blacklisted_set:
             return
