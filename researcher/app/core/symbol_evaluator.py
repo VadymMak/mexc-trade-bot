@@ -104,7 +104,57 @@ class SymbolEvaluator:
     async def _evaluate_symbol(self, symbol: str) -> None:
         assert self._db._pool
 
-        # ── Fetch rolling 7-day clean stats ──────────────────────────────────
+        # ── Fast-blacklist check: uses 30-day window (more data = more confidence) ──
+        # Runs BEFORE the 7-day rolling check so it can fire even on symbols
+        # where the 7-day window has too few clean trades.
+        fast_row = await self._db._pool.fetchrow(
+            """
+            SELECT
+                COUNT(*)                                                  AS total,
+                SUM(CASE WHEN exit_reason='TAKE_PROFIT' THEN 1 ELSE 0 END) AS tp_count,
+                SUM(net_pnl_usdt)                                         AS net_pnl,
+                MIN(opened_at)                                            AS first_trade
+            FROM paper_positions
+            WHERE symbol = $1
+              AND status  = 'closed'
+              AND opened_at >= NOW() - INTERVAL '30 days'
+              AND exchange_long  NOT IN ('binance', 'bybit')
+              AND exchange_short NOT IN ('binance', 'bybit')
+              AND NOT (exit_reason = 'ZSCORE_REVERT' AND hold_seconds < 120)
+            """,
+            symbol,
+        )
+        if fast_row:
+            fast_total   = int(fast_row["total"] or 0)
+            fast_tp      = int(fast_row["tp_count"] or 0)
+            fast_pnl     = float(fast_row["net_pnl"] or 0.0)
+            fast_tp_rate = fast_tp / fast_total if fast_total > 0 else 0.0
+            fast_first   = fast_row["first_trade"]
+            if fast_first and fast_first.tzinfo is None:
+                fast_first = fast_first.replace(tzinfo=timezone.utc)
+            fast_days = (
+                (datetime.now(timezone.utc) - fast_first).total_seconds() / 86_400
+                if fast_first else 0.0
+            )
+            logger.debug(
+                "[Evaluator] %s fast-check: %d clean trades, tp=%.1f%%, pnl=$%.4f, days=%.1f",
+                symbol, fast_total, fast_tp_rate * 100, fast_pnl, fast_days,
+            )
+            if fast_total >= FAST_BL_MIN_TRADES:
+                if fast_tp_rate < FAST_BL_TP_RATE or fast_pnl <= FAST_BL_MAX_LOSS:
+                    reason = (
+                        f"FAST_BLACKLIST tp_rate={fast_tp_rate:.1%} net_pnl=${fast_pnl:.4f} "
+                        f"trades={fast_total} days={fast_days:.1f}"
+                    )
+                    logger.warning("[Evaluator] ⚡ FAST_BLACKLIST %s — %s", symbol, reason)
+                    await self._db.update_symbol_state(
+                        symbol=symbol, state="BLACKLISTED",
+                        total_trades=fast_total, tp_rate=fast_tp_rate, net_pnl=fast_pnl,
+                        reason=reason, retest_days=BLACKLIST_RETEST_DAYS,
+                    )
+                    return
+
+        # ── Fetch rolling 7-day clean stats for normal verdict ───────────────
         # "Clean" = gate/mexc only + ZSCORE_REVERT hold >= 120s
         row = await self._db._pool.fetchrow(
             """
@@ -154,23 +204,6 @@ class SymbolEvaluator:
             first_trade = first_trade.replace(tzinfo=timezone.utc)
 
         days_observed = (datetime.now(timezone.utc) - first_trade).total_seconds() / 86_400
-
-        # ── Fast-blacklist: skip 7-day wait when evidence is overwhelming ────
-        # 150+ clean trades with tp_rate < 15% OR net_pnl <= -$3 is enough evidence
-        # to blacklist immediately — no need to wait a full week.
-        if total >= FAST_BL_MIN_TRADES:
-            if tp_rate < FAST_BL_TP_RATE or net_pnl <= FAST_BL_MAX_LOSS:
-                reason = (
-                    f"FAST_BLACKLIST tp_rate={tp_rate:.1%} net_pnl=${net_pnl:.4f} "
-                    f"trades={total} days={days_observed:.1f}"
-                )
-                logger.warning("[Evaluator] ⚡ FAST_BLACKLIST %s — %s", symbol, reason)
-                await self._db.update_symbol_state(
-                    symbol=symbol, state="BLACKLISTED",
-                    total_trades=total, tp_rate=tp_rate, net_pnl=net_pnl,
-                    reason=reason, retest_days=BLACKLIST_RETEST_DAYS,
-                )
-                return
 
         if days_observed < TEST_DAYS:
             logger.debug(
