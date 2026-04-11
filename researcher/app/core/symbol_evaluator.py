@@ -36,12 +36,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ── Thresholds (can be moved to Settings later) ─────────────────────────────
-TEST_DAYS              = 7       # minimum calendar days before verdict
-TEST_MIN_TRADES        = 30      # minimum trades before verdict
+TEST_DAYS              = 7       # minimum calendar days before normal verdict
+TEST_MIN_TRADES        = 30      # minimum trades before normal verdict
 APPROVE_TP_RATE        = 0.50    # TP rate >= 50% → APPROVED
 BLACKLIST_TP_RATE      = 0.30    # TP rate <  30% → candidate for BLACKLISTED
 BLACKLIST_MAX_LOSS     = -1.0    # net PnL <= -$1 → BLACKLISTED regardless of TP rate
 BLACKLIST_RETEST_DAYS  = 30      # days before a blacklisted symbol is retested
+
+# Fast-blacklist: override 7-day requirement when evidence is overwhelming
+FAST_BL_MIN_TRADES     = 150     # enough trades to be statistically confident
+FAST_BL_TP_RATE        = 0.15    # tp_rate < 15% → too bad to wait
+FAST_BL_MAX_LOSS       = -3.0    # OR net_pnl <= -$3 with 150+ trades
 
 
 class SymbolEvaluator:
@@ -131,6 +136,24 @@ class SymbolEvaluator:
             first_trade = first_trade.replace(tzinfo=timezone.utc)
 
         days_observed = (datetime.now(timezone.utc) - first_trade).total_seconds() / 86_400
+
+        # ── Fast-blacklist: skip 7-day wait when evidence is overwhelming ────
+        # 150+ clean trades with tp_rate < 15% OR net_pnl <= -$3 is enough evidence
+        # to blacklist immediately — no need to wait a full week.
+        if total >= FAST_BL_MIN_TRADES:
+            if tp_rate < FAST_BL_TP_RATE or net_pnl <= FAST_BL_MAX_LOSS:
+                reason = (
+                    f"FAST_BLACKLIST tp_rate={tp_rate:.1%} net_pnl=${net_pnl:.4f} "
+                    f"trades={total} days={days_observed:.1f}"
+                )
+                logger.warning("[Evaluator] ⚡ FAST_BLACKLIST %s — %s", symbol, reason)
+                await self._db.update_symbol_state(
+                    symbol=symbol, state="BLACKLISTED",
+                    total_trades=total, tp_rate=tp_rate, net_pnl=net_pnl,
+                    reason=reason, retest_days=BLACKLIST_RETEST_DAYS,
+                )
+                return
+
         if days_observed < TEST_DAYS:
             logger.debug(
                 "[Evaluator] %s: only %.1f days (need %d) — staying TESTING",
