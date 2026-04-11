@@ -43,10 +43,12 @@ BLACKLIST_TP_RATE      = 0.30    # TP rate <  30% → candidate for BLACKLISTED
 BLACKLIST_MAX_LOSS     = -1.0    # net PnL <= -$1 → BLACKLISTED regardless of TP rate
 BLACKLIST_RETEST_DAYS  = 30      # days before a blacklisted symbol is retested
 
-# Fast-blacklist: override 7-day requirement when evidence is overwhelming
-FAST_BL_MIN_TRADES     = 150     # enough trades to be statistically confident
+# Fast-blacklist: override 7-day requirement when evidence is overwhelming.
+# NOTE: threshold is on CLEAN trades (after filtering ZR<120s + phantom exchanges).
+# Symbols like STO have ~90% ZR exits so clean count is much lower than total.
+FAST_BL_MIN_TRADES     = 50      # 50 clean trades is enough for statistical confidence
 FAST_BL_TP_RATE        = 0.15    # tp_rate < 15% → too bad to wait
-FAST_BL_MAX_LOSS       = -3.0    # OR net_pnl <= -$3 with 150+ trades
+FAST_BL_MAX_LOSS       = -2.0    # OR net_pnl <= -$2 with 50+ clean trades
 
 
 class SymbolEvaluator:
