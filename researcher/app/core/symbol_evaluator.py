@@ -46,9 +46,9 @@ BLACKLIST_RETEST_DAYS  = 30      # days before a blacklisted symbol is retested
 # Fast-blacklist: override 7-day requirement when evidence is overwhelming.
 # NOTE: threshold is on CLEAN trades (after filtering ZR<120s + phantom exchanges).
 # Symbols like STO have ~90% ZR exits so clean count is much lower than total.
-FAST_BL_MIN_TRADES     = 50      # 50 clean trades is enough for statistical confidence
+FAST_BL_MIN_TRADES     = 20      # 20 clean trades is enough when tp<15% (very bad signal)
 FAST_BL_TP_RATE        = 0.15    # tp_rate < 15% → too bad to wait
-FAST_BL_MAX_LOSS       = -2.0    # OR net_pnl <= -$2 with 50+ clean trades
+FAST_BL_MAX_LOSS       = -1.5    # OR net_pnl <= -$1.5 with 20+ clean trades
 
 
 class SymbolEvaluator:
@@ -136,7 +136,7 @@ class SymbolEvaluator:
                 (datetime.now(timezone.utc) - fast_first).total_seconds() / 86_400
                 if fast_first else 0.0
             )
-            logger.debug(
+            logger.info(
                 "[Evaluator] %s fast-check: %d clean trades, tp=%.1f%%, pnl=$%.4f, days=%.1f",
                 symbol, fast_total, fast_tp_rate * 100, fast_pnl, fast_days,
             )
