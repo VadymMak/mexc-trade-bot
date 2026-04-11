@@ -186,6 +186,13 @@ function StatsPanel({ stats }: { stats: ResearchStats | null }) {
           Stats updated: {new Date(stats.updated_at).toLocaleTimeString()}
         </div>
       )}
+      <a
+        href="https://mexc-trade-bot-production.up.railway.app/api/arbitrage/research/export-dataset"
+        download
+        className={styles.csvBtn}
+      >
+        ⬇ Download CSV
+      </a>
     </div>
   );
 }

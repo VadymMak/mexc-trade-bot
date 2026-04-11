@@ -475,3 +475,22 @@
   color: var(--color-text-muted);
   opacity: 0.6;
 }
+
+.csvBtn {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4ade80;
+  background: #16a34a1a;
+  border: 1px solid #16a34a55;
+  border-radius: 6px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.csvBtn:hover {
+  background: #16a34a33;
+  border-color: #4ade80;
+}
