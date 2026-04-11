@@ -75,9 +75,25 @@ class SymbolEvaluator:
     async def run_full_sweep(self) -> None:
         """
         Evaluate all TESTING symbols at startup.
-        Handles any symbols that accumulated enough trades while evaluator was offline.
+        First, auto-registers any symbols that have historical data in paper_positions
+        but were never added to symbol_states (e.g. from deployments before this feature).
         """
         assert self._db._pool
+
+        # Auto-register symbols that have clean closed trades in the last 7 days
+        # but aren't yet tracked in symbol_states. This ensures full_sweep can
+        # evaluate STO/BULLA/NOM etc. on first boot even before any new trade opens.
+        await self._db._pool.execute("""
+            INSERT INTO symbol_states (symbol, state, test_started_at)
+            SELECT DISTINCT symbol, 'TESTING', NOW()
+            FROM paper_positions
+            WHERE status = 'closed'
+              AND opened_at >= NOW() - INTERVAL '7 days'
+              AND exchange_long  NOT IN ('binance', 'bybit')
+              AND exchange_short NOT IN ('binance', 'bybit')
+            ON CONFLICT (symbol) DO NOTHING
+        """)
+
         rows = await self._db._pool.fetch(
             "SELECT symbol FROM symbol_states WHERE state = 'TESTING'"
         )
