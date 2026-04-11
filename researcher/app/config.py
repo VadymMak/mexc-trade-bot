@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     # z-score exit threshold (spread reverted to mean)
     ZSCORE_EXIT: float = 0.5
 
+    # Minimum hold time before ZSCORE_REVERT exit is allowed (seconds).
+    # Z-score noise in the first 30-60s causes premature exits where spread
+    # barely moved — paying double fees for near-zero PnL.
+    # Data shows avg ZSCORE_REVERT hold = 30s, exit spread = 94% of entry.
+    # Setting 120s forces the position to wait for genuine spread reversion.
+    ZSCORE_REVERT_MIN_HOLD_SECONDS: int = 120
+
     # Max spread cap: ignore obviously bogus data (e.g. EDGE_USDT 759%)
     # Spreads above this value are price-scale mismatches, not real arb
     MAX_SPREAD_PCT: float = 50.0

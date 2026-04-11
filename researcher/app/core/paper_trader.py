@@ -227,7 +227,10 @@ class PaperTrader:
             reason = "TAKE_PROFIT"
 
         # 2. Z-score revert: spread returned to mean (only if z-score available)
-        elif zscore is not None and abs(zscore) < self.settings.ZSCORE_EXIT:
+        # Require minimum hold to avoid z-score noise exits (avg 30s exits = double fees, 8% WR)
+        elif (zscore is not None
+              and abs(zscore) < self.settings.ZSCORE_EXIT
+              and hold_sec >= self.settings.ZSCORE_REVERT_MIN_HOLD_SECONDS):
             reason = "ZSCORE_REVERT"
 
         # 3. Stop-loss: spread grew too wide (position moving against us)
