@@ -168,6 +168,23 @@ class NeonDB:
             "ALTER TABLE pair_stats ADD COLUMN IF NOT EXISTS promoted         BOOLEAN       NOT NULL DEFAULT FALSE",
         ]:
             await self._pool.execute(col_ddl)
+        # Symbol lifecycle table — TESTING / APPROVED / BLACKLISTED
+        await self._pool.execute("""
+            CREATE TABLE IF NOT EXISTS symbol_states (
+                symbol            TEXT         NOT NULL,
+                state             TEXT         NOT NULL DEFAULT 'TESTING',
+                test_started_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+                evaluated_at      TIMESTAMPTZ,
+                retest_after      TIMESTAMPTZ,
+                total_trades      INT          NOT NULL DEFAULT 0,
+                tp_rate           NUMERIC(6,4),
+                net_pnl_usdt      NUMERIC(14,4),
+                reason            TEXT,
+                PRIMARY KEY (symbol)
+            );
+            CREATE INDEX IF NOT EXISTS idx_symbol_states_state
+                ON symbol_states(state);
+        """)
         logger.info("[DB] Schema verified / created OK")
 
     # ── paper_positions ───────────────────────────────────────────────────────
@@ -500,6 +517,94 @@ class NeonDB:
             """,
             symbol, exchange_long, exchange_short, spread_pct, zscore, ts_ms,
         )
+
+    # ── symbol_states ─────────────────────────────────────────────────────────
+
+    async def ensure_symbol_testing(self, symbol: str) -> None:
+        """Insert symbol in TESTING state if not already tracked."""
+        assert self._pool
+        await self._pool.execute(
+            """
+            INSERT INTO symbol_states (symbol, state, test_started_at)
+            VALUES ($1, 'TESTING', NOW())
+            ON CONFLICT (symbol) DO NOTHING
+            """,
+            symbol,
+        )
+
+    async def get_symbol_state(self, symbol: str) -> Optional[str]:
+        """Return current state for symbol, or None if not yet tracked."""
+        assert self._pool
+        row = await self._pool.fetchrow(
+            "SELECT state, retest_after FROM symbol_states WHERE symbol = $1",
+            symbol,
+        )
+        if row is None:
+            return None
+        # If blacklisted but retest_after has passed → back to TESTING
+        if row["state"] == "BLACKLISTED" and row["retest_after"] is not None:
+            from datetime import datetime, timezone
+            if datetime.now(timezone.utc) >= row["retest_after"]:
+                await self._pool.execute(
+                    """
+                    UPDATE symbol_states
+                    SET state='TESTING', test_started_at=NOW(),
+                        evaluated_at=NULL, retest_after=NULL, reason=NULL
+                    WHERE symbol=$1
+                    """,
+                    symbol,
+                )
+                return "TESTING"
+        return row["state"]
+
+    async def update_symbol_state(
+        self,
+        symbol:       str,
+        state:        str,
+        total_trades: int,
+        tp_rate:      float,
+        net_pnl:      float,
+        reason:       str,
+        retest_days:  int = 30,
+    ) -> None:
+        """Set symbol state to APPROVED or BLACKLISTED after evaluation."""
+        assert self._pool
+        from datetime import datetime, timezone, timedelta
+        retest_after = (
+            (datetime.now(timezone.utc) + timedelta(days=retest_days))
+            if state == "BLACKLISTED" else None
+        )
+        await self._pool.execute(
+            """
+            INSERT INTO symbol_states
+                (symbol, state, test_started_at, evaluated_at,
+                 retest_after, total_trades, tp_rate, net_pnl_usdt, reason)
+            VALUES ($1,$2,NOW(),NOW(),$3,$4,$5,$6,$7)
+            ON CONFLICT (symbol) DO UPDATE SET
+                state        = EXCLUDED.state,
+                evaluated_at = NOW(),
+                retest_after = $3,
+                total_trades = EXCLUDED.total_trades,
+                tp_rate      = EXCLUDED.tp_rate,
+                net_pnl_usdt = EXCLUDED.net_pnl_usdt,
+                reason       = EXCLUDED.reason
+            """,
+            symbol, state, retest_after,
+            total_trades, tp_rate, net_pnl, reason,
+        )
+
+    async def get_all_symbol_states(self) -> list[dict]:
+        """Return all symbol states for monitoring / API."""
+        assert self._pool
+        rows = await self._pool.fetch(
+            """
+            SELECT symbol, state, test_started_at, evaluated_at,
+                   retest_after, total_trades, tp_rate, net_pnl_usdt, reason
+            FROM symbol_states
+            ORDER BY state, net_pnl_usdt DESC NULLS LAST
+            """
+        )
+        return [dict(r) for r in rows]
 
 
 # ── Time session helper ───────────────────────────────────────────────────────

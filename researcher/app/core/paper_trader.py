@@ -22,6 +22,7 @@ from typing import Optional
 from ..config import Settings
 from ..db.neon_db import NeonDB
 from .simulator import TradingSimulator
+from .symbol_evaluator import SymbolEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +44,12 @@ def _mins_to_funding(ts_ms: int) -> float:
 
 class PaperTrader:
     def __init__(self, db: NeonDB, settings: Settings) -> None:
-        self.db       = db
-        self.settings = settings
-        self.sim      = TradingSimulator(
+        self.db        = db
+        self.settings  = settings
+        self.sim       = TradingSimulator(
             paper_deal_size_usdt=settings.PAPER_DEAL_SIZE_USDT
         )
+        self.evaluator = SymbolEvaluator(db)
 
         # {(symbol, ex_long, ex_short): _OpenState}
         self._open: dict[tuple, _OpenState] = {}
@@ -128,6 +130,15 @@ class PaperTrader:
         # Reject structurally bad pairs — spreads never revert, drain fees
         if symbol in self.settings.blacklisted_set:
             return
+
+        # Reject symbols that failed auto-evaluation (BLACKLISTED in symbol_states)
+        sym_state = await self.db.get_symbol_state(symbol)
+        if sym_state == "BLACKLISTED":
+            return
+
+        # Ensure new symbols are registered in TESTING state
+        if sym_state is None:
+            await self.db.ensure_symbol_testing(symbol)
 
         # Reject entry during funding blackout window (N seconds before 00/08/16h UTC)
         # Opening just before funding = paying entry fees + funding before spread closes
@@ -272,6 +283,8 @@ class PaperTrader:
                 exit_reason=reason,
             )
             await self.db.upsert_pair_stats(symbol, ex_long, ex_short)
+            # Evaluate symbol lifecycle after every close (async, non-blocking)
+            await self.evaluator.on_trade_closed(symbol)
 
         self._total_closed  += 1
         self._total_net_pnl += result.net_pnl_usdt

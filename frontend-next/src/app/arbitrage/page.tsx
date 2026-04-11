@@ -191,7 +191,14 @@ function StatsPanel({ stats }: { stats: ResearchStats | null }) {
         download
         className={styles.csvBtn}
       >
-        ⬇ Download CSV
+        ⬇ Raw CSV
+      </a>
+      <a
+        href="https://mexc-trade-bot-production.up.railway.app/api/arbitrage/research/export-dataset?clean=true"
+        download
+        className={`${styles.csvBtn} ${styles.csvBtnClean}`}
+      >
+        🧹 Clean CSV
       </a>
     </div>
   );

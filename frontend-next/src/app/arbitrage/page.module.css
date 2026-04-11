@@ -494,3 +494,13 @@
   background: #16a34a33;
   border-color: #4ade80;
 }
+.csvBtnClean {
+  margin-left: 8px;
+  color: #fbbf24;
+  background: #92400e1a;
+  border-color: #92400e88;
+}
+.csvBtnClean:hover {
+  background: #92400e33;
+  border-color: #fbbf24;
+}

@@ -77,6 +77,9 @@ async def main() -> None:
     gate_flow       = GateFlowCollector(flow_tracker)
     matrix.set_flow_tracker(flow_tracker)
 
+    # Evaluate any symbols that accumulated data during previous session
+    await trader.evaluator.run_full_sweep()
+
     matrix.add_callback(trader.on_spread)
 
     # Push spread snapshots to the trading bot every 5 s
@@ -173,6 +176,24 @@ async def main() -> None:
                             log.warning("[Stats push] HTTP %d", resp.status)
                 except Exception as exc:
                     log.debug("[Stats push] Error: %r", exc)
+
+                # Push symbol lifecycle states every 60s
+                try:
+                    sym_states = await db.get_all_symbol_states()
+                    # Convert datetime objects to ISO strings for JSON serialisation
+                    for s in sym_states:
+                        for k, v in s.items():
+                            if hasattr(v, "isoformat"):
+                                s[k] = v.isoformat()
+                    async with session.post(
+                        f"{settings.TRADING_BOT_URL}/api/arbitrage/internal/symbol-states-update",
+                        json=sym_states,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        if resp.status >= 400:
+                            log.warning("[SymStates push] HTTP %d", resp.status)
+                except Exception as exc:
+                    log.debug("[SymStates push] Error: %r", exc)
 
     async def symbol_reload_loop() -> None:
         """

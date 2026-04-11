@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 # ─────────────────── in-memory caches ───────────────────
 # Populated by researcher service via internal POST endpoints.
 # Key: (symbol, exchange_long, exchange_short)  Value: spread dict
+_symbol_states_cache: list[dict] = []
 _spread_cache: dict[tuple, dict] = {}
 
 # Stats pushed by researcher every 60s
@@ -160,6 +161,23 @@ async def get_research_stats() -> dict:
     }
 
 
+@router.post("/internal/symbol-states-update")
+async def internal_symbol_states_update(body: List[Dict[str, Any]]) -> dict:
+    """Called by researcher to sync symbol lifecycle states."""
+    global _symbol_states_cache
+    _symbol_states_cache = body
+    return {"ok": True, "count": len(body)}
+
+
+@router.get("/research/symbol-states")
+async def get_symbol_states(state: str = "") -> dict:
+    """Symbol lifecycle states (TESTING / APPROVED / BLACKLISTED)."""
+    items = _symbol_states_cache
+    if state:
+        items = [s for s in items if s.get("state", "").upper() == state.upper()]
+    return {"symbols": items, "total": len(items)}
+
+
 @router.post("/internal/queue-suggest")
 async def internal_queue_suggest(body: Dict[str, Any]) -> dict:
     """
@@ -222,8 +240,24 @@ async def snooze_queue_item(id: int, body: dict = Body(default={})) -> dict:
     return {"status": "snoozed", "until": until}
 
 
+_PHANTOM_EXCHANGES = {"binance", "bybit"}
+_ZR_MIN_HOLD = 120
+
+
+def _is_dirty(row: dict, exchange_long: str, exchange_short: str,
+               exit_reason: str, hold_seconds: float) -> bool:
+    """Return True if this trade is 'dirty' and should be excluded from clean export."""
+    if exchange_long.lower() in _PHANTOM_EXCHANGES:
+        return True
+    if exchange_short.lower() in _PHANTOM_EXCHANGES:
+        return True
+    if exit_reason == "ZSCORE_REVERT" and hold_seconds < _ZR_MIN_HOLD:
+        return True
+    return False
+
+
 @router.get("/research/export-dataset")
-async def export_dataset() -> StreamingResponse:
+async def export_dataset(clean: bool = False) -> StreamingResponse:
     """
     Export all closed paper_positions as a CSV file for ML model training.
     Connects directly to Neon DB (NEON_DATABASE_URL env var).
@@ -297,6 +331,14 @@ async def export_dataset() -> StreamingResponse:
     ])
 
     for r in rows:
+        ex_long   = r["exchange_long"] or ""
+        ex_short  = r["exchange_short"] or ""
+        ex_reason = r["exit_reason"] or ""
+        hold_sec  = float(r["hold_seconds"] or 0)
+
+        if clean and _is_dirty(r, ex_long, ex_short, ex_reason, hold_sec):
+            continue
+
         e_spread  = float(r["entry_spread_pct"] or 0)
         s_mean    = float(r["spread_mean"] or 0)
         s_std     = float(r["spread_std"] or 0)
@@ -341,7 +383,8 @@ async def export_dataset() -> StreamingResponse:
         ])
 
     from datetime import date
-    filename = f"arb_dataset_{date.today().isoformat()}.csv"
+    suffix = "_clean" if clean else ""
+    filename = f"arb_dataset_{date.today().isoformat()}{suffix}.csv"
     csv_content = buf.getvalue()
 
     return StreamingResponse(
