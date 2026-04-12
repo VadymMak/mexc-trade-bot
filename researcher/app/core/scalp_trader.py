@@ -77,7 +77,10 @@ class ScalpPaperTrader:
             await self.db.reset_scalp_positions()
             logger.info("[ScalpTrader] Fresh start — all historical positions deleted.")
         else:
-            n = await self.db.close_orphaned_scalp_positions(max_age_sec=600)
+            # max_age_sec=0 → close ALL open positions from any prior session.
+            # The in-memory self._open dict is empty after every restart, so any
+            # DB position still 'open' is guaranteed to be an orphan — age doesn't matter.
+            n = await self.db.close_orphaned_scalp_positions(max_age_sec=0)
             if n:
                 logger.info("[ScalpTrader] Orphan cleanup: closed %d stuck positions.", n)
 
