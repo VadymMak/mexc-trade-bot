@@ -111,7 +111,11 @@ async def main() -> None:
         GateCollector(),
         KucoinCollector(),     # Tier-3 trading exchange — price feed + arb partner
         MexcCollector(),
-        MexcSpotCollector(),   # spot prices → basis vs mexc futures
+        # MexcSpotCollector disabled: MEXC spot WS has ~30s server-side hard timeout
+        # for unauthenticated connections — reconnects every 30s regardless of batch size.
+        # spot_basis_pct data is research-only, not used in trading decisions.
+        # Re-enable when a proper keep-alive / auth solution is found.
+        # MexcSpotCollector(),
     ]
     for c in collectors:
         c.set_callback(matrix.on_price)
