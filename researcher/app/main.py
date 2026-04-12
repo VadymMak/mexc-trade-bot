@@ -16,6 +16,7 @@ from .collectors.binance_collector import BinanceCollector
 from .collectors.bybit_collector import BybitCollector
 from .collectors.gate_collector import GateCollector
 from .collectors.mexc_collector import MexcCollector
+from .collectors.mexc_spot_collector import MexcSpotCollector
 from .core.market_flow import FlowTracker, MexcFlowCollector, GateFlowCollector
 from .core.pair_promoter import PairPromoter
 from .core.paper_trader import PaperTrader
@@ -82,7 +83,9 @@ async def main() -> None:
     # Evaluate any symbols that accumulated data during previous session
     await trader.evaluator.run_full_sweep()
 
-    # ScalpTrader startup: close zombie positions OR full reset if SCALP_RESET=true
+    # ScalpTrader startup: close ALL open positions from previous session (no age filter),
+    # or full reset if SCALP_RESET=true. After any restart the bot has no memory of open
+    # positions, so leaving them as 'open' forever causes duplicate entries per symbol.
     import os as _os
     _scalp_reset = _os.getenv("SCALP_RESET", "").lower() in ("1", "true", "yes")
     await scalp_trader.startup(reset=_scalp_reset)
@@ -106,6 +109,7 @@ async def main() -> None:
         BybitCollector(),
         GateCollector(),
         MexcCollector(),
+        MexcSpotCollector(),   # spot prices → basis vs mexc futures
     ]
     for c in collectors:
         c.set_callback(matrix.on_price)

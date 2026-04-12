@@ -125,6 +125,10 @@ class SpreadMatrix:
                     "mexc_trade_velocity":  mexc_flow.get("trade_velocity"),
                     "mexc_book_imbalance":  mexc_flow.get("book_imbalance"),
                     "mexc_mm_repeat_score": mexc_flow.get("mm_repeat_score"),
+                    # Spot-futures basis: (futures_price - spot_price) / spot_price
+                    # Positive = futures premium, Negative = futures discount
+                    # mexc_spot_basis_pct: None if spot price not yet received
+                    "mexc_spot_basis_pct":  self._compute_spot_basis(symbol),
                 }
 
                 # Store latest result per directed pair
@@ -160,6 +164,20 @@ class SpreadMatrix:
         spread_mean_pct = abs(mean - 1.0) * 100
         spread_std_pct  = std * 100
         return zscore, spread_mean_pct, spread_std_pct
+
+    def _compute_spot_basis(self, symbol: str) -> float | None:
+        """
+        Returns (futures_price - spot_price) / spot_price * 100  (in %).
+        Positive = futures at premium to spot.
+        Negative = futures at discount to spot.
+        Returns None if either price is unavailable.
+        """
+        prices = self._prices.get(symbol, {})
+        futures_price = prices.get("mexc", (None, 0))[0]
+        spot_price    = prices.get("mexc_spot", (None, 0))[0]
+        if not futures_price or not spot_price or spot_price == 0:
+            return None
+        return round((futures_price - spot_price) / spot_price * 100, 4)
 
     def add_callback(self, cb: Callable) -> None:
         """Register callback for spread updates."""

@@ -645,28 +645,36 @@ class NeonDB:
 
     async def insert_scalp_position(
         self,
-        symbol:          str,
-        exchange:        str,
-        direction:       str,
-        entry_price:     float,
-        deal_size_usdt:  float,
-        mm_repeat_score: Optional[float] = None,
-        buy_pressure:    Optional[float] = None,
-        trade_velocity:  Optional[float] = None,
-        book_imbalance:  Optional[float] = None,
-        spread_cv:       Optional[float] = None,
+        symbol:            str,
+        exchange:          str,
+        direction:         str,
+        entry_price:       float,
+        deal_size_usdt:    float,
+        mm_repeat_score:   Optional[float] = None,
+        buy_pressure:      Optional[float] = None,
+        trade_velocity:    Optional[float] = None,
+        book_imbalance:    Optional[float] = None,
+        spread_cv:         Optional[float] = None,
+        spot_basis_pct:    Optional[float] = None,
     ) -> int:
         assert self._pool
+        # Ensure column exists (idempotent — safe to run every restart)
+        await self._pool.execute(
+            "ALTER TABLE scalp_positions ADD COLUMN IF NOT EXISTS "
+            "spot_basis_pct NUMERIC(8,4)"
+        )
         row = await self._pool.fetchrow(
             """
             INSERT INTO scalp_positions
                 (symbol, exchange, direction, entry_price, deal_size_usdt,
-                 mm_repeat_score, buy_pressure, trade_velocity, book_imbalance, spread_cv)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                 mm_repeat_score, buy_pressure, trade_velocity, book_imbalance,
+                 spread_cv, spot_basis_pct)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id
             """,
             symbol, exchange, direction, entry_price, deal_size_usdt,
-            mm_repeat_score, buy_pressure, trade_velocity, book_imbalance, spread_cv,
+            mm_repeat_score, buy_pressure, trade_velocity, book_imbalance,
+            spread_cv, spot_basis_pct,
         )
         return int(row["id"])
 

@@ -106,6 +106,7 @@ class ScalpPaperTrader:
         trade_velocity  = data.get("mexc_trade_velocity")  or data.get("trade_velocity")
         book_imbalance  = data.get("mexc_book_imbalance")  or data.get("book_imbalance")
         spread_cv       = data.get("spread_cv")
+        spot_basis_pct  = data.get("mexc_spot_basis_pct")  # futures vs spot basis (%)
 
         if symbol in self._open:
             await self._maybe_close(symbol, mexc_price, ts_ms)
@@ -117,6 +118,7 @@ class ScalpPaperTrader:
                 trade_velocity=trade_velocity,
                 book_imbalance=book_imbalance,
                 spread_cv=spread_cv,
+                spot_basis_pct=spot_basis_pct,
             )
 
     def session_summary(self) -> dict:
@@ -143,6 +145,7 @@ class ScalpPaperTrader:
         trade_velocity:  Optional[float],
         book_imbalance:  Optional[float],
         spread_cv:       Optional[float],
+        spot_basis_pct:  Optional[float] = None,
     ) -> None:
 
         # Periodic diagnostic so we can see flow data arriving in Railway logs
@@ -214,6 +217,7 @@ class ScalpPaperTrader:
                 trade_velocity=trade_velocity,
                 book_imbalance=book_imbalance,
                 spread_cv=spread_cv,
+                spot_basis_pct=spot_basis_pct,
             )
             self._open[symbol].pos_id = pos_id
 
