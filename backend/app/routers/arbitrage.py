@@ -31,9 +31,10 @@ _queue_id_counter = 0
 
 # ─────────────────── helpers ───────────────────
 
-# Exchanges used only as mark-price references — NOT tradable venues.
-# Their prices structurally diverge from Tier-3 futures → phantom spreads.
-_PHANTOM_EXCHANGES: frozenset[str] = frozenset({"binance", "bybit"})
+# Exchanges used only as reference/research feeds — NOT tradable venues.
+# Binance/Bybit: mark-price references, structurally diverge from Tier-3.
+# mexc_spot: spot prices for basis analysis only, same asset as mexc futures.
+_PHANTOM_EXCHANGES: frozenset[str] = frozenset({"binance", "bybit", "mexc_spot"})
 
 
 def _now_iso() -> str:
