@@ -5,18 +5,19 @@ Strategy: detect active MM robots (mm_repeat_score) + directional flow (buy_pres
 → enter in direction of dominant flow → exit on small TP or SL.
 
 Entry conditions (ALL required):
-  mm_repeat_score >= MM_MIN_SCORE  (0.5) — MM robot active, market has structure
+  mm_repeat_score >= MM_MIN_SCORE  (0.60) — MM robot active, market has structure
   buy_pressure    >= BP_LONG       (0.65) → LONG  (buying dominant)
   buy_pressure    <= BP_SHORT      (0.35) → SHORT (selling dominant)
   trade_velocity  >= MIN_VELOCITY  (10)   — market not dead
 
 Exit (first match wins):
-  TAKE_PROFIT  — price moved TP_PCT (0.15%) in our direction
+  TAKE_PROFIT  — price moved TP_PCT (0.30%) in our direction
   STOP_LOSS    — price moved SL_PCT (0.20%) against us
   TIMEOUT      — held > MAX_HOLD_SEC (300s = 5 min)
 
 Fees: MEXC taker 0.02% per side → 0.04% round-trip
-Breakeven: ~0.05% (vs arb 0.26%) — much tighter market possible.
+Breakeven TP rate: ~48% (TP net +0.26% vs SL net -0.24%)
+Math: TP=0.30% needs win_rate >= 48% to be profitable (was 69% with old 0.15% TP).
 """
 from __future__ import annotations
 
@@ -29,11 +30,11 @@ from ..db.neon_db import NeonDB
 logger = logging.getLogger(__name__)
 
 # ── Thresholds ────────────────────────────────────────────────────────────────
-MM_MIN_SCORE   = 0.50   # mm_repeat_score: fraction of same-size trades required
+MM_MIN_SCORE   = 0.60   # mm_repeat_score: fraction of same-size trades required (raised 0.50→0.60)
 BP_LONG        = 0.65   # buy_pressure threshold for LONG entry
 BP_SHORT       = 0.35   # buy_pressure threshold for SHORT entry
 MIN_VELOCITY   = 10     # minimum trades/min to consider entry
-TP_PCT         = 0.15   # take-profit: 0.15% price move in direction
+TP_PCT         = 0.30   # take-profit: 0.30% price move in direction (raised 0.15→0.30)
 SL_PCT         = 0.20   # stop-loss:   0.20% price move against
 MAX_HOLD_SEC   = 300    # 5 min max hold
 DEAL_SIZE_USDT = 10.0   # paper position size

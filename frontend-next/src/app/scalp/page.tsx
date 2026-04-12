@@ -321,7 +321,7 @@ export default function ScalpPage() {
       <div className={styles.header}>
         <h1 className={styles.title}>⚡ Scalp Simulator</h1>
         <p className={styles.subtitle}>
-          MEXC-only directional scalping · mm_repeat_score + buy_pressure · TP 0.15% / SL 0.20%
+          MEXC-only directional scalping · mm_repeat_score + buy_pressure · TP 0.30% / SL 0.20%
         </p>
       </div>
 
@@ -348,9 +348,9 @@ export default function ScalpPage() {
         {tab === 'stats' && (
           <div>
             <p className={styles.muted} style={{ padding: '16px 0' }}>
-              Strategy: detect active Market Maker robot (mm_repeat_score ≥ 0.50) with
+              Strategy: detect active Market Maker robot (mm_repeat_score ≥ 0.60) with
               directional flow (buy_pressure ≥ 0.65 → LONG, ≤ 0.35 → SHORT) and active
-              market (trade_velocity ≥ 10 trades/min). Exit at TP +0.15%, SL −0.20%, or
+              market (trade_velocity ≥ 10 trades/min). Exit at TP +0.30%, SL −0.20%, or
               5-minute timeout. Fee: 0.02% per side (0.04% round-trip). Paper size $10.
             </p>
             <h3 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text)', marginBottom: '12px' }}>
