@@ -31,6 +31,11 @@ _queue_id_counter = 0
 
 # ─────────────────── helpers ───────────────────
 
+# Exchanges used only as mark-price references — NOT tradable venues.
+# Their prices structurally diverge from Tier-3 futures → phantom spreads.
+_PHANTOM_EXCHANGES: frozenset[str] = frozenset({"binance", "bybit"})
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -104,17 +109,29 @@ async def internal_spread_update(spreads: List[Dict[str, Any]]) -> dict:
     """
     Called by the researcher service every ~5s with the latest spread snapshot.
     Updates in-memory cache — no auth required (internal Railway network only).
+
+    Binance and Bybit are mark-price reference feeds only — their prices
+    structurally diverge from Tier-3 futures (Gate/MEXC/KuCoin), producing
+    phantom spreads of 10-170% that never mean-revert.  Filter them out here
+    so they never appear in the frontend display.
     """
+    accepted = 0
     for item in spreads:
+        ex_long  = item.get("exchange_long",  "").lower()
+        ex_short = item.get("exchange_short", "").lower()
+        # Drop pairs that involve reference-only exchanges
+        if ex_long in _PHANTOM_EXCHANGES or ex_short in _PHANTOM_EXCHANGES:
+            continue
         key = (
             item.get("symbol", ""),
-            item.get("exchange_long", ""),
-            item.get("exchange_short", ""),
+            ex_long,
+            ex_short,
         )
         if all(key):
             _spread_cache[key] = item
-    log.debug("[ARB] Spread cache updated: %d pairs", len(_spread_cache))
-    return {"accepted": len(spreads)}
+            accepted += 1
+    log.debug("[ARB] Spread cache updated: %d pairs (filtered phantoms)", len(_spread_cache))
+    return {"accepted": accepted}
 
 
 @router.post("/internal/stats-update")
@@ -240,7 +257,7 @@ async def snooze_queue_item(id: int, body: dict = Body(default={})) -> dict:
     return {"status": "snoozed", "until": until}
 
 
-_PHANTOM_EXCHANGES = {"binance", "bybit"}
+# _PHANTOM_EXCHANGES defined at top of module (line ~36)
 _ZR_MIN_HOLD = 120
 
 
