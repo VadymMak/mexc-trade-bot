@@ -19,6 +19,7 @@ from .collectors.mexc_collector import MexcCollector
 from .core.market_flow import FlowTracker, MexcFlowCollector, GateFlowCollector
 from .core.pair_promoter import PairPromoter
 from .core.paper_trader import PaperTrader
+from .core.scalp_trader import ScalpPaperTrader
 from .core.spread_matrix import SpreadMatrix
 from .core.symbol_watcher import watch_loop as symbol_watch_loop, discover_symbols
 from .db.neon_db import NeonDB
@@ -67,9 +68,10 @@ async def main() -> None:
         log.warning("No NEON_DATABASE_URL — running without DB (dry run, no persistence)")
 
     # ── Core components ───────────────────────────────────────────────────────
-    matrix   = SpreadMatrix(max_lag_ms=settings.MAX_SPREAD_LAG_MS)
-    trader   = PaperTrader(db=db, settings=settings)
-    promoter = PairPromoter(db=db, settings=settings)
+    matrix        = SpreadMatrix(max_lag_ms=settings.MAX_SPREAD_LAG_MS)
+    trader        = PaperTrader(db=db, settings=settings)
+    scalp_trader  = ScalpPaperTrader(db=db)
+    promoter      = PairPromoter(db=db, settings=settings)
 
     # ── Flow tracker (tape + order book metrics for ML features) ──────────────
     flow_tracker    = FlowTracker()
@@ -81,6 +83,7 @@ async def main() -> None:
     await trader.evaluator.run_full_sweep()
 
     matrix.add_callback(trader.on_spread)
+    matrix.add_callback(scalp_trader.on_spread)
 
     # Push spread snapshots to the trading bot every 5 s
     matrix.set_push_url(
@@ -126,8 +129,9 @@ async def main() -> None:
         async with aiohttp.ClientSession() as session:
             while True:
                 await asyncio.sleep(60)
-                spreads    = matrix.get_all_spreads()
-                summary    = trader.session_summary()
+                spreads       = matrix.get_all_spreads()
+                summary       = trader.session_summary()
+                scalp_summary = scalp_trader.session_summary()
 
                 log.info(
                     "━━ 60s report ━━  tracked=%d  open=%d  closed=%d  net_pnl=%+.4f USDT",
@@ -135,6 +139,12 @@ async def main() -> None:
                     summary["open_positions"],
                     summary["total_closed"],
                     summary["total_net_pnl"],
+                )
+                log.info(
+                    "━━ scalp      ━━  open=%d  closed=%d  net_pnl=%+.4f USDT",
+                    scalp_summary["open_scalp"],
+                    scalp_summary["total_closed"],
+                    scalp_summary["total_net_pnl"],
                 )
 
                 # Top 5 spreads by size
@@ -176,6 +186,30 @@ async def main() -> None:
                             log.warning("[Stats push] HTTP %d", resp.status)
                 except Exception as exc:
                     log.debug("[Stats push] Error: %r", exc)
+
+                # Push scalp stats every 60s
+                try:
+                    scalp_db_stats = await db.get_scalp_stats() if db._pool else {}
+                    scalp_positions = await db.get_scalp_positions(limit=200) if db._pool else []
+                    # Serialise datetime objects
+                    for p in scalp_positions:
+                        for k, v in list(p.items()):
+                            if hasattr(v, "isoformat"):
+                                p[k] = v.isoformat()
+                    scalp_payload = {
+                        "stats":     scalp_db_stats,
+                        "session":   scalp_summary,
+                        "positions": scalp_positions,
+                    }
+                    async with session.post(
+                        f"{settings.TRADING_BOT_URL}/api/scalp/internal/stats-update",
+                        json=scalp_payload,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        if resp.status >= 400:
+                            log.warning("[ScalpStats push] HTTP %d", resp.status)
+                except Exception as exc:
+                    log.debug("[ScalpStats push] Error: %r", exc)
 
                 # Push symbol lifecycle states every 60s
                 try:

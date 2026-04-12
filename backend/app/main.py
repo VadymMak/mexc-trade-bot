@@ -402,6 +402,14 @@ app.add_middleware(
 # ------------------------------ route mounting ------------------------------
 app.include_router(api_routes.router)
 
+# Scalp paper-trading router
+try:
+    from app.routers import scalp as scalp_module
+    app.include_router(scalp_module.router)
+    print("✅ Scalp router mounted at /api/scalp")
+except Exception as _e:
+    print(f"⚠️ Scalp router import skipped: {_e}")
+
 # --- Debug: list all routes at startup ---
 def _print_routes(app_: FastAPI) -> None:
     try:

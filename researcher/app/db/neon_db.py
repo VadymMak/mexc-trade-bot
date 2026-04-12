@@ -188,6 +188,35 @@ class NeonDB:
             CREATE INDEX IF NOT EXISTS idx_symbol_states_state
                 ON symbol_states(state);
         """)
+        # Scalp positions — single-exchange directional scalping dataset
+        await self._pool.execute("""
+            CREATE TABLE IF NOT EXISTS scalp_positions (
+                id               SERIAL        PRIMARY KEY,
+                symbol           TEXT          NOT NULL,
+                exchange         TEXT          NOT NULL DEFAULT 'mexc',
+                direction        TEXT          NOT NULL,        -- LONG / SHORT
+                status           TEXT          NOT NULL DEFAULT 'open',
+                entry_price      NUMERIC(20,8) NOT NULL,
+                exit_price       NUMERIC(20,8),
+                opened_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+                closed_at        TIMESTAMPTZ,
+                hold_seconds     INT,
+                exit_reason      TEXT,
+                deal_size_usdt   NUMERIC(12,2) NOT NULL DEFAULT 10,
+                gross_pnl_usdt   NUMERIC(12,6),
+                net_pnl_usdt     NUMERIC(12,6),
+                -- entry features (MM + flow signals)
+                mm_repeat_score  NUMERIC(6,4),
+                buy_pressure     NUMERIC(6,4),
+                trade_velocity   NUMERIC(8,2),
+                book_imbalance   NUMERIC(6,4),
+                spread_cv        NUMERIC(10,6)
+            );
+            CREATE INDEX IF NOT EXISTS idx_scalp_opened
+                ON scalp_positions(opened_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_scalp_symbol
+                ON scalp_positions(symbol, status);
+        """)
         logger.info("[DB] Schema verified / created OK")
 
     # ── paper_positions ───────────────────────────────────────────────────────
@@ -609,6 +638,114 @@ class NeonDB:
             FROM symbol_states
             ORDER BY state, net_pnl_usdt DESC NULLS LAST
             """
+        )
+        return [dict(r) for r in rows]
+
+    # ── Scalp positions ───────────────────────────────────────────────────────
+
+    async def insert_scalp_position(
+        self,
+        symbol:          str,
+        exchange:        str,
+        direction:       str,
+        entry_price:     float,
+        deal_size_usdt:  float,
+        mm_repeat_score: Optional[float] = None,
+        buy_pressure:    Optional[float] = None,
+        trade_velocity:  Optional[float] = None,
+        book_imbalance:  Optional[float] = None,
+        spread_cv:       Optional[float] = None,
+    ) -> int:
+        assert self._pool
+        row = await self._pool.fetchrow(
+            """
+            INSERT INTO scalp_positions
+                (symbol, exchange, direction, entry_price, deal_size_usdt,
+                 mm_repeat_score, buy_pressure, trade_velocity, book_imbalance, spread_cv)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING id
+            """,
+            symbol, exchange, direction, entry_price, deal_size_usdt,
+            mm_repeat_score, buy_pressure, trade_velocity, book_imbalance, spread_cv,
+        )
+        return int(row["id"])
+
+    async def close_scalp_position(
+        self,
+        pos_id:         int,
+        exit_price:     float,
+        hold_seconds:   int,
+        gross_pnl_usdt: float,
+        net_pnl_usdt:   float,
+        exit_reason:    str,
+    ) -> None:
+        assert self._pool
+        await self._pool.execute(
+            """
+            UPDATE scalp_positions SET
+                status         = 'closed',
+                exit_price     = $2,
+                closed_at      = NOW(),
+                hold_seconds   = $3,
+                gross_pnl_usdt = $4,
+                net_pnl_usdt   = $5,
+                exit_reason    = $6
+            WHERE id = $1
+            """,
+            pos_id, exit_price, hold_seconds,
+            gross_pnl_usdt, net_pnl_usdt, exit_reason,
+        )
+
+    async def get_scalp_stats(self) -> dict:
+        """Aggregate stats for scalp positions dashboard."""
+        assert self._pool
+        row = await self._pool.fetchrow(
+            """
+            SELECT
+                COUNT(*) FILTER (WHERE status = 'open')   AS open_count,
+                COUNT(*) FILTER (WHERE status = 'closed') AS closed_count,
+                COUNT(*) FILTER (WHERE status = 'closed' AND net_pnl_usdt > 0) AS win_count,
+                COALESCE(SUM(net_pnl_usdt) FILTER (WHERE status = 'closed'), 0) AS total_net_pnl,
+                COALESCE(AVG(net_pnl_usdt) FILTER (WHERE status = 'closed'), 0) AS avg_net_pnl,
+                COALESCE(AVG(hold_seconds) FILTER (WHERE status = 'closed'), 0) AS avg_hold_sec
+            FROM scalp_positions
+            """
+        )
+        closed  = int(row["closed_count"] or 0)
+        wins    = int(row["win_count"]    or 0)
+        return {
+            "open_count":    int(row["open_count"]  or 0),
+            "closed_count":  closed,
+            "win_count":     wins,
+            "tp_rate":       round(wins / closed, 4) if closed > 0 else 0.0,
+            "total_net_pnl": round(float(row["total_net_pnl"]), 4),
+            "avg_net_pnl":   round(float(row["avg_net_pnl"]),   4),
+            "avg_hold_sec":  round(float(row["avg_hold_sec"]),   1),
+        }
+
+    async def get_scalp_positions(
+        self,
+        status: Optional[str] = None,
+        limit:  int = 200,
+    ) -> list[dict]:
+        """Return recent scalp positions for dashboard table."""
+        assert self._pool
+        where = "WHERE status = $1" if status else ""
+        args  = [status, limit] if status else [limit]
+        param = "$2" if status else "$1"
+        rows  = await self._pool.fetch(
+            f"""
+            SELECT id, symbol, exchange, direction, status,
+                   entry_price, exit_price, opened_at, closed_at,
+                   hold_seconds, exit_reason,
+                   gross_pnl_usdt, net_pnl_usdt,
+                   mm_repeat_score, buy_pressure, trade_velocity
+            FROM scalp_positions
+            {where}
+            ORDER BY opened_at DESC
+            LIMIT {param}
+            """,
+            *args,
         )
         return [dict(r) for r in rows]
 
