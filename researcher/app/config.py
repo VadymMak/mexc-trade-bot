@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     @property
     def symbols_list(self) -> list[str]:
         return [s.strip() for s in self.SYMBOLS.split(",") if s.strip()]
-    MIN_SPREAD_PCT: float = 0.003          # 0.30% — minimum spread for z-score entry (must exceed breakeven ~0.22%)
+    MIN_SPREAD_PCT: float = 0.005          # 0.50% — raised from 0.30%: data analysis (2618 trades) shows <0.5% is net-negative (-$1.56, 53% WR), >=0.5% gives 93.8% WR same PnL (+$47.6)
     ZSCORE_THRESHOLD: float = 2.5         # z-score entry threshold (mean-reversion)
     MAX_SPREAD_LAG_MS: int = 500
     SPREAD_WINDOW_TICKS: int = 300
