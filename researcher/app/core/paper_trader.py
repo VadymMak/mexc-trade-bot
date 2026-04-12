@@ -170,14 +170,14 @@ class PaperTrader:
             and abs(zscore) >= self.settings.ZSCORE_THRESHOLD
             and spread_pct >= self.settings.MIN_SPREAD_PCT * 100
         )
-        # Mode B: large-spread entry (new listings, no z-score history needed)
-        # spread_pct is in percentage-point units: 0.070 = 0.07%, 3.8 = 3.8%
-        # Threshold 0.55 = 0.55% — above breakeven for TP: entry > cost/(1-TP_ratio) = 0.026/0.5 = 0.052 ✗
-        # At 0.55%: gross=0.0275 USDT, costs≈0.026 USDT → net≈+$0.0015 per TP win
-        large_spread_entry = spread_pct >= 0.55
+        # Mode B: large-spread entry — DISABLED
+        # Data analysis (11k trades) showed large_spread has 27% win rate and
+        # destroyed -$113 total vs zscore mode +$42. Large spreads are structural
+        # (always present between exchanges), not anomalies — they don't mean-revert.
+        # large_spread_entry = spread_pct >= 0.55  ← disabled 2026-04-12
 
-        if zscore_entry or large_spread_entry:
-            entry_mode = "zscore" if zscore_entry else "large_spread"
+        if zscore_entry:
+            entry_mode = "zscore"
             entry_costs = self.sim.simulate_entry(ex_long, ex_short, spread_pct)
 
             # Reserve the key BEFORE the async DB insert to prevent duplicate opens
