@@ -85,10 +85,12 @@ async def main() -> None:
     matrix.add_callback(trader.on_spread)
     matrix.add_callback(scalp_trader.on_spread)
 
-    # Push spread snapshots to the trading bot every 5 s
+    # Push spread snapshots to the trading bot every 15s.
+    # Uses internal Railway URL (no egress cost) when TRADING_BOT_URL_INTERNAL is set.
+    # Increased from 5s → 15s: frontend polls every 30s anyway, 5s was wasting egress.
     matrix.set_push_url(
-        url=f"{settings.TRADING_BOT_URL}/api/arbitrage/internal/spread-update",
-        interval_s=5,
+        url=f"{settings.internal_url}/api/arbitrage/internal/spread-update",
+        interval_s=15,
     )
 
     # ── Collectors ────────────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ async def main() -> None:
         log.warning("Flow collectors failed to start: %r — continuing without flow data", exc)
 
     # ── Background loops ──────────────────────────────────────────────────────
-    stats_push_url = f"{settings.TRADING_BOT_URL}/api/arbitrage/internal/stats-update"
+    stats_push_url = f"{settings.internal_url}/api/arbitrage/internal/stats-update"
 
     async def report_loop() -> None:
         import aiohttp
@@ -202,7 +204,7 @@ async def main() -> None:
                         "positions": scalp_positions,
                     }
                     async with session.post(
-                        f"{settings.TRADING_BOT_URL}/api/scalp/internal/stats-update",
+                        f"{settings.internal_url}/api/scalp/internal/stats-update",
                         json=scalp_payload,
                         timeout=aiohttp.ClientTimeout(total=5),
                     ) as resp:
@@ -220,7 +222,7 @@ async def main() -> None:
                             if hasattr(v, "isoformat"):
                                 s[k] = v.isoformat()
                     async with session.post(
-                        f"{settings.TRADING_BOT_URL}/api/arbitrage/internal/symbol-states-update",
+                        f"{settings.internal_url}/api/arbitrage/internal/symbol-states-update",
                         json=sym_states,
                         timeout=aiohttp.ClientTimeout(total=5),
                     ) as resp:

@@ -5,8 +5,18 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     NEON_DATABASE_URL: str = ""
+    # Internal Railway URL for service-to-service calls (no egress cost).
+    # Set TRADING_BOT_URL_INTERNAL in Railway env to e.g.
+    # http://backend.railway.internal:8000  — avoids $0.05/GB egress charges.
+    # Falls back to TRADING_BOT_URL (public) if not set.
     TRADING_BOT_URL: str = "http://localhost:8000"
+    TRADING_BOT_URL_INTERNAL: str = ""  # override in Railway → http://backend.railway.internal:8000
     SYMBOLS: str = "BTC_USDT,ETH_USDT,SOL_USDT,BNB_USDT,XRP_USDT"
+
+    @property
+    def internal_url(self) -> str:
+        """Return internal Railway URL if configured, else public URL."""
+        return self.TRADING_BOT_URL_INTERNAL or self.TRADING_BOT_URL
 
     @property
     def symbols_list(self) -> list[str]:

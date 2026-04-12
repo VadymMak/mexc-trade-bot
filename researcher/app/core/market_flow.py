@@ -44,7 +44,8 @@ _PING_INTERVAL   = 20.0
 _RECONNECT_DELAY = 5.0
 _RECV_TIMEOUT    = _PING_INTERVAL * 3
 _TAPE_WINDOW_SEC = 60          # rolling window for tape metrics
-_MAX_TRADES      = 500         # max trades kept per symbol/exchange
+_MAX_TRADES      = 120         # max trades kept per symbol/exchange
+# 120 ≈ 2 trades/sec × 60s window; was 500 → wasted RAM (81 symbols × 2 exchanges × 380 unused slots)
 _BOOK_LEVELS     = 5           # how many levels to use for imbalance
 
 
