@@ -15,6 +15,7 @@ from .config import Settings
 from .collectors.binance_collector import BinanceCollector
 from .collectors.bybit_collector import BybitCollector
 from .collectors.gate_collector import GateCollector
+from .collectors.kucoin_collector import KucoinCollector
 from .collectors.mexc_collector import MexcCollector
 from .collectors.mexc_spot_collector import MexcSpotCollector
 from .core.market_flow import FlowTracker, MexcFlowCollector, GateFlowCollector
@@ -108,6 +109,7 @@ async def main() -> None:
         BinanceCollector(),
         BybitCollector(),
         GateCollector(),
+        KucoinCollector(),     # Tier-3 trading exchange — price feed + arb partner
         MexcCollector(),
         MexcSpotCollector(),   # spot prices → basis vs mexc futures
     ]

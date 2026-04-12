@@ -78,7 +78,8 @@ class Settings(BaseSettings):
     # Trading exchanges whitelist — ONLY open positions between these exchanges.
     # Binance and Bybit are mark-price references, NOT tradable venues.
     # Their prices structurally diverge from Gate/MEXC futures → phantom spreads.
-    TRADING_EXCHANGES: str = "gate,mexc"
+    # KuCoin added 2026-04-12: Tier-3, pre-funded, arb partner alongside Gate/MEXC.
+    TRADING_EXCHANGES: str = "gate,mexc,kucoin"
 
     @property
     def trading_exchanges_set(self) -> set[str]:
