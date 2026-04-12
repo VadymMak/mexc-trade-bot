@@ -193,11 +193,14 @@ async def main() -> None:
                 try:
                     scalp_db_stats = await db.get_scalp_stats() if db._pool else {}
                     scalp_positions = await db.get_scalp_positions(limit=200) if db._pool else []
-                    # Serialise datetime objects
+                    # Serialise datetime + Decimal objects (asyncpg returns NUMERIC as Decimal)
+                    from decimal import Decimal
                     for p in scalp_positions:
                         for k, v in list(p.items()):
                             if hasattr(v, "isoformat"):
                                 p[k] = v.isoformat()
+                            elif isinstance(v, Decimal):
+                                p[k] = float(v)
                     scalp_payload = {
                         "stats":     scalp_db_stats,
                         "session":   scalp_summary,
@@ -211,7 +214,7 @@ async def main() -> None:
                         if resp.status >= 400:
                             log.warning("[ScalpStats push] HTTP %d", resp.status)
                 except Exception as exc:
-                    log.debug("[ScalpStats push] Error: %r", exc)
+                    log.warning("[ScalpStats push] Error: %r", exc)
 
                 # Push symbol lifecycle states every 60s
                 try:
