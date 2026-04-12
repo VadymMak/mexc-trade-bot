@@ -82,6 +82,13 @@ async def main() -> None:
     # Evaluate any symbols that accumulated data during previous session
     await trader.evaluator.run_full_sweep()
 
+    # ScalpTrader startup: close zombie positions OR full reset if SCALP_RESET=true
+    import os as _os
+    _scalp_reset = _os.getenv("SCALP_RESET", "").lower() in ("1", "true", "yes")
+    await scalp_trader.startup(reset=_scalp_reset)
+    if _scalp_reset:
+        log.warning("[ScalpTrader] SCALP_RESET=true — fresh start, all old positions deleted.")
+
     matrix.add_callback(trader.on_spread)
     matrix.add_callback(scalp_trader.on_spread)
 

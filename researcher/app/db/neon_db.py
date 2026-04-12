@@ -749,6 +749,45 @@ class NeonDB:
         )
         return [dict(r) for r in rows]
 
+    async def close_orphaned_scalp_positions(self, max_age_sec: int = 600) -> int:
+        """
+        Close any scalp positions that are still 'open' but were opened
+        more than max_age_sec ago. Called on bot startup to clean up
+        positions that were left open by a previous crashed/restarted session.
+
+        Returns the number of positions closed.
+        """
+        assert self._pool
+        result = await self._pool.execute(
+            """
+            UPDATE scalp_positions
+            SET status       = 'closed',
+                exit_reason  = 'TIMEOUT',
+                exit_price   = entry_price,
+                closed_at    = NOW(),
+                hold_seconds = EXTRACT(EPOCH FROM (NOW() - opened_at))::INT,
+                gross_pnl_usdt = 0,
+                net_pnl_usdt   = -(deal_size_usdt * 0.04 / 100)
+            WHERE status = 'open'
+              AND opened_at < NOW() - ($1 || ' seconds')::INTERVAL
+            """,
+            str(max_age_sec),
+        )
+        # asyncpg returns "UPDATE N" string
+        n = int(result.split()[-1]) if result else 0
+        if n:
+            logger.info("[ScalpDB] Closed %d orphaned open positions (age > %ds)", n, max_age_sec)
+        return n
+
+    async def reset_scalp_positions(self) -> None:
+        """
+        Delete ALL scalp_positions rows. Used for a clean-slate restart
+        when switching strategy parameters. Controlled by SCALP_RESET env var.
+        """
+        assert self._pool
+        await self._pool.execute("DELETE FROM scalp_positions")
+        logger.info("[ScalpDB] scalp_positions table cleared (fresh start)")
+
 
 # ── Time session helper ───────────────────────────────────────────────────────
 

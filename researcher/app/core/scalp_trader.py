@@ -64,6 +64,23 @@ class ScalpPaperTrader:
         self._total_closed  = 0
         self._total_net_pnl = 0.0
 
+    async def startup(self, reset: bool = False) -> None:
+        """
+        Call once after DB is connected, before starting the spread loop.
+
+        reset=True  → DELETE all scalp_positions (fresh dataset, new params)
+        reset=False → close any orphaned open positions from prior session
+        """
+        if not self.db._pool:
+            return
+        if reset:
+            await self.db.reset_scalp_positions()
+            logger.info("[ScalpTrader] Fresh start — all historical positions deleted.")
+        else:
+            n = await self.db.close_orphaned_scalp_positions(max_age_sec=600)
+            if n:
+                logger.info("[ScalpTrader] Orphan cleanup: closed %d stuck positions.", n)
+
     async def on_spread(self, data: dict) -> None:
         """Called by SpreadMatrix on every tick. Extracts MEXC price."""
         symbol       = data["symbol"]
