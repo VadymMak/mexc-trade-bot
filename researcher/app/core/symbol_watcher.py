@@ -32,7 +32,9 @@ log = logging.getLogger(__name__)
 OUTPUT_FILE = Path(__file__).parent.parent / "data" / "discovered_symbols.json"
 
 # Minimum volume in USDT/24h to be worth tracking
-MIN_VOLUME_USDT = 1_000_000
+# Lowered from 1_000_000 → 500_000 to capture more Gate/MEXC exclusive pairs
+# that have genuine arb opportunities despite lower volume.
+MIN_VOLUME_USDT = 500_000
 
 # Age window: only flag as "new" if listed within this many days
 NEW_LISTING_DAYS = 60
@@ -266,11 +268,14 @@ async def discover_symbols(save: bool = True) -> list[str]:
 
     scored.sort(key=lambda x: x["score"], reverse=True)
 
-    # Split: new listings first, then top liquid pairs, total cap 100
-    new_listings = [s["symbol"] for s in scored if s["is_new"]][:30]
-    top_liquid   = [s["symbol"] for s in scored if not s["is_new"]][:70]
+    # Split: new listings first, then top liquid pairs, total cap 150
+    # Increased from 100 → 150: more Gate/MEXC exclusive pairs = more arb opportunities.
+    # Architecture handles it — collectors batch subscriptions, SpreadMatrix is O(n²) pairs
+    # but with only Gate+MEXC as trading exchanges it scales fine.
+    new_listings = [s["symbol"] for s in scored if s["is_new"]][:40]
+    top_liquid   = [s["symbol"] for s in scored if not s["is_new"]][:110]
     final = new_listings + [s for s in top_liquid if s not in new_listings]
-    final = final[:100]
+    final = final[:150]
 
     if not final:
         log.warning("[Watcher] No symbols found — using fallback")
