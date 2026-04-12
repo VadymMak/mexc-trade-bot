@@ -20,7 +20,9 @@ Inbound tick:
 Symbol conversion: BTC_USDT (internal) → BTCUSDT (spot WS format, no underscore).
 Exchange name reported as "mexc_spot" to distinguish from futures "mexc".
 
-Use: compare mexc_spot price vs mexc futures price per tick → basis = (futures - spot) / spot
+MEXC WS connection limit: max ~30 streams per connection before server
+force-closes (ConnectionClosedOK 1005).  We split symbols across multiple
+parallel connections of MAX_STREAMS_PER_CONN each.
 """
 from __future__ import annotations
 
@@ -37,10 +39,12 @@ from .base_collector import BaseCollector
 
 logger = logging.getLogger(__name__)
 
-_WS_URL          = "wss://wbs.mexc.com/ws"
-_PING_INTERVAL   = 20.0
-_RECONNECT_DELAY = 5.0
-_RECV_TIMEOUT    = _PING_INTERVAL * 3
+_WS_URL              = "wss://wbs.mexc.com/ws"
+_PING_INTERVAL       = 20.0
+_RECONNECT_DELAY     = 5.0
+_RECV_TIMEOUT        = _PING_INTERVAL * 3
+# MEXC force-closes connections with >30 streams — cap well below limit
+MAX_STREAMS_PER_CONN = 25
 
 
 def _to_spot_sym(symbol: str) -> str:
@@ -59,42 +63,60 @@ class MexcSpotCollector(BaseCollector):
     """
     Streams MEXC spot last-price ticks for the given symbols.
     Reports prices under exchange name 'mexc_spot'.
+
+    Automatically splits symbols across multiple parallel WS connections
+    (MAX_STREAMS_PER_CONN symbols each) to stay within MEXC's connection limit.
     """
 
     def __init__(self) -> None:
         super().__init__("mexc_spot")
         self._symbols: list[str] = []
         self._stop_evt = asyncio.Event()
-        self._task: Optional[asyncio.Task] = None
+        self._tasks: list[asyncio.Task] = []
 
     async def connect(self, symbols: list[str]) -> None:
         self._symbols = [s.upper() for s in symbols]
         self._stop_evt.clear()
-        self._task = asyncio.create_task(self._run())
-        logger.info("[MEXC-Spot] Collector started for %d symbols", len(self._symbols))
+
+        # Split into chunks of MAX_STREAMS_PER_CONN
+        chunks = [
+            self._symbols[i:i + MAX_STREAMS_PER_CONN]
+            for i in range(0, len(self._symbols), MAX_STREAMS_PER_CONN)
+        ]
+        self._tasks = [
+            asyncio.create_task(self._run_shard(idx, chunk))
+            for idx, chunk in enumerate(chunks)
+        ]
+        logger.info(
+            "[MEXC-Spot] Collector started for %d symbols across %d connections",
+            len(self._symbols), len(chunks),
+        )
 
     async def disconnect(self) -> None:
         self._stop_evt.set()
-        if self._task:
-            self._task.cancel()
+        for t in self._tasks:
+            t.cancel()
             with suppress(Exception):
-                await self._task
+                await t
+        self._tasks.clear()
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
-    async def _run(self) -> None:
+    async def _run_shard(self, idx: int, symbols: list[str]) -> None:
+        """Run one WS connection for a subset of symbols."""
+        tag = f"[MEXC-Spot#{idx}]"
         while not self._stop_evt.is_set():
             try:
-                await self._connect_and_stream()
+                await self._connect_and_stream(tag, symbols)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.warning("[MEXC-Spot] %r — reconnecting in %.1fs", exc, _RECONNECT_DELAY)
+                logger.warning("%s %r — reconnecting in %.1fs", tag, exc, _RECONNECT_DELAY)
                 with suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(self._stop_evt.wait(), timeout=_RECONNECT_DELAY)
 
-    async def _connect_and_stream(self) -> None:
-        logger.info("[MEXC-Spot] Connecting → %s", _WS_URL)
+    async def _connect_and_stream(self, tag: str, symbols: list[str]) -> None:
+        logger.debug("%s Connecting → %s (%d syms)", tag, _WS_URL, len(symbols))
 
         async with websockets.connect(
             _WS_URL,
@@ -103,16 +125,11 @@ class MexcSpotCollector(BaseCollector):
             close_timeout=5,
             max_size=4_194_304,
         ) as ws:
-            # Subscribe in batches of 30 (MEXC limit per message)
-            spot_syms = [_to_spot_sym(s) for s in self._symbols]
-            batch_size = 30
-            for i in range(0, len(spot_syms), batch_size):
-                batch = spot_syms[i:i + batch_size]
-                params = [f"spot@public.miniTicker.v3.api@{s}" for s in batch]
-                sub = {"method": "SUBSCRIPTION", "params": params}
-                await ws.send(json.dumps(sub))
-
-            logger.info("[MEXC-Spot] Subscribed spot tickers: %d symbols", len(spot_syms))
+            # Subscribe all symbols in one message (≤ MAX_STREAMS_PER_CONN)
+            spot_syms = [_to_spot_sym(s) for s in symbols]
+            params = [f"spot@public.miniTicker.v3.api@{s}" for s in spot_syms]
+            await ws.send(json.dumps({"method": "SUBSCRIPTION", "params": params}))
+            logger.info("%s Subscribed %d spot tickers", tag, len(spot_syms))
 
             hb_task = asyncio.create_task(self._heartbeat(ws))
             try:
@@ -146,7 +163,7 @@ class MexcSpotCollector(BaseCollector):
                         sym_ws = data.get("s", "")
                         if not sym_ws:
                             continue
-                        symbol = _from_spot_sym(sym_ws)   # back to BTC_USDT format
+                        symbol = _from_spot_sym(sym_ws)
                         ts_ms  = int(msg.get("t") or int(time.time() * 1000))
                         await self._notify(symbol, price, ts_ms)
                     except (ValueError, TypeError):
