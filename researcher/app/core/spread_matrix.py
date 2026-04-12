@@ -94,6 +94,14 @@ class SpreadMatrix:
                 flow_long  = self._flow.get_metrics(symbol, exch_long)  if self._flow else {}
                 flow_short = self._flow.get_metrics(symbol, exch_short) if self._flow else {}
 
+                # Always include MEXC-specific flow regardless of which side MEXC is on.
+                # ScalpPaperTrader needs MEXC metrics even when MEXC is the short side.
+                mexc_flow = (
+                    flow_long  if exch_long  == "mexc" else
+                    flow_short if exch_short == "mexc" else
+                    (self._flow.get_metrics(symbol, "mexc") if self._flow else {})
+                )
+
                 entry = {
                     "symbol": symbol,
                     "exchange_long":  exch_long,
@@ -107,11 +115,16 @@ class SpreadMatrix:
                     "spread_std":     spread_std,
                     "spread_cv":      spread_cv,
                     "ts_ms":          now,
-                    # flow features (long-side exchange)
+                    # flow features (long-side exchange) — used by PaperTrader/arb
                     "buy_pressure":    flow_long.get("buy_pressure"),
                     "trade_velocity":  flow_long.get("trade_velocity"),
                     "book_imbalance":  flow_long.get("book_imbalance"),
                     "mm_repeat_score": flow_long.get("mm_repeat_score"),
+                    # MEXC-specific flow — used by ScalpPaperTrader
+                    "mexc_buy_pressure":    mexc_flow.get("buy_pressure"),
+                    "mexc_trade_velocity":  mexc_flow.get("trade_velocity"),
+                    "mexc_book_imbalance":  mexc_flow.get("book_imbalance"),
+                    "mexc_mm_repeat_score": mexc_flow.get("mm_repeat_score"),
                 }
 
                 # Store latest result per directed pair

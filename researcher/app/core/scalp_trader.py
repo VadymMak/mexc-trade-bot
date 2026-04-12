@@ -78,10 +78,12 @@ class ScalpPaperTrader:
             return  # no MEXC in this tick
 
         ts_ms           = data.get("ts_ms", int(time.time() * 1000))
-        mm_repeat_score = data.get("mm_repeat_score")
-        buy_pressure    = data.get("buy_pressure")
-        trade_velocity  = data.get("trade_velocity")
-        book_imbalance  = data.get("book_imbalance")
+        # Always use MEXC-specific metrics (mexc_* keys added by SpreadMatrix).
+        # Fallback to generic keys for backwards compat if mexc_* not yet present.
+        mm_repeat_score = data.get("mexc_mm_repeat_score") or data.get("mm_repeat_score")
+        buy_pressure    = data.get("mexc_buy_pressure")    or data.get("buy_pressure")
+        trade_velocity  = data.get("mexc_trade_velocity")  or data.get("trade_velocity")
+        book_imbalance  = data.get("mexc_book_imbalance")  or data.get("book_imbalance")
         spread_cv       = data.get("spread_cv")
 
         if symbol in self._open:
@@ -106,6 +108,10 @@ class ScalpPaperTrader:
 
     # ── Private ───────────────────────────────────────────────────────────────
 
+    # Periodic diagnostics — log MEXC flow summary every N calls
+    _diag_counter: int = 0
+    _DIAG_EVERY:   int = 500   # log once every 500 ticks (~every few minutes)
+
     async def _maybe_open(
         self,
         symbol:          str,
@@ -117,6 +123,21 @@ class ScalpPaperTrader:
         book_imbalance:  Optional[float],
         spread_cv:       Optional[float],
     ) -> None:
+
+        # Periodic diagnostic so we can see flow data arriving in Railway logs
+        ScalpPaperTrader._diag_counter += 1
+        if ScalpPaperTrader._diag_counter % ScalpPaperTrader._DIAG_EVERY == 0:
+            logger.info(
+                "[SCALP diag] %s  mm=%s  bp=%s  vel=%s  price=%.6f  open=%d  closed=%d",
+                symbol,
+                f"{mm_repeat_score:.2f}" if mm_repeat_score is not None else "None",
+                f"{buy_pressure:.2f}"    if buy_pressure    is not None else "None",
+                f"{trade_velocity:.0f}"  if trade_velocity  is not None else "None",
+                price,
+                len(self._open),
+                self._total_closed,
+            )
+
         # Need flow data to decide
         if mm_repeat_score is None or buy_pressure is None or trade_velocity is None:
             return
