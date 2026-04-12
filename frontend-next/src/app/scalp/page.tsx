@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import { usePolling } from '@/hooks/usePolling';
 import styles from './page.module.css';
 
@@ -173,14 +174,18 @@ function StatsPanel({ stats }: { stats: ScalpStats | null }) {
         </div>
       )}
 
-      <a
-        href="https://mexc-trade-bot-production.up.railway.app/api/scalp/positions"
-        target="_blank"
-        rel="noreferrer"
-        className={styles.csvBtn}
-      >
-        🔗 Raw JSON
-      </a>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
+        <a
+          href="https://mexc-trade-bot-production.up.railway.app/api/scalp/export-dataset"
+          download
+          className={styles.csvBtn}
+        >
+          ⬇ Download CSV
+        </a>
+        <Link href="/scalp/analyzer" className={styles.csvBtn} style={{ textDecoration: 'none', display: 'inline-block' }}>
+          📊 Analyzer →
+        </Link>
+      </div>
     </div>
   );
 }
