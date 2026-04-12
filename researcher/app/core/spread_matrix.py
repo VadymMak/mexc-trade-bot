@@ -70,6 +70,13 @@ class SpreadMatrix:
                 spread_pct = abs(ratio - 1.0) * 100
                 zscore, spread_mean, spread_std = self._compute_zscore(symbol, ratio, now)
 
+                # Coefficient of variation: spread_cv = std / mean
+                # High cv → spread is actively oscillating → genuine arb opportunity
+                # Low cv  → spread is structural/stable   → likely won't mean-revert
+                spread_cv: float | None = None
+                if spread_mean and spread_std and spread_mean > 0:
+                    spread_cv = spread_std / spread_mean
+
                 if ratio > 1:
                     # ex_a is more expensive → short ex_a, long ex_b
                     price_long  = price_b
@@ -97,6 +104,7 @@ class SpreadMatrix:
                     "zscore":         zscore,
                     "spread_mean":    spread_mean,
                     "spread_std":     spread_std,
+                    "spread_cv":      spread_cv,
                     "ts_ms":          now,
                     # flow features (long-side exchange)
                     "buy_pressure":   flow_long.get("buy_pressure"),

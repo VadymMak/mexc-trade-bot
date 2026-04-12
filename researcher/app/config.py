@@ -48,6 +48,15 @@ class Settings(BaseSettings):
     # Spreads above this value are price-scale mismatches, not real arb
     MAX_SPREAD_PCT: float = 50.0
 
+    # Minimum spread_cv (coefficient of variation = std/mean) required to open.
+    # Data analysis shows:
+    #   cv < 0.5  → TP rate 11.6%, PnL -$112 on 6038 trades (structural noise)
+    #   cv 1.0-1.5 → TP rate 73.4%, PnL +$7
+    #   cv > 2.0  → TP rate 89%, PnL +$6-17
+    # Low cv = spread is stable/structural (doesn't mean-revert) → don't trade
+    # High cv = spread oscillates actively around mean → genuine arb opportunity
+    MIN_SPREAD_CV: float = 1.0
+
     # Cooldown after STOP_LOSS (seconds): prevent immediate re-entry on volatile pairs
     STOP_LOSS_COOLDOWN_SECONDS: int = 300  # 5 minutes
 

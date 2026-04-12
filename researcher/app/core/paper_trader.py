@@ -71,6 +71,7 @@ class PaperTrader:
         spread_pct  = data["spread_pct"]
         spread_mean = data.get("spread_mean")
         spread_std  = data.get("spread_std")
+        spread_cv   = data.get("spread_cv")
         ts_ms       = data.get("ts_ms", int(time.time() * 1000))
         buy_pressure   = data.get("buy_pressure")
         trade_velocity = data.get("trade_velocity")
@@ -83,6 +84,7 @@ class PaperTrader:
         else:
             await self._maybe_open(key, symbol, ex_long, ex_short, zscore, spread_pct, ts_ms,
                                    spread_mean=spread_mean, spread_std=spread_std,
+                                   spread_cv=spread_cv,
                                    buy_pressure=buy_pressure, trade_velocity=trade_velocity,
                                    book_imbalance=book_imbalance)
 
@@ -112,12 +114,21 @@ class PaperTrader:
         ts_ms:      int,
         spread_mean:    Optional[float] = None,
         spread_std:     Optional[float] = None,
+        spread_cv:      Optional[float] = None,
         buy_pressure:   Optional[float] = None,
         trade_velocity: Optional[float] = None,
         book_imbalance: Optional[float] = None,
     ) -> None:
         # Reject bogus data: price-scale mismatches produce absurd spreads
         if spread_pct > self.settings.MAX_SPREAD_PCT:
+            return
+
+        # Reject low-quality spreads: spread_cv < MIN_SPREAD_CV means the spread
+        # is structurally stable (doesn't oscillate) → won't mean-revert → not arb.
+        # Data: cv<0.5 → TP rate 11.6%, -$112 loss on 6038 trades.
+        #       cv>1.0 → TP rate 73-89%, consistently profitable.
+        # Skip check only if cv is not yet available (insufficient history).
+        if spread_cv is not None and spread_cv < self.settings.MIN_SPREAD_CV:
             return
 
         # Only trade between whitelisted exchanges (gate + mexc).
