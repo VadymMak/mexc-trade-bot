@@ -73,9 +73,10 @@ class PaperTrader:
         spread_std  = data.get("spread_std")
         spread_cv   = data.get("spread_cv")
         ts_ms       = data.get("ts_ms", int(time.time() * 1000))
-        buy_pressure   = data.get("buy_pressure")
-        trade_velocity = data.get("trade_velocity")
-        book_imbalance = data.get("book_imbalance")
+        buy_pressure    = data.get("buy_pressure")
+        trade_velocity  = data.get("trade_velocity")
+        book_imbalance  = data.get("book_imbalance")
+        mm_repeat_score = data.get("mm_repeat_score")
 
         key = (symbol, ex_long, ex_short)
 
@@ -86,7 +87,8 @@ class PaperTrader:
                                    spread_mean=spread_mean, spread_std=spread_std,
                                    spread_cv=spread_cv,
                                    buy_pressure=buy_pressure, trade_velocity=trade_velocity,
-                                   book_imbalance=book_imbalance)
+                                   book_imbalance=book_imbalance,
+                                   mm_repeat_score=mm_repeat_score)
 
     # ── Session stats (called from report_loop) ───────────────────────────────
 
@@ -114,10 +116,11 @@ class PaperTrader:
         ts_ms:      int,
         spread_mean:    Optional[float] = None,
         spread_std:     Optional[float] = None,
-        spread_cv:      Optional[float] = None,
-        buy_pressure:   Optional[float] = None,
-        trade_velocity: Optional[float] = None,
-        book_imbalance: Optional[float] = None,
+        spread_cv:       Optional[float] = None,
+        buy_pressure:    Optional[float] = None,
+        trade_velocity:  Optional[float] = None,
+        book_imbalance:  Optional[float] = None,
+        mm_repeat_score: Optional[float] = None,
     ) -> None:
         # Reject bogus data: price-scale mismatches produce absurd spreads
         if spread_pct > self.settings.MAX_SPREAD_PCT:
@@ -207,6 +210,7 @@ class PaperTrader:
                     buy_pressure=buy_pressure,
                     trade_velocity=trade_velocity,
                     book_imbalance=book_imbalance,
+                    mm_repeat_score=mm_repeat_score,
                 )
                 self._open[key].pos_id = pos_id  # update with real id
 

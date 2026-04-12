@@ -90,6 +90,7 @@ class SpreadMatrix:
                     exch_short  = ex_b
 
                 # Tape + book metrics from FlowTracker (None if not yet available)
+                # Uses long-side exchange as the primary signal source
                 flow_long  = self._flow.get_metrics(symbol, exch_long)  if self._flow else {}
                 flow_short = self._flow.get_metrics(symbol, exch_short) if self._flow else {}
 
@@ -107,9 +108,10 @@ class SpreadMatrix:
                     "spread_cv":      spread_cv,
                     "ts_ms":          now,
                     # flow features (long-side exchange)
-                    "buy_pressure":   flow_long.get("buy_pressure"),
-                    "trade_velocity": flow_long.get("trade_velocity"),
-                    "book_imbalance": flow_long.get("book_imbalance"),
+                    "buy_pressure":    flow_long.get("buy_pressure"),
+                    "trade_velocity":  flow_long.get("trade_velocity"),
+                    "book_imbalance":  flow_long.get("book_imbalance"),
+                    "mm_repeat_score": flow_long.get("mm_repeat_score"),
                 }
 
                 # Store latest result per directed pair

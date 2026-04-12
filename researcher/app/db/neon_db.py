@@ -116,6 +116,9 @@ class NeonDB:
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS buy_pressure    NUMERIC(6,4)",
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS trade_velocity  NUMERIC(8,2)",
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS book_imbalance  NUMERIC(6,4)",
+            # MM robot detector: fraction of trades with same contract size (0-1)
+            # High score = MM robot active → predictable spread → better arb signal
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS mm_repeat_score NUMERIC(6,4)",
         ]:
             await self._pool.execute(col_ddl)
         await self._pool.execute("""
@@ -205,6 +208,7 @@ class NeonDB:
         buy_pressure:         Optional[float] = None,
         trade_velocity:       Optional[float] = None,
         book_imbalance:       Optional[float] = None,
+        mm_repeat_score:      Optional[float] = None,
     ) -> int:
         """Insert open position; returns its auto-generated id."""
         assert self._pool
@@ -215,8 +219,9 @@ class NeonDB:
                  entry_spread_pct, entry_zscore,
                  deal_size_usdt, slippage_entry_usdt, fee_usdt,
                  entry_mode, spread_mean, spread_std,
-                 buy_pressure, trade_velocity, book_imbalance)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                 buy_pressure, trade_velocity, book_imbalance,
+                 mm_repeat_score)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             RETURNING id
             """,
             symbol, exchange_long, exchange_short,
@@ -224,6 +229,7 @@ class NeonDB:
             deal_size_usdt, slippage_entry_usdt, fee_usdt,
             entry_mode, spread_mean, spread_std,
             buy_pressure, trade_velocity, book_imbalance,
+            mm_repeat_score,
         )
         return int(row["id"])
 

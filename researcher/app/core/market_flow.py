@@ -13,7 +13,9 @@ Features produced (all floats, None if no data yet):
   buy_pressure    0.0–1.0   buy_vol / total_vol last 60s (long-side exchange)
   trade_velocity  float     trades per minute last 60s   (long-side exchange)
   book_imbalance  -1.0–1.0  (bid_qty - ask_qty) / total, top-5 levels
-  spread_velocity float     spread_pct change per tick   (last 10 ticks)
+  mm_repeat_score 0.0–1.0   dominant_size_count / total_trades last 60s
+                            High score → MM robot: same-qty orders repeat.
+                            MM creates predictable spreads → better arb signal.
 
 MEXC futures WS : wss://contract.mexc.com/edge
   sub.deal  → push.deal   (trades)
@@ -53,6 +55,7 @@ class _TradeTick:
     ts_ms:    int
     size_usd: float
     is_buy:   bool
+    size_raw: float = 0.0   # raw contract quantity (for MM repeat detection)
 
 
 @dataclass
@@ -86,6 +89,7 @@ class FlowTracker:
             ts_ms=ts_ms,
             size_usd=price * size,
             is_buy=is_buy,
+            size_raw=size,
         ))
 
     def on_book(self, symbol: str, exchange: str,
@@ -125,11 +129,49 @@ class FlowTracker:
             return None
         return round((snap.bid_qty - snap.ask_qty) / total, 4)
 
+    def mm_repeat_score(self, symbol: str, exchange: str) -> Optional[float]:
+        """
+        Fraction of recent trades where the dominant contract size repeats.
+        Range 0.0–1.0. High score → MM robot placing same-qty orders.
+
+        Method: round each raw size to 3 significant figures, find the most
+        common bucket, return its count / total. Requires >= 5 trades.
+
+        Example: 20 trades, 12 of them are 0.450 contracts → score = 0.60
+        """
+        trades = self._recent_trades(symbol, exchange)
+        if len(trades) < 5:
+            return None
+
+        # Round to 3 significant figures to handle floating-point noise
+        def _round3sig(x: float) -> float:
+            if x == 0:
+                return 0.0
+            from math import floor, log10
+            magnitude = floor(log10(abs(x)))
+            factor = 10 ** (2 - magnitude)
+            return round(x * factor) / factor
+
+        buckets: dict[float, int] = {}
+        for t in trades:
+            if t.size_raw <= 0:
+                continue
+            key = _round3sig(t.size_raw)
+            buckets[key] = buckets.get(key, 0) + 1
+
+        if not buckets:
+            return None
+
+        dominant_count = max(buckets.values())
+        total = sum(buckets.values())
+        return round(dominant_count / total, 4)
+
     def get_metrics(self, symbol: str, exchange: str) -> dict:
         return {
-            "buy_pressure":   self.buy_pressure(symbol, exchange),
-            "trade_velocity": self.trade_velocity(symbol, exchange),
-            "book_imbalance": self.book_imbalance(symbol, exchange),
+            "buy_pressure":    self.buy_pressure(symbol, exchange),
+            "trade_velocity":  self.trade_velocity(symbol, exchange),
+            "book_imbalance":  self.book_imbalance(symbol, exchange),
+            "mm_repeat_score": self.mm_repeat_score(symbol, exchange),
         }
 
     # ── helpers ────────────────────────────────────────────────────────────────
