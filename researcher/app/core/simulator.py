@@ -29,6 +29,7 @@ EXCHANGE_TAKER_FEE: dict[str, float] = {
     "bybit":   0.00055,   # 0.055%
     "gate":    0.00075,   # 0.075%
     "mexc":    0.0002,    # 0.02% (perpetual futures)
+    "kucoin":  0.0006,    # 0.06% (futures taker)
 }
 
 # Base slippage in basis-points per side (rough estimate for mark-price gap)
@@ -99,11 +100,13 @@ class TradingSimulator:
         self,
         exchange_long: str,
         exchange_short: str,
-        spread_pct: float,  # noqa: ARG002  (reserved for future use)
+        spread_pct: float,   # noqa: ARG002  (reserved for future use)
+        deal_size: Optional[float] = None,
     ) -> dict:
-        """Returns entry-side cost components (USDT)."""
-        slip = self._slippage(exchange_long) + self._slippage(exchange_short)
-        fees = self._fees(exchange_long) + self._fees(exchange_short)
+        """Returns entry-side cost components (USDT). Uses deal_size if provided."""
+        size = deal_size if deal_size is not None else self.deal_size
+        slip = self._slippage(exchange_long, size) + self._slippage(exchange_short, size)
+        fees = self._fees(exchange_long, size) + self._fees(exchange_short, size)
         return {
             "slippage_usdt":    slip,
             "fee_usdt":         fees,
@@ -116,6 +119,7 @@ class TradingSimulator:
         exchange_short: str,
         entry_spread_pct: float,
         exit_spread_pct: float,
+        deal_size: Optional[float] = None,
     ) -> SimResult:
         """
         Full 4-leg round-trip simulation.
@@ -126,21 +130,24 @@ class TradingSimulator:
         Fees  = (fee_long + fee_short) × 2  (entry + exit each leg)
         Slip  = (slip_long + slip_short) at entry + same at exit
         Net   = Gross − Fees − Slip_entry − Slip_exit
+
+        deal_size overrides self.deal_size — used for dynamic MM sizing.
         """
-        slip_entry = self._slippage(exchange_long) + self._slippage(exchange_short)
-        slip_exit  = self._slippage(exchange_long) + self._slippage(exchange_short)
+        size = deal_size if deal_size is not None else self.deal_size
+        slip_entry = self._slippage(exchange_long, size) + self._slippage(exchange_short, size)
+        slip_exit  = self._slippage(exchange_long, size) + self._slippage(exchange_short, size)
         fees = (
-            self._fees(exchange_long)  * 2   # long entry + long exit
-            + self._fees(exchange_short) * 2   # short entry + short exit
+            self._fees(exchange_long,  size) * 2   # long entry + long exit
+            + self._fees(exchange_short, size) * 2   # short entry + short exit
         )
-        gross = self.deal_size * (entry_spread_pct - exit_spread_pct) / 100.0
+        gross = size * (entry_spread_pct - exit_spread_pct) / 100.0
         net   = gross - fees - slip_entry - slip_exit
 
         total_cost = fees + slip_entry + slip_exit
-        breakeven  = total_cost / self.deal_size * 100.0  # % spread needed to break even
+        breakeven  = total_cost / size * 100.0  # % spread needed to break even
 
         return SimResult(
-            deal_size_usdt=self.deal_size,
+            deal_size_usdt=size,
             entry_spread_pct=entry_spread_pct,
             exit_spread_pct=exit_spread_pct,
             slippage_entry_usdt=slip_entry,
@@ -148,7 +155,7 @@ class TradingSimulator:
             fee_usdt=fees,
             gross_pnl_usdt=gross,
             net_pnl_usdt=net,
-            net_pnl_pct=net / self.deal_size * 100.0,
+            net_pnl_pct=net / size * 100.0,
             breakeven_spread_pct=breakeven,
         )
 
@@ -294,13 +301,15 @@ class TradingSimulator:
 
     # ── Private helpers ────────────────────────────────────────────────────────
 
-    def _slippage(self, exchange: str) -> float:
-        """One-side slippage USDT = (base_bps + impact_bps) / 10000 * deal_size."""
+    def _slippage(self, exchange: str, size: Optional[float] = None) -> float:
+        """One-side slippage USDT = (base_bps + impact_bps) / 10000 * size."""
+        s = size if size is not None else self.deal_size
         base_bps   = EXCHANGE_BASE_SLIPPAGE_BPS.get(exchange.lower(), DEFAULT_SLIPPAGE_BPS)
-        impact_bps = (self.deal_size / 100_000.0) * MARKET_IMPACT_BPS_PER_100K
-        return self.deal_size * (base_bps + impact_bps) / 10_000.0
+        impact_bps = (s / 100_000.0) * MARKET_IMPACT_BPS_PER_100K
+        return s * (base_bps + impact_bps) / 10_000.0
 
-    def _fees(self, exchange: str) -> float:
+    def _fees(self, exchange: str, size: Optional[float] = None) -> float:
         """One-side taker fee USDT."""
+        s = size if size is not None else self.deal_size
         rate = EXCHANGE_TAKER_FEE.get(exchange.lower(), DEFAULT_FEE_RATE)
-        return self.deal_size * rate
+        return s * rate

@@ -85,6 +85,18 @@ class Settings(BaseSettings):
     def trading_exchanges_set(self) -> set[str]:
         return {s.strip().lower() for s in self.TRADING_EXCHANGES.split(",") if s.strip()}
 
+    # ── Dynamic MM sizing (tiered by entry spread) ───────────────────────────
+    # Data analysis (2796 zscore trades) shows fee-to-gross ratio drops sharply
+    # as spread grows: at >=2% spread, fees are only 12% of gross vs 104% at <0.5%.
+    # Tiers multiply PAPER_DEAL_SIZE_USDT by the given factor.
+    # Simulation result: flat $10 → net $53, dynamic tiers → net $143 (+169%).
+    MM_TIER1_SPREAD_PCT: float = 1.0   # spread >= 1.0% → × MM_TIER1_MULT
+    MM_TIER2_SPREAD_PCT: float = 1.5   # spread >= 1.5% → × MM_TIER2_MULT
+    MM_TIER3_SPREAD_PCT: float = 2.0   # spread >= 2.0% → × MM_TIER3_MULT
+    MM_TIER1_MULT: float = 2.0         # $10 × 2 = $20
+    MM_TIER2_MULT: float = 3.0         # $10 × 3 = $30
+    MM_TIER3_MULT: float = 5.0         # $10 × 5 = $50
+
     # Blacklisted symbols — structurally wide spreads that never revert.
     # Identified from dataset: ~0-6% win rate across 80-170 trades each.
     # Stored as comma-separated string (pydantic-settings doesn't support list from env).
