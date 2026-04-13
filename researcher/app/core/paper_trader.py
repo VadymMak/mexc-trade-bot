@@ -105,26 +105,47 @@ class PaperTrader:
 
     # ── Private ───────────────────────────────────────────────────────────────
 
-    def _dynamic_deal_size(self, spread_pct: float) -> float:
+    def _dynamic_deal_size(
+        self,
+        spread_pct: float,
+        trade_velocity: Optional[float] = None,
+    ) -> float:
         """
-        Tiered position sizing based on entry spread quality.
+        Tiered position sizing based on entry spread quality, capped by liquidity.
 
-        Larger spreads have much better fee-to-gross ratio:
-          <1.0%  → base size ×1  (fee ~63% of gross)
-          ≥1.0%  → base size ×2  (fee ~31% of gross)
-          ≥1.5%  → base size ×3  (fee ~21% of gross)
-          ≥2.0%  → base size ×5  (fee ~12% of gross)
+        Step 1 — spread tier (fee-to-gross ratio improves sharply with spread):
+          <1.0%  → base ×1  (fees ~63% of gross)
+          ≥1.0%  → base ×2  (fees ~31% of gross)
+          ≥1.5%  → base ×3  (fees ~21% of gross)
+          ≥2.0%  → base ×5  (fees ~12% of gross)
+
+        Step 2 — volume cap: don't exceed 30% of per-minute USDT flow.
+          trade_velocity = ticks/min; avg tick ~$7.5 → USDT/min ≈ velocity × 7.5
+          cap = max(base, USDT/min × 0.30)
+          In practice high-spread coins already have high velocity (median 124-229
+          ticks/min for ≥1.5% spread), so cap almost never fires.
 
         Data simulation (2796 trades): flat $10 → $53 net, dynamic → $143 net (+169%).
         """
         base = self.settings.PAPER_DEAL_SIZE_USDT
+
+        # Step 1: spread-quality tier
         if spread_pct >= self.settings.MM_TIER3_SPREAD_PCT:
-            return base * self.settings.MM_TIER3_MULT
-        if spread_pct >= self.settings.MM_TIER2_SPREAD_PCT:
-            return base * self.settings.MM_TIER2_MULT
-        if spread_pct >= self.settings.MM_TIER1_SPREAD_PCT:
-            return base * self.settings.MM_TIER1_MULT
-        return base
+            size = base * self.settings.MM_TIER3_MULT
+        elif spread_pct >= self.settings.MM_TIER2_SPREAD_PCT:
+            size = base * self.settings.MM_TIER2_MULT
+        elif spread_pct >= self.settings.MM_TIER1_SPREAD_PCT:
+            size = base * self.settings.MM_TIER1_MULT
+        else:
+            size = base
+
+        # Step 2: liquidity cap (only when velocity data is available)
+        if trade_velocity is not None and trade_velocity > 0:
+            usdt_per_min = trade_velocity * 7.5      # rough: avg tick ~$7.5
+            volume_cap   = max(base, usdt_per_min * 0.30)
+            size         = min(size, volume_cap)
+
+        return size
 
     async def _maybe_open(
         self,
@@ -199,7 +220,7 @@ class PaperTrader:
 
         if zscore_entry:
             entry_mode = "zscore"
-            deal_size  = self._dynamic_deal_size(spread_pct)
+            deal_size  = self._dynamic_deal_size(spread_pct, trade_velocity=trade_velocity)
             entry_costs = self.sim.simulate_entry(ex_long, ex_short, spread_pct, deal_size=deal_size)
 
             # Reserve the key BEFORE the async DB insert to prevent duplicate opens
