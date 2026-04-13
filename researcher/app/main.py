@@ -22,6 +22,9 @@ from .core.market_flow import FlowTracker, MexcFlowCollector, GateFlowCollector
 from .core.pair_promoter import PairPromoter
 from .core.paper_trader import PaperTrader
 from .core.scalp_trader import ScalpPaperTrader
+from .live.arb_executor import ArbLiveExecutor
+from .live.mexc_futures import MexcFutures
+from .live.gate_futures import GateFutures
 from .core.spread_matrix import SpreadMatrix
 from .core.symbol_watcher import watch_loop as symbol_watch_loop, discover_symbols
 from .db.neon_db import NeonDB
@@ -70,10 +73,37 @@ async def main() -> None:
         log.warning("No NEON_DATABASE_URL — running without DB (dry run, no persistence)")
 
     # ── Core components ───────────────────────────────────────────────────────
-    matrix        = SpreadMatrix(max_lag_ms=settings.MAX_SPREAD_LAG_MS)
-    trader        = PaperTrader(db=db, settings=settings)
-    scalp_trader  = ScalpPaperTrader(db=db)
-    promoter      = PairPromoter(db=db, settings=settings)
+    matrix       = SpreadMatrix(max_lag_ms=settings.MAX_SPREAD_LAG_MS)
+    scalp_trader = ScalpPaperTrader(db=db)
+    promoter     = PairPromoter(db=db, settings=settings)
+
+    # ── Trader: paper (default) or live (LIVE_TRADING=true) ───────────────────
+    import os as _os
+    _live_trading = _os.getenv("LIVE_TRADING", "false").lower() in ("1", "true", "yes")
+
+    if _live_trading:
+        _mexc_key    = _os.getenv("MEXC_FUTURES_API_KEY", "")
+        _mexc_secret = _os.getenv("MEXC_FUTURES_SECRET", "")
+        _gate_key    = _os.getenv("GATE_FUTURES_API_KEY", "")
+        _gate_secret = _os.getenv("GATE_FUTURES_SECRET", "")
+        if not all([_mexc_key, _mexc_secret, _gate_key, _gate_secret]):
+            raise RuntimeError(
+                "LIVE_TRADING=true requires MEXC_FUTURES_API_KEY, MEXC_FUTURES_SECRET, "
+                "GATE_FUTURES_API_KEY, GATE_FUTURES_SECRET to be set"
+            )
+        _mexc_client = MexcFutures(_mexc_key, _mexc_secret)
+        _gate_client = GateFutures(_gate_key, _gate_secret)
+        await _mexc_client.__aenter__()
+        await _gate_client.__aenter__()
+        trader: PaperTrader | ArbLiveExecutor = ArbLiveExecutor(
+            db=db,
+            settings=settings,
+            clients={"mexc": _mexc_client, "gate": _gate_client},
+        )
+        log.warning("🔴 LIVE TRADING ENABLED — real money on MEXC Futures + Gate Futures")
+    else:
+        trader = PaperTrader(db=db, settings=settings)
+        log.info("Paper trading mode (LIVE_TRADING not set)")
 
     # ── Flow tracker (tape + order book metrics for ML features) ──────────────
     flow_tracker    = FlowTracker()
