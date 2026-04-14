@@ -330,5 +330,6 @@ class ArbLiveExecutor:
             "total_opened":   self._total_opened,
             "total_closed":   self._total_closed,
             "total_net_pnl":  self._total_net_pnl,   # matches PaperTrader interface
+            "breakeven_pct":  0.0,                    # N/A for live — frontend expects this field
             "orphans":        len(self._orphans),
         }
