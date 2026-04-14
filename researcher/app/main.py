@@ -140,7 +140,9 @@ async def main() -> None:
     matrix.set_flow_tracker(flow_tracker)
 
     # Evaluate any symbols that accumulated data during previous session
-    await trader.evaluator.run_full_sweep()
+    # ArbLiveExecutor has no evaluator — skip in live/testnet mode
+    if hasattr(trader, 'evaluator'):
+        await trader.evaluator.run_full_sweep()
 
     # ScalpTrader startup: close ALL open positions from previous session (no age filter),
     # or full reset if SCALP_RESET=true. After any restart the bot has no memory of open
