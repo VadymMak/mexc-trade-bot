@@ -37,7 +37,12 @@ def iter_message_fields(msg: Any) -> Iterator[Tuple[str, Any, bool]]:
             val = getattr(msg, f.name)
         except Exception:
             continue
-        yield f.name, val, f.label == f.LABEL_REPEATED
+        try:
+            from google.protobuf.descriptor import FieldDescriptor as _FD
+            is_repeated = f.label == _FD.LABEL_REPEATED
+        except Exception:
+            is_repeated = False
+        yield f.name, val, is_repeated
 
 
 def hexdump(b: bytes, n: int = 48) -> str:
