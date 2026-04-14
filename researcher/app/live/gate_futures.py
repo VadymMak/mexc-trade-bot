@@ -80,9 +80,9 @@ class GateFutures:
         body_str: str = "",
     ) -> Dict[str, str]:
         ts = str(int(time.time()))
-        # Gate signature: METHOD\nPATH\nQUERY\nSHA512(body)\nTIMESTAMP
-        body_hash = hashlib.sha512(body_str.encode("utf-8")).hexdigest()
-        msg = f"{method.upper()}\n{path}\n{query_str}\n{body_hash}\n{ts}"
+        # Gate signature: METHOD\nPATH\nQUERY\nBODY_JSON\nTIMESTAMP
+        # Note: raw body string (not SHA512 hash) — matches gate_private.py working implementation
+        msg = f"{method.upper()}\n{path}\n{query_str}\n{body_str}\n{ts}"
         sign = _hmac_sha512(self._secret, msg)
         return {
             "KEY":          self._key,
