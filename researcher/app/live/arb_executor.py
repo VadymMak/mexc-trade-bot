@@ -164,12 +164,14 @@ class ArbLiveExecutor:
 
         # ── Leg risk: rollback if one leg failed ─────────────────────────────
         if long_ok and not short_ok:
-            logger.error("[LIVE LEG-RISK] short failed on %s, rolling back long", ex_short)
+            short_err = short_res if isinstance(short_res, Exception) else getattr(short_res, "error", "?")
+            logger.error("[LIVE LEG-RISK] short failed on %s: %s — rolling back long", ex_short, short_err)
             await self._safe_close_long(ex_long, symbol, long_res.filled_qty)
             return
 
         if short_ok and not long_ok:
-            logger.error("[LIVE LEG-RISK] long failed on %s, rolling back short", ex_long)
+            long_err = long_res if isinstance(long_res, Exception) else getattr(long_res, "error", "?")
+            logger.error("[LIVE LEG-RISK] long failed on %s: %s — rolling back short", ex_long, long_err)
             await self._safe_close_short(ex_short, symbol, short_res.filled_qty)
             return
 
@@ -327,5 +329,6 @@ class ArbLiveExecutor:
             "open_positions": len(self._open),
             "total_opened":   self._total_opened,
             "total_closed":   self._total_closed,
+            "total_net_pnl":  self._total_net_pnl,   # matches PaperTrader interface
             "orphans":        len(self._orphans),
         }
