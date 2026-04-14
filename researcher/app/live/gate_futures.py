@@ -27,7 +27,8 @@ from .base import FuturesClient, OrderResult, PositionInfo
 
 logger = logging.getLogger(__name__)
 
-_BASE = "https://api.gateio.ws/api/v4"
+_BASE_LIVE    = "https://api.gateio.ws/api/v4"
+_BASE_TESTNET = "https://api-testnet.gateapi.io/api/v4"
 
 
 def _hmac_sha512(secret: str, msg: str) -> str:
@@ -45,10 +46,14 @@ class GateFutures:
 
     exchange_name = "gate"
 
-    def __init__(self, api_key: str, secret: str) -> None:
-        self._key    = api_key
-        self._secret = secret
+    def __init__(self, api_key: str, secret: str, testnet: bool = False) -> None:
+        self._key     = api_key
+        self._secret  = secret
+        self._base    = _BASE_TESTNET if testnet else _BASE_LIVE
+        self._testnet = testnet
         self._session: Optional[aiohttp.ClientSession] = None
+        if testnet:
+            logger.warning("GateFutures running in TESTNET mode — virtual funds only")
 
     # ── Context manager ────────────────────────────────────────────────────────
 
@@ -92,7 +97,7 @@ class GateFutures:
         assert self._session
         query_str = "&".join(f"{k}={v}" for k, v in (params or {}).items())
         headers = self._signed_headers("GET", path, query_str=query_str)
-        url = f"{_BASE}{path}"
+        url = f"{self._base}{path}"
         async with self._session.get(url, params=params, headers=headers) as resp:
             resp.raise_for_status()
             return await resp.json()
@@ -101,7 +106,7 @@ class GateFutures:
         assert self._session
         body_str = json.dumps(body, separators=(",", ":"))
         headers = self._signed_headers("POST", path, body_str=body_str)
-        url = f"{_BASE}{path}"
+        url = f"{self._base}{path}"
         async with self._session.post(url, data=body_str, headers=headers) as resp:
             resp.raise_for_status()
             return await resp.json()

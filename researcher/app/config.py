@@ -97,6 +97,17 @@ class Settings(BaseSettings):
     MM_TIER2_MULT: float = 3.0         # $10 × 3 = $30
     MM_TIER3_MULT: float = 5.0         # $10 × 5 = $50
 
+    # ── Live / Testnet trading keys ──────────────────────────────────────────
+    # Set LIVE_TRADING=true to activate real order execution.
+    # Set GATE_TESTNET=true to test on Gate.io testnet (virtual funds).
+    # When GATE_TESTNET=true, MEXC leg is replaced by a mock client (logs only).
+    GATE_FUTURES_API_KEY: str = ""
+    GATE_FUTURES_SECRET: str = ""
+    GATE_FUTURES_TESTNET_API_KEY: str = ""
+    GATE_FUTURES_TESTNET_SECRET: str = ""
+    MEXC_FUTURES_API_KEY: str = ""
+    MEXC_FUTURES_SECRET: str = ""
+
     # Blacklisted symbols — structurally wide spreads that never revert.
     # Identified from dataset: ~0-6% win rate across 80-170 trades each.
     # Stored as comma-separated string (pydantic-settings doesn't support list from env).

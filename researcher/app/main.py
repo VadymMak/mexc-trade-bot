@@ -25,6 +25,7 @@ from .core.scalp_trader import ScalpPaperTrader
 from .live.arb_executor import ArbLiveExecutor
 from .live.mexc_futures import MexcFutures
 from .live.gate_futures import GateFutures
+from .live.mock_futures import MockFutures
 from .core.spread_matrix import SpreadMatrix
 from .core.symbol_watcher import watch_loop as symbol_watch_loop, discover_symbols
 from .db.neon_db import NeonDB
@@ -77,11 +78,13 @@ async def main() -> None:
     scalp_trader = ScalpPaperTrader(db=db)
     promoter     = PairPromoter(db=db, settings=settings)
 
-    # ── Trader: paper (default) or live (LIVE_TRADING=true) ───────────────────
+    # ── Trader: paper / gate-testnet / live ───────────────────────────────────
     import os as _os
-    _live_trading = _os.getenv("LIVE_TRADING", "false").lower() in ("1", "true", "yes")
+    _live_trading  = _os.getenv("LIVE_TRADING",  "false").lower() in ("1", "true", "yes")
+    _gate_testnet  = _os.getenv("GATE_TESTNET",  "false").lower() in ("1", "true", "yes")
 
     if _live_trading:
+        # ── FULL LIVE: real money on MEXC Futures + Gate Futures ──────────────
         _mexc_key    = _os.getenv("MEXC_FUTURES_API_KEY", "")
         _mexc_secret = _os.getenv("MEXC_FUTURES_SECRET", "")
         _gate_key    = _os.getenv("GATE_FUTURES_API_KEY", "")
@@ -101,7 +104,32 @@ async def main() -> None:
             clients={"mexc": _mexc_client, "gate": _gate_client},
         )
         log.warning("🔴 LIVE TRADING ENABLED — real money on MEXC Futures + Gate Futures")
+
+    elif _gate_testnet:
+        # ── GATE TESTNET: real order execution on Gate testnet, MEXC is mocked ─
+        _gate_key    = _os.getenv("GATE_FUTURES_TESTNET_API_KEY", "")
+        _gate_secret = _os.getenv("GATE_FUTURES_TESTNET_SECRET", "")
+        if not all([_gate_key, _gate_secret]):
+            raise RuntimeError(
+                "GATE_TESTNET=true requires GATE_FUTURES_TESTNET_API_KEY "
+                "and GATE_FUTURES_TESTNET_SECRET to be set"
+            )
+        _gate_client = GateFutures(_gate_key, _gate_secret, testnet=True)
+        _mock_client = MockFutures(name="mexc-mock")
+        await _gate_client.__aenter__()
+        await _mock_client.__aenter__()
+        trader = ArbLiveExecutor(
+            db=db,
+            settings=settings,
+            clients={"gate": _gate_client, "mexc": _mock_client},
+        )
+        log.warning(
+            "🟡 GATE TESTNET MODE — real orders on Gate testnet, MEXC leg is mocked. "
+            "Virtual funds only."
+        )
+
     else:
+        # ── PAPER TRADING (default) ────────────────────────────────────────────
         trader = PaperTrader(db=db, settings=settings)
         log.info("Paper trading mode (LIVE_TRADING not set)")
 
