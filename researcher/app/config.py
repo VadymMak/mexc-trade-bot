@@ -108,6 +108,23 @@ class Settings(BaseSettings):
     MEXC_FUTURES_API_KEY: str = ""
     MEXC_FUTURES_SECRET: str = ""
 
+    # ── Dynamic symbol suspension ────────────────────────────────────────────
+    # Tracks last N trades per symbol. If recent win-rate falls below threshold,
+    # suspend the symbol temporarily (don't open new positions).
+    # This catches coins that transition from profitable to structural/broken
+    # faster than the static evaluator (which needs 50+ trades).
+    #
+    # Window: last 10 trades per symbol
+    # Thresholds (checked after min_trades):
+    #   WR < 30% in last 10  → suspend 4h  (struggling)
+    #   WR =  0% in last 10  → suspend 8h  (clearly broken)
+    # Counter resets after 1 profitable trade (so good coins aren't blocked long)
+    DYNAMIC_SUSPEND_WINDOW:     int   = 10    # rolling window size
+    DYNAMIC_SUSPEND_MIN_TRADES: int   = 5     # minimum trades before suspension kicks in
+    DYNAMIC_SUSPEND_WR_LOW:     float = 0.30  # WR < 30% → 4h suspension
+    DYNAMIC_SUSPEND_HOURS_LOW:  float = 4.0   # hours to suspend on WR < 30%
+    DYNAMIC_SUSPEND_HOURS_ZERO: float = 8.0   # hours to suspend on WR = 0%
+
     # Blacklisted symbols — structurally wide spreads that never revert.
     # Identified from dataset: ~0-6% win rate across 80-170 trades each.
     # Stored as comma-separated string (pydantic-settings doesn't support list from env).

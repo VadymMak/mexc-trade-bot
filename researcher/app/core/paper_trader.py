@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Optional
+from collections import deque
+from typing import Optional, Dict, Deque
 
 from ..config import Settings
 from ..db.neon_db import NeonDB
@@ -56,6 +57,12 @@ class PaperTrader:
 
         # {(symbol, ex_long, ex_short): timestamp_ms} — cooldown after STOP_LOSS
         self._stop_loss_cooldown: dict[tuple, int] = {}
+
+        # Dynamic symbol suspension — rolling window of recent results per symbol
+        # deque of bools: True=win, False=loss (last N trades)
+        self._symbol_recent:    Dict[str, Deque[bool]] = {}
+        # symbol → suspended_until_ms (0 = not suspended)
+        self._symbol_suspended: Dict[str, int] = {}
 
         # Session counters (for log summaries)
         self._total_opened  = 0
@@ -206,6 +213,11 @@ class PaperTrader:
         if ts_ms < cooldown_until:
             return
 
+        # Reject entry if symbol is dynamically suspended (recent poor WR)
+        suspended_until = self._symbol_suspended.get(symbol, 0)
+        if ts_ms < suspended_until:
+            return
+
         # Mode A: classic z-score mean reversion
         zscore_entry = (
             zscore is not None
@@ -350,6 +362,9 @@ class PaperTrader:
         self._total_net_pnl += result.net_pnl_usdt
         verdict = "WIN " if result.net_pnl_usdt > 0 else "LOSS"
 
+        # Update dynamic suspension window for this symbol
+        self._update_symbol_suspension(symbol, is_win=(result.net_pnl_usdt > 0), ts_ms=ts_ms)
+
         logger.info(
             "[CLOSE %s | %s] %s %s/%s  "
             "spread %.3f%%→%.3f%%  (entry_mode=%s)  "
@@ -366,6 +381,61 @@ class PaperTrader:
             result.net_pnl_pct,
             hold_sec,
         )
+
+
+    def _update_symbol_suspension(self, symbol: str, is_win: bool, ts_ms: int) -> None:
+        """
+        Update rolling win/loss window for a symbol and suspend if WR drops too low.
+
+        Logic:
+          - Keep last DYNAMIC_SUSPEND_WINDOW results per symbol
+          - Only evaluate after DYNAMIC_SUSPEND_MIN_TRADES results
+          - WR = 0%  in window → suspend DYNAMIC_SUSPEND_HOURS_ZERO hours
+          - WR < 30% in window → suspend DYNAMIC_SUSPEND_HOURS_LOW hours
+          - After 1 win: reset window so good coins recover quickly
+        """
+        cfg = self.settings
+        window = cfg.DYNAMIC_SUSPEND_WINDOW
+        min_trades = cfg.DYNAMIC_SUSPEND_MIN_TRADES
+
+        # Initialise deque if first time seeing this symbol
+        if symbol not in self._symbol_recent:
+            self._symbol_recent[symbol] = deque(maxlen=window)
+
+        recent = self._symbol_recent[symbol]
+        recent.append(is_win)
+
+        # After a win, reset the window so good coins aren't penalised for old losses
+        if is_win:
+            self._symbol_recent[symbol] = deque([True], maxlen=window)
+            # Also lift any existing suspension immediately on a win
+            if self._symbol_suspended.get(symbol, 0) > 0:
+                self._symbol_suspended[symbol] = 0
+                logger.info("[DYN-SUSPEND] %s — lifted early after WIN", symbol)
+            return
+
+        # Need minimum trades before evaluating
+        if len(recent) < min_trades:
+            return
+
+        wins = sum(1 for r in recent if r)
+        wr   = wins / len(recent)
+
+        suspend_hours = 0.0
+        if wr == 0.0:
+            suspend_hours = cfg.DYNAMIC_SUSPEND_HOURS_ZERO
+        elif wr < cfg.DYNAMIC_SUSPEND_WR_THRESHOLD:
+            suspend_hours = cfg.DYNAMIC_SUSPEND_HOURS_LOW
+
+        if suspend_hours > 0:
+            until_ms = ts_ms + int(suspend_hours * 3600 * 1000)
+            self._symbol_suspended[symbol] = until_ms
+            # Reset window so it starts fresh after suspension
+            self._symbol_recent[symbol] = deque(maxlen=window)
+            logger.warning(
+                "[DYN-SUSPEND] %s suspended %.0fh — WR=%.0f%% in last %d trades",
+                symbol, suspend_hours, wr * 100, len(recent),
+            )
 
 
 class _OpenState:
