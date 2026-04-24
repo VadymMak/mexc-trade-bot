@@ -187,6 +187,17 @@ class SpreadMatrix:
         """Snapshot of latest spreads for API."""
         return list(self._latest_spreads.values())
 
+    def get_notable_spreads(self, min_spread_pct: float = 0.3, top_n: int = 100) -> list[dict]:
+        """
+        Filtered snapshot for periodic push — only spreads worth showing on the frontend.
+        Sends top N by spread_pct that exceed min_spread_pct threshold.
+        Reduces push payload from ~242KB (794 pairs) to ~10-20KB (30-50 pairs).
+        """
+        spreads = self._latest_spreads.values()
+        notable = [s for s in spreads if s.get("spread_pct", 0) >= min_spread_pct]
+        notable.sort(key=lambda s: s.get("spread_pct", 0), reverse=True)
+        return notable[:top_n]
+
     def set_push_url(self, url: str, interval_s: float = 5.0) -> None:
         """Configure periodic push of spread snapshots to the trading bot."""
         self._push_url = url
@@ -217,7 +228,7 @@ class SpreadMatrix:
         async with aiohttp.ClientSession() as session:
             while True:
                 await asyncio.sleep(self._push_interval)
-                spreads = self.get_all_spreads()
+                spreads = self.get_notable_spreads()
                 if not spreads:
                     continue
                 try:
