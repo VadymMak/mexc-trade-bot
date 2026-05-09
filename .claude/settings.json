@@ -1,5 +1,16 @@
 {
   "permissions": {
-    "allow": []
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(python -c \"from app.routers.scraper import router; print\\('✅ scraper router imported OK, prefix:', router.prefix\\)\")",
+      "Bash(python3 -c \"import sys; sys.path.insert\\(0, '.'\\); from app.routers.scraper import router; print\\('✅ scraper router imported OK, prefix:', router.prefix\\)\")",
+      "Bash(pip3 show *)",
+      "Bash(python3 -m pip show fastapi)",
+      "Bash(python3 -c \"import ast, sys; ast.parse\\(open\\('/Users/vadymmak/Documents/projects/mexc-trade-bot/backend/app/routers/scraper.py'\\).read\\(\\)\\); print\\('✅ Syntax OK'\\)\")",
+      "Bash(git -C /Users/vadymmak/Documents/projects/mexc-trade-bot status)",
+      "Bash(git -C /Users/vadymmak/Documents/projects/mexc-trade-bot diff --stat)",
+      "Bash(git -C /Users/vadymmak/Documents/projects/mexc-trade-bot diff .claude/settings.json)",
+      "Bash(git -C /Users/vadymmak/Documents/projects/mexc-trade-bot log --oneline -3)"
+    ]
   }
 }

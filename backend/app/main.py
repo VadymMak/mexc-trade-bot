@@ -410,6 +410,14 @@ try:
 except Exception as _e:
     print(f"⚠️ Scalp router import skipped: {_e}")
 
+# Scraper router (relocant.help — isolated from trading logic)
+try:
+    from app.routers.scraper import router as scraper_router
+    app.include_router(scraper_router)
+    print("✅ Scraper router mounted at /scraper/scrape")
+except Exception as _e:
+    print(f"⚠️ Scraper router import skipped: {_e}")
+
 # --- Debug: list all routes at startup ---
 def _print_routes(app_: FastAPI) -> None:
     try:
