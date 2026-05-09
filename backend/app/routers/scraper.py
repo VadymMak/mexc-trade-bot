@@ -6,6 +6,9 @@ from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 import httpx
 import os
+import warnings
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from bs4 import BeautifulSoup
 
 router = APIRouter(prefix="/scraper", tags=["scraper"])
@@ -46,7 +49,8 @@ async def scrape_url(
         async with httpx.AsyncClient(
             headers=HEADERS,
             follow_redirects=True,
-            timeout=15.0
+            timeout=15.0,
+            verify=False
         ) as client:
             response = await client.get(request.url)
 
