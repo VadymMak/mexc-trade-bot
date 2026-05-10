@@ -300,6 +300,17 @@ def _looks_like_quote_only(sym: str) -> bool:
     return False
 
 
+class WSConnectionState:
+    """WS connection states including REST fallback monitoring."""
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+    MONITORING_REST = "monitoring_rest"
+
+    # REST monitoring constants
+    REST_POLL_INTERVAL_SEC = 0.5   # 500 ms polling
+    REST_MAX_MONITOR_SEC = 30      # 30 sec → Circuit Breaker
+
+
 class MEXCWebSocketClient:
     """
     Public MEXC Spot WS client (v3) with improved error handling and logging.
@@ -408,12 +419,105 @@ class MEXCWebSocketClient:
         self._callback_calls = deque(maxlen=50)
         self._callback_max_per_sec = 50
         
+        # ── REST monitoring state (MONITORING_REST) ──────────────────────
+        self._ws_state: str = WSConnectionState.DISCONNECTED
+        self._position_check_cb = None   # async () -> list[dict]
+        self._circuit_breaker_cb = None  # async (reason: str) -> None
+
         # Statistics
         self._total_reconnects = 0
         self._total_messages_received = 0
         self._total_book_tickers = 0
         self._total_deals = 0
         self._total_depth_updates = 0
+
+    # ───────────── REST monitoring callbacks ─────────────
+    def set_position_check_cb(self, cb) -> None:
+        """
+        Установить async callback для получения открытых позиций.
+        cb: async () -> list[dict]  (каждый dict содержит 'symbol')
+        Вызывается при disconnect для проверки нужен ли MONITORING_REST.
+        """
+        self._position_check_cb = cb
+
+    def set_circuit_breaker_cb(self, cb) -> None:
+        """
+        Установить async callback для трипа Circuit Breaker.
+        cb: async (reason: str) -> None
+        Вызывается если WS не восстановлен за 30 сек с открытыми позициями.
+        """
+        self._circuit_breaker_cb = cb
+
+    async def _handle_disconnect_with_positions(self) -> None:
+        """
+        Вызывается при disconnect. Если есть открытые позиции —
+        переключается в MONITORING_REST и запускает REST-поллинг.
+        """
+        if not self._position_check_cb:
+            return
+        try:
+            positions = await self._position_check_cb()
+            if positions:
+                logger.warning(
+                    f"⚠️ WS disconnect с {len(positions)} открытыми позициями "
+                    f"→ MONITORING_REST (REST poll {WSConnectionState.REST_POLL_INTERVAL_SEC}s)"
+                )
+                self._ws_state = WSConnectionState.MONITORING_REST
+                await self._run_rest_monitoring(positions)
+        except Exception as e:
+            logger.error(f"Position check failed on WS disconnect: {e}")
+
+    async def _run_rest_monitoring(self, initial_positions: list) -> None:
+        """
+        REST-поллинг позиций каждые 500ms пока WS не восстановится.
+        Лимит: 30 секунд. После — трипает Circuit Breaker.
+        """
+        elapsed = 0.0
+        poll_interval = WSConnectionState.REST_POLL_INTERVAL_SEC
+        max_sec = WSConnectionState.REST_MAX_MONITOR_SEC
+
+        logger.info(
+            f"🔄 REST monitoring started: {len(initial_positions)} позиций, "
+            f"max={max_sec}s"
+        )
+
+        while elapsed < max_sec and not self._want_stop:
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+            # WS восстановился в параллельной задаче
+            if self._connected:
+                logger.info(
+                    f"✅ WS reconnected после {elapsed:.1f}s — REST мониторинг остановлен"
+                )
+                self._ws_state = WSConnectionState.CONNECTED
+                return
+
+            # REST poll позиций
+            if self._position_check_cb:
+                try:
+                    positions = await self._position_check_cb()
+                    if elapsed % 5.0 < poll_interval:  # лог каждые ~5 сек
+                        logger.debug(
+                            f"REST monitor t={elapsed:.1f}s: "
+                            f"{len(positions)} позиций открыто"
+                        )
+                except Exception as e:
+                    logger.warning(f"REST position poll failed: {e}")
+
+        # 30 сек истекли — WS не восстановлен → Circuit Breaker
+        if not self._connected and not self._want_stop:
+            reason = f"ws_not_restored_{max_sec}s_with_open_positions"
+            logger.critical(
+                f"🔴 WS не восстановлен за {max_sec}s с открытыми позициями → Circuit Breaker"
+            )
+            if self._circuit_breaker_cb:
+                try:
+                    await self._circuit_breaker_cb(reason)
+                except Exception as e:
+                    logger.error(f"Circuit Breaker callback failed: {e}")
+
+        self._ws_state = WSConnectionState.DISCONNECTED
 
     # ───────────── lifecycle ─────────────
     async def run(self) -> None:
@@ -431,7 +535,9 @@ class MEXCWebSocketClient:
         try:
             while not self._want_stop:
                 try:
+                    self._ws_state = WSConnectionState.DISCONNECTED
                     await self._connect()
+                    self._ws_state = WSConnectionState.CONNECTED
                     await self._subscribe_all()
                     await self._listen_loop()
                 except asyncio.CancelledError:
@@ -442,6 +548,10 @@ class MEXCWebSocketClient:
                         break
                     logger.error(f"❌ WS loop error: {e}", exc_info=True)
                     self._total_reconnects += 1
+                    self._ws_state = WSConnectionState.DISCONNECTED
+                    # При disconnect с открытыми позициями → MONITORING_REST
+                    if not self._want_stop and self._position_check_cb:
+                        await self._handle_disconnect_with_positions()
                 await self._reconnect_sleep()
         except asyncio.CancelledError:
             logger.info("WS client task cancelled, shutting down")
@@ -1275,6 +1385,7 @@ class MEXCWebSocketClient:
         """Get client statistics for monitoring."""
         return {
             "connected": self._connected,
+            "ws_state": self._ws_state,
             "symbols": len(self.symbols),
             "subscribed_topics": len(self._subscribed_topics),
             "total_reconnects": self._total_reconnects,
