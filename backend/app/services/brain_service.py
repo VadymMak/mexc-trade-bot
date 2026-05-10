@@ -19,11 +19,43 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import text
-
-from app.db.session import SessionLocal
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
 
 logger = logging.getLogger(__name__)
+
+# ── Brain DB session (Neon PostgreSQL, separate from main SQLite engine) ─────
+
+def _make_brain_session() -> sessionmaker:
+    """
+    Create a SQLAlchemy sessionmaker pointed at NEON_DATABASE_URL.
+    Falls back to DATABASE_URL if Neon URL is not set (local dev).
+    Raises RuntimeError at import time if no usable Postgres URL is found.
+    """
+    url = os.getenv("NEON_DATABASE_URL") or os.getenv("DATABASE_URL", "")
+    if not url:
+        raise RuntimeError("NEON_DATABASE_URL (or DATABASE_URL) env var is not set")
+    # Railway sometimes gives postgres://, SQLAlchemy needs postgresql://
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+    if url.startswith("sqlite"):
+        raise RuntimeError(
+            "BrainService requires PostgreSQL (pgvector). "
+            "Set NEON_DATABASE_URL to a Neon/Postgres connection string."
+        )
+    _engine = create_engine(url, pool_pre_ping=True, future=True)
+    return sessionmaker(bind=_engine, autocommit=False, autoflush=False, expire_on_commit=False)
+
+
+_BrainSessionLocal: Optional[sessionmaker] = None
+
+
+def _get_brain_session() -> sessionmaker:
+    global _BrainSessionLocal
+    if _BrainSessionLocal is None:
+        _BrainSessionLocal = _make_brain_session()
+    return _BrainSessionLocal
+
 
 # ── OpenAI client (lazy, singleton) ─────────────────────────────────────────
 
@@ -142,7 +174,7 @@ class BrainService:
             embedding = await self.create_embedding(text_repr)
             emb_str = _emb_to_pg(embedding)
 
-            db = SessionLocal()
+            db = _get_brain_session()()
             try:
                 db.execute(
                     text("""
@@ -235,7 +267,7 @@ class BrainService:
             return _neutral
 
         try:
-            db = SessionLocal()
+            db = _get_brain_session()()
             try:
                 result = db.execute(
                     text("""
