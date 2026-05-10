@@ -170,3 +170,16 @@
   color: var(--color-text-muted);
   text-align: right;
 }
+
+/* Brain verdict badges */
+.badgeBrainGreen {
+  background: color-mix(in srgb, var(--color-green) 15%, transparent);
+  color: var(--color-green);
+  border: 1px solid color-mix(in srgb, var(--color-green) 40%, transparent);
+}
+
+.badgeBrainRed {
+  background: color-mix(in srgb, var(--color-red) 15%, transparent);
+  color: var(--color-red);
+  border: 1px solid color-mix(in srgb, var(--color-red) 40%, transparent);
+}

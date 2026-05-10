@@ -20,6 +20,8 @@ interface DisplayRow {
   spreadBps: number;
   volumeUsd: number;
   score: number | undefined;
+  brainVerdict?: string | null;
+  brainWinRate?: number | null;
 }
 
 /* ─────────────────── Helpers ─────────────────── */
@@ -36,6 +38,8 @@ function toDisplayRow(row: ScannerRow | FeatureSnapshot): DisplayRow {
       spreadBps: mid,
       volumeUsd: row.metrics.usd_per_min ?? 0,
       score: row.score,
+      brainVerdict: row.brain_verdict ?? null,
+      brainWinRate: row.brain_win_rate ?? null,
     };
   }
   // ScannerRow from /top
@@ -52,6 +56,8 @@ function toDisplayRow(row: ScannerRow | FeatureSnapshot): DisplayRow {
     spreadBps,
     volumeUsd: row.usd_per_min ?? 0,
     score: row.score,
+    brainVerdict: row.brain_verdict ?? null,
+    brainWinRate: row.brain_win_rate ?? null,
   };
 }
 
@@ -76,6 +82,16 @@ function fmtVol(v: number): string {
 
 function fmtSpread(bps: number): string {
   return `${(bps / 100).toFixed(3)}%`;
+}
+
+function BrainBadge({ verdict }: { verdict: string | null | undefined }) {
+  if (verdict === 'strong_entry') {
+    return <span className={`${styles.badge} ${styles.badgeBrainGreen}`}>↑ STRONG</span>;
+  }
+  if (verdict === 'avoid') {
+    return <span className={`${styles.badge} ${styles.badgeBrainRed}`}>↓ AVOID</span>;
+  }
+  return <span className={styles.volume}>—</span>;
 }
 
 /* ─────────────────── Component ─────────────────── */
@@ -117,8 +133,7 @@ export default function SpreadTable({ search, minSpreadPct }: SpreadTableProps) 
   // Filter
   const minBps = minSpreadPct * 100;
   const filtered = rows.filter((r) => {
-    const matchSearch =
-      !search || r.symbol.toUpperCase().includes(search.toUpperCase());
+    const matchSearch = !search || r.symbol.toUpperCase().includes(search.toUpperCase());
     const matchSpread = r.spreadBps >= minBps;
     return matchSearch && matchSpread;
   });
@@ -156,6 +171,8 @@ export default function SpreadTable({ search, minSpreadPct }: SpreadTableProps) 
             <th>Spread</th>
             <th>Vol/min</th>
             <th>Score</th>
+            <th>Brain</th>
+            <th>Win%</th>
             <th>Signal</th>
             <th>Action</th>
           </tr>
@@ -199,6 +216,16 @@ export default function SpreadTable({ search, minSpreadPct }: SpreadTableProps) 
                 <td className={styles.cell}>
                   <span className={styles.volume}>
                     {row.score != null ? row.score.toFixed(0) : '—'}
+                  </span>
+                </td>
+                <td className={styles.cell}>
+                  <BrainBadge verdict={row.brainVerdict} />
+                </td>
+                <td className={styles.cell}>
+                  <span className={styles.volume}>
+                    {row.brainWinRate != null
+                      ? `${(row.brainWinRate * 100).toFixed(0)}%`
+                      : '—'}
                   </span>
                 </td>
                 <td className={styles.cell}>

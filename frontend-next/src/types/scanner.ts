@@ -86,6 +86,12 @@ export interface ScannerRow {
   // explainability
   reason?: string | null;
   reasons_all?: string[];
+
+  // brain validation fields (populated when BRAIN_ENABLED=true)
+  brain_verdict?: string | null;
+  brain_win_rate?: number | null;
+  brain_multiplier?: number | null;
+  trading_session?: string | null;
 }
 
 /** Client and server parameters for /top and /top_tiered */
@@ -190,6 +196,12 @@ export interface FeatureSnapshot {
 
   stale: boolean;
   fees: FeeInfo;
+
+  // brain validation fields (populated when BRAIN_ENABLED=true)
+  brain_verdict?: string | null;
+  brain_win_rate?: number | null;
+  brain_multiplier?: number | null;
+  trading_session?: string | null;
 }
 
 /** Response shape from /api/scanner/{venue}/top_tiered */
