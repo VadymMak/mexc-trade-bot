@@ -105,7 +105,7 @@ def _parse_row(raw: Dict[str, str]) -> Optional[Dict[str, Any]]:
 
 # ── async loader ─────────────────────────────────────────────────────────────
 
-async def load(csv_path: str, batch: int, dry_run: bool, pause: float) -> None:
+async def load(csv_path: str, batch: int, dry_run: bool, pause: float, offset: int = 0) -> None:
     from app.services.brain_service import BrainService
 
     brain = BrainService()
@@ -114,7 +114,13 @@ async def load(csv_path: str, batch: int, dry_run: bool, pause: float) -> None:
         reader = list(csv.DictReader(fh))
 
     total = len(reader)
-    log.info("CSV rows: %d | batch: %d | pause: %.1fs | dry_run: %s", total, batch, pause, dry_run)
+    if offset:
+        reader = reader[offset:]
+        log.info("CSV rows: %d | skipping first %d | remaining: %d | batch: %d | pause: %.1fs | dry_run: %s",
+                 total, offset, len(reader), batch, pause, dry_run)
+    else:
+        log.info("CSV rows: %d | batch: %d | pause: %.1fs | dry_run: %s", total, batch, pause, dry_run)
+    total = len(reader)
 
     loaded = 0
     skipped = 0
@@ -168,6 +174,8 @@ def main() -> None:
                         help="Rows per async batch (default 50; keep ≤50 for OpenAI rate limits)")
     parser.add_argument("--pause", type=float, default=1.0,
                         help="Seconds to sleep between batches (default 1.0)")
+    parser.add_argument("--offset", type=int, default=0,
+                        help="Skip first N rows — use to resume after interruption (default 0)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Parse CSV only — no embeddings, no DB inserts")
     args = parser.parse_args()
@@ -176,7 +184,7 @@ def main() -> None:
         log.error("File not found: %s", args.file)
         sys.exit(1)
 
-    asyncio.run(load(args.file, batch=args.batch, dry_run=args.dry_run, pause=args.pause))
+    asyncio.run(load(args.file, batch=args.batch, dry_run=args.dry_run, pause=args.pause, offset=args.offset))
 
 
 if __name__ == "__main__":
