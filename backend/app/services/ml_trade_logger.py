@@ -78,6 +78,8 @@ class MLTradeLogger:
         entry_price: float,
         entry_qty: float,
         trade_id: str,
+        entry_reason_text: str = "",  # WHY: человекочитаемое объяснение входа
+        top_score_rank: int = 0,       # WHY: ранг символа в списке сканера (1 = лучший)
     ) -> None:
         """
         Log trade entry with full market snapshot.
@@ -119,6 +121,10 @@ class MLTradeLogger:
                 'hour_of_day': datetime.now().hour,
                 'day_of_week': datetime.now().weekday(),  # 0=Monday
                 'minute_of_hour': datetime.now().minute,
+
+                # WHY context: объяснение входа для ML-анализа
+                'entry_reason_text': entry_reason_text,
+                'top_score_rank': top_score_rank,
             })
             
             # Store in memory until exit
@@ -143,6 +149,11 @@ class MLTradeLogger:
         max_adverse_excursion_bps: Optional[float] = None,
         peak_price: Optional[float] = None,
         lowest_price: Optional[float] = None,
+        # WHY context при выходе
+        spread_at_exit: float = 0.0,          # спред в момент выхода (bps)
+        mm_present_at_exit: int = 0,           # был ли MM на выходе (0/1)
+        depth_at_exit: float = 0.0,            # глубина стакана при выходе (USD)
+        price_continued_bps: float = 0.0,      # продолжило ли цена движение после выхода
     ) -> None:
         """
         Log trade exit and save complete record to database.
@@ -199,7 +210,13 @@ class MLTradeLogger:
                 'hit_sl': 1 if exit_reason.upper() == 'SL' else 0,
                 'hit_trailing': 1 if exit_reason.upper() in ('TRAIL', 'TRAILING') else 0,
                 'timed_out': 1 if exit_reason.upper() in ('TIMEOUT', 'TO') else 0,
-                
+
+                # WHY context при выходе
+                'spread_at_exit': spread_at_exit,
+                'mm_present_at_exit': mm_present_at_exit,
+                'depth_at_exit': depth_at_exit,
+                'price_continued_bps': price_continued_bps,
+
                 # Metadata
                 'workspace_id': 1,
                 'exchange': 'mexc',
@@ -463,11 +480,14 @@ class MLTradeLogger:
                 # Time context
                 'hour_of_day', 'day_of_week', 'minute_of_hour',
                 
+                # WHY entry context
+                'entry_reason_text', 'top_score_rank',
+
                 # Strategy params
                 'take_profit_bps', 'stop_loss_bps',
                 'trailing_stop_enabled', 'trail_activation_bps', 'trail_distance_bps',
                 'timeout_seconds', 'exploration_mode',
-                
+
                 # Exit
                 'exit_time', 'exit_price', 'exit_qty', 'exit_reason',
                 
@@ -480,7 +500,11 @@ class MLTradeLogger:
                 
                 # ML labels
                 'win', 'hit_tp', 'hit_sl', 'hit_trailing', 'timed_out',
-                
+
+                # WHY exit context
+                'spread_at_exit', 'mm_present_at_exit',
+                'depth_at_exit', 'price_continued_bps',
+
                 # Metadata
                 'created_at',
             ]
