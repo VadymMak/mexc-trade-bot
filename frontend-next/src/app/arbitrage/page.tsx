@@ -7,6 +7,7 @@ import styles from './page.module.css';
 /* ─────────────────── Types ─────────────────── */
 
 type Tab = 'research' | 'queue' | 'active';
+type EntryModeFilter = 'all' | 'zscore' | 'large_spread';
 
 interface ArbPair {
   symbol: string;
@@ -18,6 +19,7 @@ interface ArbPair {
   zscore: number | null;
   status: 'watching' | 'signal' | 'trading';
   last_updated: string;
+  entry_mode?: 'zscore' | 'large_spread' | null;
 }
 
 interface QueueItem {
@@ -124,6 +126,18 @@ function StatusBadge({ status }: { status: ArbPair['status'] }) {
   return <span className={`${styles.badge} ${cls}`}>{status}</span>;
 }
 
+/* ─────────────────── Entry mode badge ─────────────────── */
+
+function EntryModeBadge({ mode }: { mode: ArbPair['entry_mode'] }) {
+  if (mode === 'zscore') {
+    return <span className={`${styles.badge} ${styles.badgeZscore}`}>ZSCORE</span>;
+  }
+  if (mode === 'large_spread') {
+    return <span className={`${styles.badge} ${styles.badgeLargeSpread}`}>SPREAD</span>;
+  }
+  return <span className={styles.muted}>—</span>;
+}
+
 /* ─────────────────── Stats panel ─────────────────── */
 
 function StatsPanel({ stats }: { stats: ResearchStats | null }) {
@@ -214,9 +228,13 @@ function ResearchTab() {
   const [stats, setStats] = useState<ResearchStats | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(REFRESH_SECONDS);
+  const [entryMode, setEntryMode] = useState<EntryModeFilter>('all');
+  const entryModeRef = useRef<EntryModeFilter>('all');
 
   const fetchPairs = useCallback(async () => {
-    const r = await fetch('/api/proxy/api/arbitrage/research/pairs');
+    const mode = entryModeRef.current;
+    const qs = mode !== 'all' ? `?entry_mode=${mode}` : '';
+    const r = await fetch(`/api/proxy/api/arbitrage/research/pairs${qs}`);
     if (!r.ok) return;
     const data = await r.json() as { pairs: ArbPair[] };
     setPairs(data.pairs ?? []);
@@ -234,7 +252,7 @@ function ResearchTab() {
   }, []);
 
   usePolling(fetchPairs, REFRESH_INTERVAL);
-  usePolling(fetchStats, 60_000);   // stats update every 60s (matches researcher report_loop)
+  usePolling(fetchStats, 60_000);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -243,11 +261,36 @@ function ResearchTab() {
     return () => clearInterval(id);
   }, []);
 
+  // Re-fetch when entry mode changes
+  useEffect(() => {
+    entryModeRef.current = entryMode;
+    fetchPairs();
+  }, [entryMode, fetchPairs]);
+
+  const MODE_LABELS: Record<EntryModeFilter, string> = {
+    all: 'All',
+    zscore: 'ZScore Only',
+    large_spread: 'Large Spread Only',
+  };
+
   return (
     <div>
       <div className={styles.sseIndicator}>
         <span className={updatedAt ? styles.sseDot : styles.sseDotOff} />
         {updatedAt ? `Updated ${updatedAt} · next in ${countdown}s` : 'Loading…'}
+      </div>
+
+      {/* Entry mode toggle */}
+      <div className={styles.entryModeBar}>
+        {(['all', 'zscore', 'large_spread'] as EntryModeFilter[]).map((m) => (
+          <button
+            key={m}
+            className={`${styles.modeBtn} ${entryMode === m ? styles.modeBtnActive : ''}`}
+            onClick={() => setEntryMode(m)}
+          >
+            {MODE_LABELS[m]}
+          </button>
+        ))}
       </div>
 
       <div className={styles.tableCard}>
@@ -261,6 +304,7 @@ function ResearchTab() {
               <th className={styles.th}>Price ↑ sell</th>
               <th className={styles.th}>Spread %</th>
               <th className={styles.th}>Z-Score</th>
+              <th className={styles.th}>Mode</th>
               <th className={styles.th}>Status</th>
             </tr>
           </thead>
@@ -291,13 +335,16 @@ function ResearchTab() {
                   </span>
                 </td>
                 <td className={styles.td}>
+                  <EntryModeBadge mode={row.entry_mode} />
+                </td>
+                <td className={styles.td}>
                   <StatusBadge status={row.status} />
                 </td>
               </tr>
             ))}
             {pairs.length === 0 && (
               <tr>
-                <td colSpan={8} className={styles.emptyCell}>
+                <td colSpan={9} className={styles.emptyCell}>
                   Waiting for data…
                 </td>
               </tr>

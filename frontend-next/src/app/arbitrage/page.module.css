@@ -82,6 +82,39 @@
   gap: 16px;
 }
 
+/* ─────────────────── Entry mode toggle ─────────────────── */
+
+.entryModeBar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.modeBtn {
+  padding: 5px 14px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.modeBtn:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
+.modeBtnActive {
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
 /* ─────────────────── SSE indicator ─────────────────── */
 
 .sseIndicator {
@@ -250,6 +283,18 @@
   background: color-mix(in srgb, var(--color-yellow) 12%, transparent);
   color: var(--color-yellow);
   border: 1px solid color-mix(in srgb, var(--color-yellow) 35%, transparent);
+}
+
+.badgeZscore {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+
+.badgeLargeSpread {
+  background: color-mix(in srgb, var(--color-green) 12%, transparent);
+  color: var(--color-green);
+  border: 1px solid color-mix(in srgb, var(--color-green) 35%, transparent);
 }
 
 /* ─────────────────── Queue cards ─────────────────── */
