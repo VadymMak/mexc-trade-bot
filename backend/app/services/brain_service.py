@@ -191,7 +191,7 @@ class BrainService:
                             :spread_mean, :spread_std, :buy_pressure,
                             :trade_velocity, :book_imbalance, :mins_to_funding,
                             :exit_reason, :hold_seconds, :pnl_pct,
-                            :net_pnl_usdt, :profitable, :emb::vector
+                            :net_pnl_usdt, :profitable, CAST(:emb AS vector)
                         )
                     """),
                     {**trade_data, "emb": emb_str},
@@ -272,10 +272,10 @@ class BrainService:
                 result = db.execute(
                     text("""
                         SELECT profitable, net_pnl_usdt, exit_reason, session,
-                               1 - (scan_embedding <=> :emb::vector) AS similarity
+                               1 - (scan_embedding <=> CAST(:emb AS vector)) AS similarity
                         FROM brain_embeddings
-                        WHERE 1 - (scan_embedding <=> :emb::vector) > :min_sim
-                        ORDER BY scan_embedding <=> :emb::vector
+                        WHERE 1 - (scan_embedding <=> CAST(:emb AS vector)) > :min_sim
+                        ORDER BY scan_embedding <=> CAST(:emb AS vector)
                         LIMIT :top_k
                     """),
                     {
