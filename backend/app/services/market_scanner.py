@@ -94,6 +94,11 @@ class ScanRow:
     atr_proxy: Optional[float] = None       # std/ATR-like proxy
     recent_trades: List[Dict[str, Any]] = field(default_factory=list)
 
+    # brain-enriched fields
+    brain_verdict: Optional[str] = None       # 'strong_entry' | 'neutral' | 'avoid'
+    brain_win_rate: Optional[float] = None
+    brain_multiplier: Optional[float] = None
+
     # candles_cache-enriched fields (optional)
     atr1m_pct: Optional[float] = None
     spike_count_90m: Optional[int] = None
@@ -559,6 +564,51 @@ def _score_row(row: ScanRow, depth_key_bps: int = 5) -> float:
     spread_bonus = 0.1 * max(0.0, (10.0 - row.spread_bps) / 10.0)
 
     return usd_term + depth_term + vol_term + dca_term - spread_pen - atr_pen + spread_bonus
+
+
+async def _apply_brain_scores(stage2: List[ScanRow]) -> None:
+    """Apply Brain semantic multipliers to scored candidates in-place."""
+    if not stage2:
+        return
+    try:
+        from app.services.brain_service import get_brain_service, is_brain_enabled
+        if not is_brain_enabled():
+            return
+    except Exception:
+        return
+
+    try:
+        import datetime as _dt
+        brain = get_brain_service()
+        now = _dt.datetime.utcnow()
+        hour_utc = now.hour
+        is_weekend = now.weekday() >= 5
+        h = hour_utc
+        session = "asia" if h < 8 else ("europe" if h < 16 else "us")
+
+        tasks = [
+            brain.validate_entry(
+                session=session,
+                hour_utc=hour_utc,
+                is_weekend=is_weekend,
+                entry_mode="scanner",
+                spread_pct=row.spread_pct,
+                buy_pressure=row.imbalance,
+            )
+            for row in stage2
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for row, result in zip(stage2, results):
+            if isinstance(result, Exception):
+                continue
+            row.brain_verdict = result["verdict"]
+            row.brain_win_rate = result["win_rate"]
+            row.brain_multiplier = result["multiplier"]
+            if row.score is not None and result["multiplier"] != 1.0:
+                row.score = row.score * result["multiplier"]
+    except Exception as e:
+        log.warning("Brain scoring failed: %s", e)
 
 
 def _compute_vol_stability(data: Any, *, is_candles: bool = False, exchange: str = "gate") -> int:
@@ -1477,6 +1527,7 @@ async def scan_gate_quote(
             candidate.score = _score_row(candidate, depth_key_bps=5)
             stage2.append(candidate)
 
+        await _apply_brain_scores(stage2)
         stage2.sort(key=lambda x: (-(x.score if x.score is not None else -1e9)))
         out = stage2[:limit]
 
@@ -1879,6 +1930,7 @@ async def scan_mexc_quote(
             candidate.score = _score_row(candidate, depth_key_bps=5)
             stage2.append(candidate)
 
+        await _apply_brain_scores(stage2)
         stage2.sort(key=lambda x: (-(x.score if x.score is not None else -1e9)))
         out = stage2[:limit]
         if use_cache:
