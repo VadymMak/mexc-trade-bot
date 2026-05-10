@@ -12,6 +12,8 @@ interface SpreadTableProps {
   minSpreadPct: number;
 }
 
+type SessionFilter = 'all' | 'asia' | 'europe' | 'overlap' | 'us' | 'quiet';
+
 interface DisplayRow {
   symbol: string;
   exchange: string;
@@ -20,11 +22,29 @@ interface DisplayRow {
   spreadBps: number;
   volumeUsd: number;
   score: number | undefined;
+  tradingSession?: string | null;
   brainVerdict?: string | null;
   brainWinRate?: number | null;
 }
 
 /* ─────────────────── Helpers ─────────────────── */
+
+function getCurrentSession(): SessionFilter {
+  const h = new Date().getUTCHours();
+  if (h < 8) return 'asia';
+  if (h < 13) return 'europe';
+  if (h < 16) return 'overlap';
+  if (h < 22) return 'us';
+  return 'quiet';
+}
+
+function getRowSession(row: DisplayRow): SessionFilter {
+  const s = (row.tradingSession ?? '').toLowerCase();
+  if (s === 'asia' || s === 'europe' || s === 'overlap' || s === 'us' || s === 'quiet') {
+    return s as SessionFilter;
+  }
+  return getCurrentSession();
+}
 
 function toDisplayRow(row: ScannerRow | FeatureSnapshot): DisplayRow {
   if ('metrics' in row) {
@@ -38,6 +58,7 @@ function toDisplayRow(row: ScannerRow | FeatureSnapshot): DisplayRow {
       spreadBps: mid,
       volumeUsd: row.metrics.usd_per_min ?? 0,
       score: row.score,
+      tradingSession: row.trading_session ?? null,
       brainVerdict: row.brain_verdict ?? null,
       brainWinRate: row.brain_win_rate ?? null,
     };
@@ -56,6 +77,7 @@ function toDisplayRow(row: ScannerRow | FeatureSnapshot): DisplayRow {
     spreadBps,
     volumeUsd: row.usd_per_min ?? 0,
     score: row.score,
+    tradingSession: row.trading_session ?? null,
     brainVerdict: row.brain_verdict ?? null,
     brainWinRate: row.brain_win_rate ?? null,
   };
@@ -101,6 +123,7 @@ export default function SpreadTable({ search, minSpreadPct }: SpreadTableProps) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [session, setSession] = useState<SessionFilter>('all');
 
   const fetchData = useCallback(async () => {
     try {
@@ -135,124 +158,138 @@ export default function SpreadTable({ search, minSpreadPct }: SpreadTableProps) 
   const filtered = rows.filter((r) => {
     const matchSearch = !search || r.symbol.toUpperCase().includes(search.toUpperCase());
     const matchSpread = r.spreadBps >= minBps;
-    return matchSearch && matchSpread;
+    const matchSession = session === 'all' || getRowSession(r) === session;
+    return matchSearch && matchSpread && matchSession;
   });
 
-  if (loading) {
-    return (
-      <div className={styles.status}>
-        <span className={styles.spinner} />
-        Loading scanner data…
-      </div>
-    );
-  }
-
-  if (error) {
-    return <div className={`${styles.status} ${styles.error}`}>Error: {error}</div>;
-  }
-
-  if (filtered.length === 0) {
-    return (
-      <div className={styles.status}>
-        No symbols match current filters.
-      </div>
-    );
-  }
-
+  // Session dropdown is always rendered; table content is conditional
   return (
     <div className={styles.wrapper}>
-      <table className={styles.table}>
-        <thead className={styles.thead}>
-          <tr>
-            <th>Symbol</th>
-            <th>Exchange</th>
-            <th>Bid</th>
-            <th>Ask</th>
-            <th>Spread</th>
-            <th>Vol/min</th>
-            <th>Score</th>
-            <th>Brain</th>
-            <th>Win%</th>
-            <th>Signal</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((row) => {
-            const signal = getSignal(row.spreadBps);
-            const rowClass =
-              row.spreadBps > 200
-                ? styles.rowHot
-                : row.spreadBps < 0
-                ? styles.rowNegative
-                : styles.rowNeutral;
-            const spreadClass =
-              row.spreadBps > 0
-                ? styles.spreadPositive
-                : row.spreadBps < 0
-                ? styles.spreadNegative
-                : styles.spreadNeutral;
+      <div className={styles.filterBar}>
+        <span className={styles.filterLabel}>Session</span>
+        <select
+          className={styles.select}
+          value={session}
+          onChange={(e) => setSession(e.target.value as SessionFilter)}
+        >
+          <option value="all">All</option>
+          <option value="asia">Asia (0–8 UTC)</option>
+          <option value="europe">Europe (8–13 UTC)</option>
+          <option value="overlap">Overlap (13–16 UTC)</option>
+          <option value="us">US (16–22 UTC)</option>
+          <option value="quiet">Quiet (22–24 UTC)</option>
+        </select>
+      </div>
 
-            return (
-              <tr key={`${row.exchange}-${row.symbol}`} className={`${styles.row} ${rowClass}`}>
-                <td className={styles.cell}>
-                  <span className={styles.symbol}>{row.symbol}</span>
-                </td>
-                <td className={styles.cell}>
-                  <span className={styles.exchange}>{row.exchange}</span>
-                </td>
-                <td className={styles.cell}>
-                  <span className={styles.price}>{fmtPrice(row.bid)}</span>
-                </td>
-                <td className={styles.cell}>
-                  <span className={styles.price}>{fmtPrice(row.ask)}</span>
-                </td>
-                <td className={styles.cell}>
-                  <span className={spreadClass}>{fmtSpread(row.spreadBps)}</span>
-                </td>
-                <td className={styles.cell}>
-                  <span className={styles.volume}>{fmtVol(row.volumeUsd)}</span>
-                </td>
-                <td className={styles.cell}>
-                  <span className={styles.volume}>
-                    {row.score != null ? row.score.toFixed(0) : '—'}
-                  </span>
-                </td>
-                <td className={styles.cell}>
-                  <BrainBadge verdict={row.brainVerdict} />
-                </td>
-                <td className={styles.cell}>
-                  <span className={styles.volume}>
-                    {row.brainWinRate != null
-                      ? `${(row.brainWinRate * 100).toFixed(0)}%`
-                      : '—'}
-                  </span>
-                </td>
-                <td className={styles.cell}>
-                  {signal === 'ENTER' && (
-                    <span className={`${styles.badge} ${styles.badgeEnter}`}>ENTER</span>
-                  )}
-                  {signal === 'WATCH' && (
-                    <span className={`${styles.badge} ${styles.badgeWatch}`}>WATCH</span>
-                  )}
-                  {signal === 'SKIP' && (
-                    <span className={`${styles.badge} ${styles.badgeSkip}`}>SKIP</span>
-                  )}
-                  {signal === null && <span className={styles.volume}>—</span>}
-                </td>
-                <td className={`${styles.cell} ${styles.actionCell}`}>
-                  <button
-                    className={styles.tradeBtn}
-                    onClick={() => console.log('[Trade]', row.symbol, row.exchange)}
-                  >
-                    Trade
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      {loading && (
+        <div className={styles.status}>
+          <span className={styles.spinner} />
+          Loading scanner data…
+        </div>
+      )}
+
+      {!loading && error && (
+        <div className={`${styles.status} ${styles.error}`}>Error: {error}</div>
+      )}
+
+      {!loading && !error && filtered.length === 0 && (
+        <div className={styles.status}>No symbols match current filters.</div>
+      )}
+
+      {!loading && !error && filtered.length > 0 && (
+        <table className={styles.table}>
+          <thead className={styles.thead}>
+            <tr>
+              <th>Symbol</th>
+              <th>Exchange</th>
+              <th>Bid</th>
+              <th>Ask</th>
+              <th>Spread</th>
+              <th>Vol/min</th>
+              <th>Score</th>
+              <th>Brain</th>
+              <th>Win%</th>
+              <th>Signal</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((row) => {
+              const signal = getSignal(row.spreadBps);
+              const rowClass =
+                row.spreadBps > 200
+                  ? styles.rowHot
+                  : row.spreadBps < 0
+                  ? styles.rowNegative
+                  : styles.rowNeutral;
+              const spreadClass =
+                row.spreadBps > 0
+                  ? styles.spreadPositive
+                  : row.spreadBps < 0
+                  ? styles.spreadNegative
+                  : styles.spreadNeutral;
+
+              return (
+                <tr key={`${row.exchange}-${row.symbol}`} className={`${styles.row} ${rowClass}`}>
+                  <td className={styles.cell}>
+                    <span className={styles.symbol}>{row.symbol}</span>
+                  </td>
+                  <td className={styles.cell}>
+                    <span className={styles.exchange}>{row.exchange}</span>
+                  </td>
+                  <td className={styles.cell}>
+                    <span className={styles.price}>{fmtPrice(row.bid)}</span>
+                  </td>
+                  <td className={styles.cell}>
+                    <span className={styles.price}>{fmtPrice(row.ask)}</span>
+                  </td>
+                  <td className={styles.cell}>
+                    <span className={spreadClass}>{fmtSpread(row.spreadBps)}</span>
+                  </td>
+                  <td className={styles.cell}>
+                    <span className={styles.volume}>{fmtVol(row.volumeUsd)}</span>
+                  </td>
+                  <td className={styles.cell}>
+                    <span className={styles.volume}>
+                      {row.score != null ? row.score.toFixed(0) : '—'}
+                    </span>
+                  </td>
+                  <td className={styles.cell}>
+                    <BrainBadge verdict={row.brainVerdict} />
+                  </td>
+                  <td className={styles.cell}>
+                    <span className={styles.volume}>
+                      {row.brainWinRate != null
+                        ? `${(row.brainWinRate * 100).toFixed(0)}%`
+                        : '—'}
+                    </span>
+                  </td>
+                  <td className={styles.cell}>
+                    {signal === 'ENTER' && (
+                      <span className={`${styles.badge} ${styles.badgeEnter}`}>ENTER</span>
+                    )}
+                    {signal === 'WATCH' && (
+                      <span className={`${styles.badge} ${styles.badgeWatch}`}>WATCH</span>
+                    )}
+                    {signal === 'SKIP' && (
+                      <span className={`${styles.badge} ${styles.badgeSkip}`}>SKIP</span>
+                    )}
+                    {signal === null && <span className={styles.volume}>—</span>}
+                  </td>
+                  <td className={`${styles.cell} ${styles.actionCell}`}>
+                    <button
+                      className={styles.tradeBtn}
+                      onClick={() => console.log('[Trade]', row.symbol, row.exchange)}
+                    >
+                      Trade
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
 
       {lastUpdated && (
         <div className={styles.lastUpdated}>
