@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from datetime import datetime, time as dt_time, timezone
 from typing import Optional, Tuple, List
 
@@ -32,7 +33,15 @@ class RiskManager:
         self.settings = settings or get_risk_settings()
         self.state = RiskState()
         self._lock = asyncio.Lock()
-        
+
+        # ── Circuit Breaker state (требует ручного рестарта) ──────────────
+        self._circuit_breaker_active: bool = False
+        self._cb_reason: Optional[str] = None
+        self._cb_triggered_at: Optional[datetime] = None
+        self._consecutive_api_errors: int = 0
+        self._window_losses: deque = deque()   # (pnl_usd, ts_float)
+        self._order_timestamps: deque = deque(maxlen=300)  # ts для velocity CB
+
         # Инициализация
         logger.info(
             f"RiskManager initialized: "
@@ -63,25 +72,34 @@ class RiskManager:
             price: Цена (опционально)
         """
         async with self._lock:
-            # Проверить нужен ли daily reset
             if self.state.should_reset_daily():
                 self.state.reset_daily()
-            
-            # Добавить результат
+
             self.state.add_trade_result(symbol, pnl_usd)
-            
-            # Трекинг velocity
             self.state.track_trade_velocity()
-            
-            # Логирование
+
+            # ── Window-loss Circuit Breaker check ─────────────────────────
+            if pnl_usd < 0 and self.settings.circuit_breaker_enabled:
+                now_ts = datetime.now(timezone.utc).timestamp()
+                self._window_losses.append((pnl_usd, now_ts))
+                window_sec = self.settings.circuit_breaker_loss_window_min * 60
+                while self._window_losses and (now_ts - self._window_losses[0][1]) > window_sec:
+                    self._window_losses.popleft()
+                window_total = sum(p for p, _ in self._window_losses)
+                max_loss = self.settings.circuit_breaker_max_loss_window_usd
+                if window_total <= -max_loss and not self._circuit_breaker_active:
+                    await self._trigger_circuit_breaker(
+                        f"window_loss:${window_total:.2f} за "
+                        f"{self.settings.circuit_breaker_loss_window_min}мин"
+                    )
+
             logger.info(
                 f"Trade result: {symbol} PnL=${pnl_usd:+.2f} | "
                 f"Daily: ${self.state.daily_pnl_usd:+.2f} / "
                 f"${self.settings.get_daily_loss_limit_usd():.2f} | "
                 f"Loss streak: {self.state.get_symbol_loss_streak(symbol)}"
             )
-            
-            # Проверки лимитов
+
             await self._check_limits_after_trade(symbol, pnl_usd)
     
     async def _check_limits_after_trade(self, symbol: str, pnl_usd: float) -> None:
@@ -104,21 +122,27 @@ class RiskManager:
         daily_loss_limit_usd = self.settings.get_daily_loss_limit_usd()
         
         if self.state.daily_pnl_usd <= -daily_loss_limit_usd:
-            self.state.halt_trading("daily_loss_limit")
-            
             logger.critical(
                 f"🚨 DAILY LOSS LIMIT REACHED: "
                 f"${self.state.daily_pnl_usd:.2f} <= -${daily_loss_limit_usd:.2f} "
                 f"({self.settings.daily_loss_limit_pct}% of ${self.settings.account_balance_usd})"
             )
-            
-            # Алерт (будет добавлен позже)
+
+            if self.settings.circuit_breaker_enabled:
+                await self._trigger_circuit_breaker(
+                    f"daily_drawdown:${self.state.daily_pnl_usd:.2f}"
+                )
+            else:
+                self.state.halt_trading("daily_loss_limit")
+
             try:
                 from app.services.alerts import alert_daily_loss_limit
-                await alert_daily_loss_limit(self.state.daily_pnl_usd, daily_loss_limit_usd)
+                asyncio.create_task(
+                    alert_daily_loss_limit(self.state.daily_pnl_usd, daily_loss_limit_usd)
+                )
             except ImportError:
                 pass
-            
+
             return True
         
         return False
@@ -258,10 +282,14 @@ class RiskManager:
             self.state.halt_trading(reason)
     
     async def resume_trading(self) -> None:
-        """
-        Возобновить торговлю
-        """
+        """Возобновить торговлю. Блокировано если активен Circuit Breaker."""
         async with self._lock:
+            if self._circuit_breaker_active:
+                logger.error(
+                    "❌ resume_trading blocked: Circuit Breaker активен. "
+                    "Вызовите manual_reset_circuit_breaker() для ручного сброса."
+                )
+                return
             self.state.resume_trading()
     
     def is_trading_allowed(self) -> bool:
@@ -337,6 +365,144 @@ class RiskManager:
                 except ImportError:
                     pass
     
+    # ═══════════════════════════════════════════════════════════
+    # CIRCUIT BREAKER
+    # ═══════════════════════════════════════════════════════════
+
+    async def _trigger_circuit_breaker(self, reason: str, executor=None) -> None:
+        """
+        Трипает Circuit Breaker:
+          1. Хол всей торговли (halt_trading)
+          2. Закрытие всех позиций через executor (если передан)
+          3. Критический лог
+          4. Только ручной рестарт (manual_reset_circuit_breaker)
+
+        Безопасен для вызова из-под asyncio.Lock — не ждёт IO, планирует через create_task.
+        """
+        if self._circuit_breaker_active:
+            return
+
+        self._circuit_breaker_active = True
+        self._cb_reason = reason
+        self._cb_triggered_at = datetime.now(timezone.utc)
+
+        self.state.halt_trading(f"circuit_breaker:{reason}")
+
+        logger.critical(
+            f"🔴 CIRCUIT BREAKER TRIPPED: {reason} | "
+            f"Торговля остановлена. Только ручной рестарт."
+        )
+
+        # Закрыть позиции асинхронно (чтобы не дедлочить lock)
+        _exec = executor
+        async def _close_all():
+            closed = 0
+            if _exec and hasattr(_exec, 'get_all_positions'):
+                try:
+                    positions = await _exec.get_all_positions()
+                    for pos in (positions or []):
+                        sym = pos.get('symbol')
+                        if sym:
+                            try:
+                                await _exec.flatten_symbol(sym)
+                                closed += 1
+                            except Exception as e:
+                                logger.error(f"CB close {sym}: {e}")
+                except Exception as e:
+                    logger.error(f"CB get_positions: {e}")
+            logger.critical(f"🔴 Circuit Breaker: закрыто {closed} позиций")
+
+        asyncio.create_task(_close_all())
+
+        try:
+            from app.services.alerts import alert_circuit_breaker
+            asyncio.create_task(alert_circuit_breaker(reason, 0))
+        except (ImportError, Exception):
+            pass
+
+    async def track_ws_lag(self, lag_ms: float, executor=None) -> None:
+        """Трекинг WS лага. Если > порога — трипает CB."""
+        if not self.settings.circuit_breaker_enabled:
+            return
+        threshold = self.settings.circuit_breaker_ws_lag_threshold_ms
+        if lag_ms > threshold and not self._circuit_breaker_active:
+            async with self._lock:
+                if not self._circuit_breaker_active:
+                    await self._trigger_circuit_breaker(
+                        f"ws_lag:{lag_ms:.0f}ms > {threshold}ms", executor
+                    )
+
+    async def track_api_error(self, error_type: str = "api", executor=None) -> None:
+        """
+        Трекинг ошибок API. При >= circuit_breaker_max_api_errors → CB.
+        Дополняет существующий track_error() для системных ошибок.
+        """
+        async with self._lock:
+            self._consecutive_api_errors += 1
+            threshold = self.settings.circuit_breaker_max_api_errors
+            if (
+                self.settings.circuit_breaker_enabled
+                and self._consecutive_api_errors >= threshold
+                and not self._circuit_breaker_active
+            ):
+                await self._trigger_circuit_breaker(
+                    f"api_errors:{self._consecutive_api_errors}_подряд"
+                )
+        # Также делегируем в существующий track_error
+        await self.track_error(error_type)
+
+    def clear_api_errors(self) -> None:
+        """Сбросить счётчик подряд-ошибок API (вызывать при успешном запросе)."""
+        self._consecutive_api_errors = 0
+
+    async def track_order(self, executor=None) -> None:
+        """
+        Трекинг размещённых ордеров для velocity CB.
+        Триггер: ордеров/мин > max_trades_per_minute × 3
+        """
+        if not self.settings.circuit_breaker_enabled:
+            return
+        async with self._lock:
+            now_ts = datetime.now(timezone.utc).timestamp()
+            self._order_timestamps.append(now_ts)
+            # Подсчёт за последнюю минуту
+            cutoff = now_ts - 60.0
+            recent = sum(1 for ts in self._order_timestamps if ts > cutoff)
+            threshold = self.settings.max_trades_per_minute * 3
+            if recent > threshold and not self._circuit_breaker_active:
+                await self._trigger_circuit_breaker(
+                    f"order_rate:{recent}/мин > {threshold}", executor
+                )
+
+    def is_circuit_breaker_active(self) -> bool:
+        """Активен ли Circuit Breaker."""
+        return self._circuit_breaker_active
+
+    async def manual_reset_circuit_breaker(self, operator: str = "manual") -> None:
+        """
+        Ручной сброс Circuit Breaker.
+        Единственный способ возобновить торговлю после CB.
+        """
+        async with self._lock:
+            if not self._circuit_breaker_active:
+                logger.info("Circuit Breaker не активен — сбрасывать нечего")
+                return
+
+            self._circuit_breaker_active = False
+            prev_reason = self._cb_reason
+            self._cb_reason = None
+            self._cb_triggered_at = None
+            self._consecutive_api_errors = 0
+            self._window_losses.clear()
+            self._order_timestamps.clear()
+
+            self.state.resume_trading()
+
+            logger.critical(
+                f"✅ CIRCUIT BREAKER СБРОШЕН оператором '{operator}' "
+                f"(был: {prev_reason})"
+            )
+
     # ═══════════════════════════════════════════════════════════
     # EMERGENCY STOP
     # ═══════════════════════════════════════════════════════════
@@ -425,6 +591,15 @@ class RiskManager:
             "trading_halted": self.state.trading_halted,
             "halt_reason": self.state.halt_reason,
             "halted_at": self.state.halted_at.isoformat() if self.state.halted_at else None,
+
+            # Circuit Breaker
+            "circuit_breaker_active": self._circuit_breaker_active,
+            "circuit_breaker_reason": self._cb_reason,
+            "circuit_breaker_triggered_at": (
+                self._cb_triggered_at.isoformat() if self._cb_triggered_at else None
+            ),
+            "manual_restart_required": self._circuit_breaker_active,
+            "consecutive_api_errors": self._consecutive_api_errors,
             
             # Daily stats
             "daily_pnl_usd": round(self.state.daily_pnl_usd, 2),

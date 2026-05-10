@@ -131,14 +131,46 @@ class RiskSettings(BaseModel):
         le=20,
         description="Макс последовательных системных ошибок перед halt"
     )
-    
+
     error_window_minutes: int = Field(
         default=5,
         ge=1,
         le=60,
         description="Временное окно для подсчёта ошибок (минуты)"
     )
-    
+
+    # ===== CIRCUIT BREAKER =====
+    circuit_breaker_enabled: bool = Field(
+        default=True,
+        description="Включить circuit breaker (аварийный останов с ручным рестартом)"
+    )
+
+    circuit_breaker_loss_window_min: int = Field(
+        default=10,
+        ge=1,
+        le=60,
+        description="Окно в минутах для проверки убытка (CB триггер)"
+    )
+
+    circuit_breaker_max_loss_window_usd: float = Field(
+        default=50.0,
+        ge=1.0,
+        description="Макс убыток за окно в USD, при превышении — CB триггер"
+    )
+
+    circuit_breaker_ws_lag_threshold_ms: int = Field(
+        default=5000,
+        ge=1000,
+        description="WS лаг выше порога (мс) → CB триггер"
+    )
+
+    circuit_breaker_max_api_errors: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Подряд ошибок API → CB триггер (требует ручного рестарта)"
+    )
+
     class Config:
         env_prefix = "RISK_"
         case_sensitive = False
@@ -210,6 +242,11 @@ def load_risk_settings() -> RiskSettings:
         volume_drop_threshold_pct=float(os.getenv("RISK_VOLUME_DROP_THRESHOLD_PCT", "50.0")),
         max_consecutive_errors=int(os.getenv("RISK_MAX_CONSECUTIVE_ERRORS", "5")),
         error_window_minutes=int(os.getenv("RISK_ERROR_WINDOW_MINUTES", "5")),
+        circuit_breaker_enabled=os.getenv("RISK_CB_ENABLED", "true").lower() == "true",
+        circuit_breaker_loss_window_min=int(os.getenv("RISK_CB_LOSS_WINDOW_MIN", "10")),
+        circuit_breaker_max_loss_window_usd=float(os.getenv("RISK_CB_MAX_LOSS_WINDOW_USD", "50.0")),
+        circuit_breaker_ws_lag_threshold_ms=int(os.getenv("RISK_CB_WS_LAG_MS", "5000")),
+        circuit_breaker_max_api_errors=int(os.getenv("RISK_CB_MAX_API_ERRORS", "10")),
     )
 
 
