@@ -80,10 +80,11 @@ class PaperTrader:
         spread_std  = data.get("spread_std")
         spread_cv   = data.get("spread_cv")
         ts_ms       = data.get("ts_ms", int(time.time() * 1000))
-        buy_pressure    = data.get("buy_pressure")
-        trade_velocity  = data.get("trade_velocity")
-        book_imbalance  = data.get("book_imbalance")
-        mm_repeat_score = data.get("mm_repeat_score")
+        buy_pressure       = data.get("buy_pressure")
+        trade_velocity     = data.get("trade_velocity")
+        book_imbalance     = data.get("book_imbalance")
+        mm_repeat_score    = data.get("mm_repeat_score")
+        features_complete  = bool(data.get("features_complete", False))
 
         key = (symbol, ex_long, ex_short)
 
@@ -95,7 +96,8 @@ class PaperTrader:
                                    spread_cv=spread_cv,
                                    buy_pressure=buy_pressure, trade_velocity=trade_velocity,
                                    book_imbalance=book_imbalance,
-                                   mm_repeat_score=mm_repeat_score)
+                                   mm_repeat_score=mm_repeat_score,
+                                   features_complete=features_complete)
 
     # ── Session stats (called from report_loop) ───────────────────────────────
 
@@ -166,10 +168,11 @@ class PaperTrader:
         spread_mean:    Optional[float] = None,
         spread_std:     Optional[float] = None,
         spread_cv:       Optional[float] = None,
-        buy_pressure:    Optional[float] = None,
-        trade_velocity:  Optional[float] = None,
-        book_imbalance:  Optional[float] = None,
-        mm_repeat_score: Optional[float] = None,
+        buy_pressure:      Optional[float] = None,
+        trade_velocity:    Optional[float] = None,
+        book_imbalance:    Optional[float] = None,
+        mm_repeat_score:   Optional[float] = None,
+        features_complete: bool = False,
     ) -> None:
         # Reject bogus data: price-scale mismatches produce absurd spreads
         if spread_pct > self.settings.MAX_SPREAD_PCT:
@@ -267,6 +270,7 @@ class PaperTrader:
                     trade_velocity=trade_velocity,
                     book_imbalance=book_imbalance,
                     mm_repeat_score=mm_repeat_score,
+                    features_complete=features_complete,
                 )
                 self._open[key].pos_id = pos_id  # update with real id
 

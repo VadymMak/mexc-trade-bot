@@ -238,6 +238,7 @@ class NeonDB:
         trade_velocity:       Optional[float] = None,
         book_imbalance:       Optional[float] = None,
         mm_repeat_score:      Optional[float] = None,
+        features_complete:    bool = False,
     ) -> int:
         """Insert open position; returns its auto-generated id."""
         assert self._pool
@@ -249,8 +250,8 @@ class NeonDB:
                  deal_size_usdt, slippage_entry_usdt, fee_usdt,
                  entry_mode, spread_mean, spread_std,
                  buy_pressure, trade_velocity, book_imbalance,
-                 mm_repeat_score)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                 mm_repeat_score, features_complete)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
             RETURNING id
             """,
             symbol, exchange_long, exchange_short,
@@ -258,7 +259,7 @@ class NeonDB:
             deal_size_usdt, slippage_entry_usdt, fee_usdt,
             entry_mode, spread_mean, spread_std,
             buy_pressure, trade_velocity, book_imbalance,
-            mm_repeat_score,
+            mm_repeat_score, features_complete,
         )
         return int(row["id"])
 

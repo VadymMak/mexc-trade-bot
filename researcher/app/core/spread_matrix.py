@@ -116,14 +116,20 @@ class SpreadMatrix:
                     "spread_cv":      spread_cv,
                     "ts_ms":          now,
                     # flow features (long-side exchange) — used by PaperTrader/arb
-                    "buy_pressure":    flow_long.get("buy_pressure"),
-                    "trade_velocity":  flow_long.get("trade_velocity"),
-                    "book_imbalance":  flow_long.get("book_imbalance"),
+                    # fallbacks: 0.5 = neutral buy_pressure/book_imbalance, 0.0 = no velocity data
+                    "buy_pressure":    flow_long.get("buy_pressure") if flow_long.get("buy_pressure") is not None else 0.5,
+                    "trade_velocity":  flow_long.get("trade_velocity") if flow_long.get("trade_velocity") is not None else 0.0,
+                    "book_imbalance":  flow_long.get("book_imbalance") if flow_long.get("book_imbalance") is not None else 0.5,
                     "mm_repeat_score": flow_long.get("mm_repeat_score"),
+                    # True only when tape tracker has warmed up and returned real data
+                    "features_complete": (
+                        flow_long.get("buy_pressure") is not None and
+                        flow_long.get("book_imbalance") is not None
+                    ),
                     # MEXC-specific flow — used by ScalpPaperTrader
-                    "mexc_buy_pressure":    mexc_flow.get("buy_pressure"),
-                    "mexc_trade_velocity":  mexc_flow.get("trade_velocity"),
-                    "mexc_book_imbalance":  mexc_flow.get("book_imbalance"),
+                    "mexc_buy_pressure":    mexc_flow.get("buy_pressure") if mexc_flow.get("buy_pressure") is not None else 0.5,
+                    "mexc_trade_velocity":  mexc_flow.get("trade_velocity") if mexc_flow.get("trade_velocity") is not None else 0.0,
+                    "mexc_book_imbalance":  mexc_flow.get("book_imbalance") if mexc_flow.get("book_imbalance") is not None else 0.5,
                     "mexc_mm_repeat_score": mexc_flow.get("mm_repeat_score"),
                     # Spot-futures basis: (futures_price - spot_price) / spot_price
                     # Positive = futures premium, Negative = futures discount
