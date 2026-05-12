@@ -1,0 +1,3 @@
+# datasets and generated data files
+*.csv
+app/data/*.json
