@@ -200,6 +200,13 @@ class PaperTrader:
         if symbol in self.settings.blacklisted_set:
             return
 
+        # Hard caps: check before any async work to avoid unnecessary DB calls
+        if len(self._open) >= self.settings.MAX_OPEN_POSITIONS:
+            return
+        current_exposure = sum(s.deal_size for s in self._open.values())
+        if current_exposure >= self.settings.MAX_EXPOSURE_USDT:
+            return
+
         # Guard: two ticks 140ms apart can both pass `key in self._open` before
         # either sets it (first await yields the loop). _pending_open blocks dupe opens.
         if key in self._pending_open:
@@ -248,7 +255,18 @@ class PaperTrader:
 
         if zscore_entry:
             entry_mode = "zscore"
-            deal_size  = self._dynamic_deal_size(spread_pct, trade_velocity=trade_velocity)
+            vel = trade_velocity or 0
+            if vel > 50:
+                deal_size = self.settings.DEAL_SIZE_HIGH_USDT
+            elif vel >= 10:
+                deal_size = self.settings.DEAL_SIZE_MED_USDT
+            else:
+                deal_size = self.settings.PAPER_DEAL_SIZE_USDT
+            if current_exposure + deal_size > self.settings.MAX_EXPOSURE_USDT:
+                deal_size = self.settings.MAX_EXPOSURE_USDT - current_exposure
+                if deal_size < self.settings.PAPER_DEAL_SIZE_USDT:
+                    self._pending_open.discard(key)
+                    return
             entry_costs = self.sim.simulate_entry(ex_long, ex_short, spread_pct, deal_size=deal_size)
 
             # Reserve the key BEFORE the async DB insert to prevent duplicate opens

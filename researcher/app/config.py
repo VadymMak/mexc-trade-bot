@@ -25,7 +25,12 @@ class Settings(BaseSettings):
     ZSCORE_THRESHOLD: float = 2.0         # lowered from 2.5: gate↔mexc futures pairs peak at z~2.44 and never cross 2.5; epoch-3 data shows 97.7% WR supports z>=2.0 entries
     MAX_SPREAD_LAG_MS: int = 500
     SPREAD_WINDOW_TICKS: int = 300
-    PAPER_DEAL_SIZE_USDT: float = 10.0
+    # ── Position sizing (vel-based dynamic) ──────────────────────────────────
+    PAPER_DEAL_SIZE_USDT: float = 10.0      # base size (vel < 10)
+    DEAL_SIZE_MED_USDT: float = 20.0        # vel 10-50
+    DEAL_SIZE_HIGH_USDT: float = 30.0       # vel > 50
+    MAX_EXPOSURE_USDT: float = 150.0        # max total open exposure
+    MAX_OPEN_POSITIONS: int = 8             # hard cap on simultaneous positions
     PROMOTE_THRESHOLD: float = 0.75
     MIN_TRADES_TO_PROMOTE: int = 50
     LOG_LEVEL: str = "INFO"
