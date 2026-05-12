@@ -60,3 +60,5 @@ frontend-next/.next/
 frontend-next/out/
 frontend-next/.env.local
 frontend-next/.env*.local
+# ===== Claude Code =====
+.claude/
