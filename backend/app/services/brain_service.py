@@ -15,6 +15,7 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any, Dict, List, Optional
@@ -96,6 +97,56 @@ def _emb_to_pg(embedding: List[float]) -> str:
     return "[" + ",".join(f"{v:.8f}" for v in embedding) + "]"
 
 
+# ── Sync DB helpers (run via executor to avoid blocking the event loop) ───────
+
+def _sync_db_query(emb_str: str, top_k: int, min_sim: float) -> list:
+    db = _get_brain_session()()
+    try:
+        result = db.execute(
+            text("""
+                SELECT profitable, net_pnl_usdt, exit_reason, session,
+                       1 - (scan_embedding <=> CAST(:emb AS vector)) AS similarity
+                FROM brain_embeddings
+                WHERE 1 - (scan_embedding <=> CAST(:emb AS vector)) > :min_sim
+                ORDER BY scan_embedding <=> CAST(:emb AS vector)
+                LIMIT :top_k
+            """),
+            {"emb": emb_str, "min_sim": min_sim, "top_k": top_k},
+        )
+        return result.fetchall()
+    finally:
+        db.close()
+
+
+def _sync_db_store(params: dict) -> bool:
+    db = _get_brain_session()()
+    try:
+        db.execute(
+            text("""
+                INSERT INTO brain_embeddings (
+                    symbol, session, hour_utc, day_of_week, is_weekend,
+                    entry_mode, entry_spread_pct, entry_zscore,
+                    spread_mean, spread_std, buy_pressure,
+                    trade_velocity, book_imbalance, mins_to_funding,
+                    exit_reason, hold_seconds, pnl_pct,
+                    net_pnl_usdt, profitable, scan_embedding
+                ) VALUES (
+                    :symbol, :session, :hour_utc, :day_of_week, :is_weekend,
+                    :entry_mode, :entry_spread_pct, :entry_zscore,
+                    :spread_mean, :spread_std, :buy_pressure,
+                    :trade_velocity, :book_imbalance, :mins_to_funding,
+                    :exit_reason, :hold_seconds, :pnl_pct,
+                    :net_pnl_usdt, :profitable, CAST(:emb AS vector)
+                )
+            """),
+            params,
+        )
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
 # ── BrainService ─────────────────────────────────────────────────────────────
 
 class BrainService:
@@ -174,32 +225,8 @@ class BrainService:
             embedding = await self.create_embedding(text_repr)
             emb_str = _emb_to_pg(embedding)
 
-            db = _get_brain_session()()
-            try:
-                db.execute(
-                    text("""
-                        INSERT INTO brain_embeddings (
-                            symbol, session, hour_utc, day_of_week, is_weekend,
-                            entry_mode, entry_spread_pct, entry_zscore,
-                            spread_mean, spread_std, buy_pressure,
-                            trade_velocity, book_imbalance, mins_to_funding,
-                            exit_reason, hold_seconds, pnl_pct,
-                            net_pnl_usdt, profitable, scan_embedding
-                        ) VALUES (
-                            :symbol, :session, :hour_utc, :day_of_week, :is_weekend,
-                            :entry_mode, :entry_spread_pct, :entry_zscore,
-                            :spread_mean, :spread_std, :buy_pressure,
-                            :trade_velocity, :book_imbalance, :mins_to_funding,
-                            :exit_reason, :hold_seconds, :pnl_pct,
-                            :net_pnl_usdt, :profitable, CAST(:emb AS vector)
-                        )
-                    """),
-                    {**trade_data, "emb": emb_str},
-                )
-                db.commit()
-                return True
-            finally:
-                db.close()
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, _sync_db_store, {**trade_data, "emb": emb_str})
 
         except Exception as e:
             logger.error(f"BrainService.store_trade failed: {e}")
@@ -267,27 +294,10 @@ class BrainService:
             return _neutral
 
         try:
-            db = _get_brain_session()()
-            try:
-                result = db.execute(
-                    text("""
-                        SELECT profitable, net_pnl_usdt, exit_reason, session,
-                               1 - (scan_embedding <=> CAST(:emb AS vector)) AS similarity
-                        FROM brain_embeddings
-                        WHERE 1 - (scan_embedding <=> CAST(:emb AS vector)) > :min_sim
-                        ORDER BY scan_embedding <=> CAST(:emb AS vector)
-                        LIMIT :top_k
-                    """),
-                    {
-                        "emb": emb_str,
-                        "min_sim": self.MIN_SIMILARITY,
-                        "top_k": top_k,
-                    },
-                )
-                rows = result.fetchall()
-            finally:
-                db.close()
-
+            loop = asyncio.get_running_loop()
+            rows = await loop.run_in_executor(
+                None, _sync_db_query, emb_str, top_k, self.MIN_SIMILARITY
+            )
         except Exception as e:
             logger.warning(f"BrainService: DB query failed: {e}")
             return _neutral
