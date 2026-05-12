@@ -134,7 +134,7 @@ class Settings(BaseSettings):
     # Blacklisted symbols — structurally wide spreads that never revert.
     # Identified from dataset: ~0-6% win rate across 80-170 trades each.
     # Stored as comma-separated string (pydantic-settings doesn't support list from env).
-    # Updated 2026-04-16: added STO/NOM/CHILLGUY from 10h dataset analysis
+    # Updated 2026-05-12: added STO/NOM/CHILLGUY from 10h dataset analysis
     # STO: 4% WR (-$20/10h), NOM: 20% WR (-$18/10h), CHILLGUY: 7% WR (-$12/10h)
     BLACKLISTED_SYMBOLS: str = "ENJ_USDT,BLUR_USDT,ONT_USDT,DRIFT_USDT,ONG_USDT,SIREN_USDT,STO_USDT,NOM_USDT,CHILLGUY_USDT"
 
