@@ -75,7 +75,7 @@ async def main() -> None:
 
     # ── Core components ───────────────────────────────────────────────────────
     matrix       = SpreadMatrix(max_lag_ms=settings.MAX_SPREAD_LAG_MS)
-    scalp_trader = ScalpPaperTrader(db=db)
+    scalp_trader = ScalpPaperTrader(db=db) if settings.SCALP_ENABLED else None
     promoter     = PairPromoter(db=db, settings=settings)
 
     # ── Trader: paper / gate-testnet / live ───────────────────────────────────
@@ -144,17 +144,19 @@ async def main() -> None:
     if hasattr(trader, 'evaluator'):
         await trader.evaluator.run_full_sweep()
 
-    # ScalpTrader startup: close ALL open positions from previous session (no age filter),
-    # or full reset if SCALP_RESET=true. After any restart the bot has no memory of open
-    # positions, so leaving them as 'open' forever causes duplicate entries per symbol.
-    import os as _os
-    _scalp_reset = _os.getenv("SCALP_RESET", "").lower() in ("1", "true", "yes")
-    await scalp_trader.startup(reset=_scalp_reset)
-    if _scalp_reset:
-        log.warning("[ScalpTrader] SCALP_RESET=true — fresh start, all old positions deleted.")
-
     matrix.add_callback(trader.on_spread)
-    matrix.add_callback(scalp_trader.on_spread)
+
+    if scalp_trader:
+        # ScalpTrader startup: close ALL open positions from previous session (no age filter),
+        # or full reset if SCALP_RESET=true. After any restart the bot has no memory of open
+        # positions, so leaving them as 'open' forever causes duplicate entries per symbol.
+        _scalp_reset = _os.getenv("SCALP_RESET", "").lower() in ("1", "true", "yes")
+        await scalp_trader.startup(reset=_scalp_reset)
+        if _scalp_reset:
+            log.warning("[ScalpTrader] SCALP_RESET=true — fresh start, all old positions deleted.")
+        matrix.add_callback(scalp_trader.on_spread)
+    else:
+        log.info("ScalpTrader disabled (SCALP_ENABLED=false)")
 
     # Push spread snapshots to the trading bot every 15s.
     # Uses internal Railway URL (no egress cost) when TRADING_BOT_URL_INTERNAL is set.
@@ -204,9 +206,8 @@ async def main() -> None:
         async with aiohttp.ClientSession() as session:
             while True:
                 await asyncio.sleep(60)
-                spreads       = matrix.get_all_spreads()
-                summary       = trader.session_summary()
-                scalp_summary = scalp_trader.session_summary()
+                spreads = matrix.get_all_spreads()
+                summary = trader.session_summary()
 
                 log.info(
                     "━━ 60s report ━━  tracked=%d  open=%d  closed=%d  net_pnl=%+.4f USDT",
@@ -215,12 +216,15 @@ async def main() -> None:
                     summary["total_closed"],
                     summary["total_net_pnl"],
                 )
-                log.info(
-                    "━━ scalp      ━━  open=%d  closed=%d  net_pnl=%+.4f USDT",
-                    scalp_summary["open_scalp"],
-                    scalp_summary["total_closed"],
-                    scalp_summary["total_net_pnl"],
-                )
+
+                if scalp_trader:
+                    scalp_summary = scalp_trader.session_summary()
+                    log.info(
+                        "━━ scalp      ━━  open=%d  closed=%d  net_pnl=%+.4f USDT",
+                        scalp_summary["open_scalp"],
+                        scalp_summary["total_closed"],
+                        scalp_summary["total_net_pnl"],
+                    )
 
                 # Top 5 spreads by size
                 if spreads:
@@ -263,31 +267,32 @@ async def main() -> None:
                     log.debug("[Stats push] Error: %r", exc)
 
                 # Push scalp stats every 60s
-                try:
-                    scalp_db_stats = await db.get_scalp_stats() if db._pool else {}
-                    scalp_positions = await db.get_scalp_positions(limit=200) if db._pool else []
-                    # Serialise datetime + Decimal objects (asyncpg returns NUMERIC as Decimal)
-                    from decimal import Decimal
-                    for p in scalp_positions:
-                        for k, v in list(p.items()):
-                            if hasattr(v, "isoformat"):
-                                p[k] = v.isoformat()
-                            elif isinstance(v, Decimal):
-                                p[k] = float(v)
-                    scalp_payload = {
-                        "stats":     scalp_db_stats,
-                        "session":   scalp_summary,
-                        "positions": scalp_positions,
-                    }
-                    async with session.post(
-                        f"{settings.internal_url}/api/scalp/internal/stats-update",
-                        json=scalp_payload,
-                        timeout=aiohttp.ClientTimeout(total=5),
-                    ) as resp:
-                        if resp.status >= 400:
-                            log.warning("[ScalpStats push] HTTP %d", resp.status)
-                except Exception as exc:
-                    log.warning("[ScalpStats push] Error: %r", exc)
+                if scalp_trader:
+                    try:
+                        scalp_db_stats = await db.get_scalp_stats() if db._pool else {}
+                        scalp_positions = await db.get_scalp_positions(limit=200) if db._pool else []
+                        # Serialise datetime + Decimal objects (asyncpg returns NUMERIC as Decimal)
+                        from decimal import Decimal
+                        for p in scalp_positions:
+                            for k, v in list(p.items()):
+                                if hasattr(v, "isoformat"):
+                                    p[k] = v.isoformat()
+                                elif isinstance(v, Decimal):
+                                    p[k] = float(v)
+                        scalp_payload = {
+                            "stats":     scalp_db_stats,
+                            "session":   scalp_summary,
+                            "positions": scalp_positions,
+                        }
+                        async with session.post(
+                            f"{settings.internal_url}/api/scalp/internal/stats-update",
+                            json=scalp_payload,
+                            timeout=aiohttp.ClientTimeout(total=5),
+                        ) as resp:
+                            if resp.status >= 400:
+                                log.warning("[ScalpStats push] HTTP %d", resp.status)
+                    except Exception as exc:
+                        log.warning("[ScalpStats push] Error: %r", exc)
 
                 # Push symbol lifecycle states every 60s
                 try:

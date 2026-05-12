@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     MIN_TRADES_TO_PROMOTE: int = 50
     LOG_LEVEL: str = "INFO"
     SYMBOLS_FILE: str = "data/discovered_symbols.json"
+    SCALP_ENABLED: bool = False        # set True to re-enable scalp trader
 
     # ── Exit strategy ────────────────────────────────────────────────────────
     # Take-profit: close when spread narrows by this fraction from entry
