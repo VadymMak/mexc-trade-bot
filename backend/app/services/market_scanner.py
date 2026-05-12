@@ -1527,7 +1527,10 @@ async def scan_gate_quote(
             candidate.score = _score_row(candidate, depth_key_bps=5)
             stage2.append(candidate)
 
-        await _apply_brain_scores(stage2)
+        try:
+            await asyncio.wait_for(_apply_brain_scores(stage2), timeout=2.0)
+        except asyncio.TimeoutError:
+            log.warning("Brain scoring timed out (>2s) — skipping for this scan cycle")
         stage2.sort(key=lambda x: (-(x.score if x.score is not None else -1e9)))
         out = stage2[:limit]
 
@@ -1930,7 +1933,10 @@ async def scan_mexc_quote(
             candidate.score = _score_row(candidate, depth_key_bps=5)
             stage2.append(candidate)
 
-        await _apply_brain_scores(stage2)
+        try:
+            await asyncio.wait_for(_apply_brain_scores(stage2), timeout=2.0)
+        except asyncio.TimeoutError:
+            log.warning("Brain scoring timed out (>2s) — skipping for this scan cycle")
         stage2.sort(key=lambda x: (-(x.score if x.score is not None else -1e9)))
         out = stage2[:limit]
         if use_cache:
