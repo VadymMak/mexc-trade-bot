@@ -55,6 +55,9 @@ class PaperTrader:
         # {(symbol, ex_long, ex_short): _OpenState}
         self._open: dict[tuple, _OpenState] = {}
 
+        # {(symbol, ex_long, ex_short)} — keys being opened (pre-_open race guard)
+        self._pending_open: set[tuple] = set()
+
         # {(symbol, ex_long, ex_short): timestamp_ms} — cooldown after STOP_LOSS
         self._stop_loss_cooldown: dict[tuple, int] = {}
 
@@ -197,9 +200,16 @@ class PaperTrader:
         if symbol in self.settings.blacklisted_set:
             return
 
+        # Guard: two ticks 140ms apart can both pass `key in self._open` before
+        # either sets it (first await yields the loop). _pending_open blocks dupe opens.
+        if key in self._pending_open:
+            return
+        self._pending_open.add(key)
+
         # Reject symbols that failed auto-evaluation (BLACKLISTED in symbol_states)
         sym_state = await self.db.get_symbol_state(symbol)
         if sym_state == "BLACKLISTED":
+            self._pending_open.discard(key)
             return
 
         # Ensure new symbols are registered in TESTING state
@@ -209,16 +219,19 @@ class PaperTrader:
         # Reject entry during funding blackout window (N seconds before 00/08/16h UTC)
         # Opening just before funding = paying entry fees + funding before spread closes
         if _seconds_to_next_funding(ts_ms) < self.settings.FUNDING_BLACKOUT_SECONDS:
+            self._pending_open.discard(key)
             return
 
         # Reject entry if in STOP_LOSS cooldown for this pair
         cooldown_until = self._stop_loss_cooldown.get(key, 0)
         if ts_ms < cooldown_until:
+            self._pending_open.discard(key)
             return
 
         # Reject entry if symbol is dynamically suspended (recent poor WR)
         suspended_until = self._symbol_suspended.get(symbol, 0)
         if ts_ms < suspended_until:
+            self._pending_open.discard(key)
             return
 
         # Mode A: classic z-score mean reversion
@@ -250,6 +263,7 @@ class PaperTrader:
                 entry_mode=entry_mode,
                 deal_size=deal_size,
             )
+            self._pending_open.discard(key)  # _open now guards this key
             self._total_opened += 1
 
             pos_id = 0
@@ -292,6 +306,8 @@ class PaperTrader:
                 sl_target,
                 self.settings.MAX_HOLD_SECONDS // 3600,
             )
+        else:
+            self._pending_open.discard(key)
 
     async def _maybe_close(
         self,

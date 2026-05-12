@@ -414,11 +414,70 @@ async def export_dataset(clean: bool = False) -> StreamingResponse:
 
 @router.get("/active")
 async def get_active_positions() -> dict:
-    """Active paper positions (empty until trading engine is wired)."""
-    return {
-        "positions": [],
-        "total_paper_pnl": 0.0,
-    }
+    """Active paper positions — queried from NeonDB paper_positions table."""
+    import os
+    import asyncpg
+    from datetime import datetime, timezone
+
+    neon_dsn = os.getenv("NEON_DATABASE_URL", "")
+    if not neon_dsn:
+        log.warning("get_active_positions: NEON_DATABASE_URL not set")
+        return {"positions": [], "total_paper_pnl": 0.0}
+
+    try:
+        conn = await asyncpg.connect(dsn=neon_dsn, statement_cache_size=0)
+        try:
+            rows = await conn.fetch(
+                """
+                SELECT id, symbol, exchange_long, exchange_short,
+                       entry_spread_pct, deal_size_usdt, opened_at
+                FROM paper_positions
+                WHERE status = 'open'
+                ORDER BY opened_at DESC
+                LIMIT 100
+                """
+            )
+        finally:
+            await conn.close()
+    except Exception as exc:
+        log.warning("get_active_positions: DB error: %s", exc)
+        return {"positions": [], "total_paper_pnl": 0.0}
+
+    now = datetime.now(timezone.utc)
+    positions = []
+    for r in rows:
+        symbol      = r["symbol"]
+        ex_long     = r["exchange_long"]
+        ex_short    = r["exchange_short"]
+        entry_spread = float(r["entry_spread_pct"] or 0)
+        size_usdt    = float(r["deal_size_usdt"]   or 10)
+        opened_at    = r["opened_at"]
+        hold_minutes = (now - opened_at).total_seconds() / 60 if opened_at else 0
+
+        cache_key = (symbol, ex_long, ex_short)
+        current_spread = float(_spread_cache.get(cache_key, {}).get("spread_pct", entry_spread))
+
+        unrealized_pnl = round(
+            (entry_spread - current_spread) / entry_spread * size_usdt * 0.5
+            if entry_spread > 0 else 0.0,
+            4,
+        )
+        positions.append({
+            "id":                  r["id"],
+            "symbol":              symbol,
+            "exchange_long":       ex_long,
+            "exchange_short":      ex_short,
+            "entry_spread_pct":    entry_spread,
+            "current_spread_pct":  current_spread,
+            "size_usdt":           size_usdt,
+            "opened_at":           opened_at.isoformat() if opened_at else "",
+            "hold_minutes":        round(hold_minutes, 1),
+            "unrealized_pnl_usdt": unrealized_pnl,
+            "mode":                "paper",
+        })
+
+    total_pnl = round(sum(p["unrealized_pnl_usdt"] for p in positions), 4)
+    return {"positions": positions, "total_paper_pnl": total_pnl}
 
 
 # ─────────────────── SSE endpoint ───────────────────
