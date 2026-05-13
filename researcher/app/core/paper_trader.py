@@ -262,6 +262,7 @@ class PaperTrader:
                 deal_size = self.settings.DEAL_SIZE_MED_USDT
             else:
                 deal_size = self.settings.PAPER_DEAL_SIZE_USDT
+            logger.info("[VEL] %s  vel=%.1f → deal_size=%.0f USDT", symbol, vel, deal_size)
             if current_exposure + deal_size > self.settings.MAX_EXPOSURE_USDT:
                 deal_size = self.settings.MAX_EXPOSURE_USDT - current_exposure
                 if deal_size < self.settings.PAPER_DEAL_SIZE_USDT:
