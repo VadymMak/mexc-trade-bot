@@ -148,7 +148,7 @@ export function openSSE(
 /** Convenience: build and open the market stream with symbols/interval. */
 export function openMarketStream(
   symbols: string[],
-  intervalMs = 500,
+  intervalMs = 2000,
   onEvent: MsgHandler
 ): () => void {
   const syms = symbols

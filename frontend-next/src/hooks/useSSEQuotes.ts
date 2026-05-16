@@ -192,7 +192,7 @@ export function useSSEQuotes(symbols: string[]) {
 
   const intervalEnv = (process.env.NEXT_PUBLIC_SSE_INTERVAL_MS ?? "");
   const parsed = Number.parseInt(intervalEnv, 10);
-  const intervalMs = Number.isFinite(parsed) ? parsed : 500;
+  const intervalMs = Number.isFinite(parsed) ? parsed : 2000;
 
   const handleMessage = useCallback(
     (e: MessageEvent<string> & { event?: string }) => {
