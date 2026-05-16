@@ -7,8 +7,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Body
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Body, Query
+from fastapi.responses import StreamingResponse, JSONResponse
 
 router = APIRouter(prefix="/api/arbitrage", tags=["arbitrage"])
 log = logging.getLogger(__name__)
@@ -346,6 +346,7 @@ async def export_dataset(clean: bool = False) -> StreamingResponse:
         "exit_reason", "exit_spread_pct", "exit_zscore",
         "hold_seconds", "gross_pnl_usdt", "net_pnl_usdt",
         "pnl_pct", "profitable",
+        "opened_at", "closed_at",
     ])
 
     for r in rows:
@@ -398,6 +399,8 @@ async def export_dataset(clean: bool = False) -> StreamingResponse:
             round(net_pnl, 6),
             round(net_pnl / deal_size * 100, 4),
             1 if net_pnl > 0 else 0,
+            r["opened_at"].isoformat() if r["opened_at"] else "",
+            r["closed_at"].isoformat() if r["closed_at"] else "",
         ])
 
     from datetime import date
@@ -478,6 +481,220 @@ async def get_active_positions() -> dict:
 
     total_pnl = round(sum(p["unrealized_pnl_usdt"] for p in positions), 4)
     return {"positions": positions, "total_paper_pnl": total_pnl}
+
+
+# ─────────────────── Live analytics endpoint ───────────────────
+
+@router.get("/analyze")
+async def analyze_trades(hours: int = Query(24, ge=1, le=720)) -> dict:
+    """
+    Live analytics from NeonDB paper_positions.
+    Returns overview, vel-tier breakdown, exit reasons, daily PnL,
+    per-symbol stats, hourly pattern, and current open positions.
+    """
+    import os
+    import asyncpg
+
+    neon_dsn = os.getenv("NEON_DATABASE_URL", "")
+    if not neon_dsn:
+        return JSONResponse({"error": "NEON_DATABASE_URL not set"}, status_code=500)
+
+    def _f(v) -> float:
+        if v is None:
+            return 0.0
+        try:
+            return float(v)
+        except Exception:
+            return 0.0
+
+    conn = await asyncpg.connect(dsn=neon_dsn, statement_cache_size=0)
+    try:
+        # 1. Overview
+        ov = await conn.fetchrow(
+            """
+            SELECT
+                COUNT(*)                                              AS total_trades,
+                COUNT(*) FILTER (WHERE exit_reason = 'TAKE_PROFIT')  AS wins,
+                COALESCE(SUM(net_pnl_usdt),   0)                     AS net_pnl,
+                COALESCE(SUM(gross_pnl_usdt), 0)                     AS gross_pnl,
+                COALESCE(SUM(fee_usdt),        0)                     AS total_fees,
+                AVG(hold_seconds)                                     AS avg_hold_seconds,
+                AVG(deal_size_usdt)                                   AS avg_size
+            FROM paper_positions
+            WHERE status = 'closed'
+              AND closed_at > NOW() - INTERVAL '1 hour' * $1
+            """,
+            hours,
+        )
+        total = int(ov["total_trades"] or 0)
+        wins  = int(ov["wins"] or 0)
+        net   = _f(ov["net_pnl"])
+        overview = {
+            "total_trades":      total,
+            "wins":              wins,
+            "win_rate":          round(wins / total, 4) if total else 0.0,
+            "net_pnl":           round(net, 4),
+            "gross_pnl":         round(_f(ov["gross_pnl"]), 4),
+            "total_fees":        round(_f(ov["total_fees"]), 4),
+            "avg_hold_seconds":  round(_f(ov["avg_hold_seconds"]), 1),
+            "avg_size":          round(_f(ov["avg_size"]), 2),
+            "avg_pnl_per_trade": round(net / total, 4) if total else 0.0,
+        }
+
+        # 2. Vel-tier breakdown
+        tier_rows = await conn.fetch(
+            """
+            SELECT deal_size_usdt                                        AS tier,
+                   COUNT(*)                                              AS trades,
+                   COUNT(*) FILTER (WHERE exit_reason = 'TAKE_PROFIT')  AS wins,
+                   COALESCE(SUM(net_pnl_usdt), 0)                       AS net_pnl,
+                   AVG(net_pnl_usdt)                                     AS avg_pnl
+            FROM paper_positions
+            WHERE status = 'closed'
+              AND closed_at > NOW() - INTERVAL '1 hour' * $1
+            GROUP BY deal_size_usdt
+            ORDER BY deal_size_usdt
+            """,
+            hours,
+        )
+        tiers = []
+        for r in tier_rows:
+            tr = int(r["trades"] or 0)
+            tw = int(r["wins"] or 0)
+            tiers.append({
+                "tier":     _f(r["tier"]),
+                "trades":   tr,
+                "wins":     tw,
+                "win_rate": round(tw / tr, 4) if tr else 0.0,
+                "net_pnl":  round(_f(r["net_pnl"]), 4),
+                "avg_pnl":  round(_f(r["avg_pnl"]), 4),
+            })
+
+        # 3. Exit reasons
+        exit_rows = await conn.fetch(
+            """
+            SELECT exit_reason, COUNT(*) AS count
+            FROM paper_positions
+            WHERE status = 'closed'
+              AND closed_at > NOW() - INTERVAL '1 hour' * $1
+            GROUP BY exit_reason
+            ORDER BY count DESC
+            """,
+            hours,
+        )
+        exit_reasons = [
+            {"reason": r["exit_reason"] or "UNKNOWN", "count": int(r["count"])}
+            for r in exit_rows
+        ]
+
+        # 4. PnL by day — always last 30 days (independent of hours param)
+        daily_rows = await conn.fetch(
+            """
+            SELECT DATE(closed_at AT TIME ZONE 'UTC')                   AS day,
+                   COUNT(*)                                              AS trades,
+                   COALESCE(SUM(net_pnl_usdt), 0)                       AS net_pnl,
+                   COUNT(*) FILTER (WHERE exit_reason = 'TAKE_PROFIT')  AS wins
+            FROM paper_positions
+            WHERE status = 'closed'
+              AND closed_at > NOW() - INTERVAL '30 days'
+            GROUP BY DATE(closed_at AT TIME ZONE 'UTC')
+            ORDER BY day
+            """
+        )
+        daily_pnl = [
+            {
+                "day":     r["day"].isoformat() if r["day"] else "",
+                "trades":  int(r["trades"] or 0),
+                "net_pnl": round(_f(r["net_pnl"]), 4),
+                "wins":    int(r["wins"] or 0),
+            }
+            for r in daily_rows
+        ]
+
+        # 5. Per-symbol stats
+        sym_rows = await conn.fetch(
+            """
+            SELECT symbol,
+                   COUNT(*)                                              AS trades,
+                   COUNT(*) FILTER (WHERE exit_reason = 'TAKE_PROFIT')  AS wins,
+                   COALESCE(SUM(net_pnl_usdt), 0)                       AS net_pnl,
+                   AVG(hold_seconds)                                     AS avg_hold,
+                   AVG(deal_size_usdt)                                   AS avg_size
+            FROM paper_positions
+            WHERE status = 'closed'
+              AND closed_at > NOW() - INTERVAL '1 hour' * $1
+            GROUP BY symbol
+            ORDER BY net_pnl DESC
+            """,
+            hours,
+        )
+        symbols = []
+        for r in sym_rows:
+            tr = int(r["trades"] or 0)
+            tw = int(r["wins"] or 0)
+            symbols.append({
+                "symbol":   r["symbol"],
+                "trades":   tr,
+                "wins":     tw,
+                "win_rate": round(tw / tr, 4) if tr else 0.0,
+                "net_pnl":  round(_f(r["net_pnl"]), 4),
+                "avg_hold": round(_f(r["avg_hold"]), 1),
+                "avg_size": round(_f(r["avg_size"]), 2),
+            })
+
+        # 6. Hourly pattern (UTC)
+        hourly_rows = await conn.fetch(
+            """
+            SELECT EXTRACT(HOUR FROM closed_at AT TIME ZONE 'UTC')      AS hour_utc,
+                   COUNT(*)                                              AS trades,
+                   COUNT(*) FILTER (WHERE exit_reason = 'TAKE_PROFIT')  AS wins,
+                   COALESCE(SUM(net_pnl_usdt), 0)                       AS net_pnl
+            FROM paper_positions
+            WHERE status = 'closed'
+              AND closed_at > NOW() - INTERVAL '1 hour' * $1
+            GROUP BY hour_utc
+            ORDER BY hour_utc
+            """,
+            hours,
+        )
+        hourly = []
+        for r in hourly_rows:
+            tr = int(r["trades"] or 0)
+            tw = int(r["wins"] or 0)
+            hourly.append({
+                "hour":     int(_f(r["hour_utc"])),
+                "trades":   tr,
+                "wins":     tw,
+                "win_rate": round(tw / tr, 4) if tr else 0.0,
+                "net_pnl":  round(_f(r["net_pnl"]), 4),
+            })
+
+        # 7. Open positions summary
+        open_row = await conn.fetchrow(
+            """
+            SELECT COUNT(*)                         AS open_count,
+                   COALESCE(SUM(deal_size_usdt), 0) AS open_exposure
+            FROM paper_positions WHERE status = 'open'
+            """
+        )
+        open_data = {
+            "count":    int(open_row["open_count"] or 0),
+            "exposure": round(_f(open_row["open_exposure"]), 2),
+        }
+    finally:
+        await conn.close()
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "hours":        hours,
+        "overview":     overview,
+        "tiers":        tiers,
+        "exit_reasons": exit_reasons,
+        "daily_pnl":    daily_pnl,
+        "symbols":      symbols,
+        "hourly":       hourly,
+        "open":         open_data,
+    }
 
 
 # ─────────────────── SSE endpoint ───────────────────
