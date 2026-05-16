@@ -167,14 +167,20 @@ async def main() -> None:
     )
 
     # ── Collectors ────────────────────────────────────────────────────────────
-    collectors = [
-        BinanceCollector(),
-        BybitCollector(),
-        GateCollector(),
-        KucoinCollector(),     # Tier-3 trading exchange — price feed + arb partner
-        MexcCollector(),
-        MexcSpotCollector(),   # spot prices via REST polling (5s) → basis vs mexc futures
-    ]
+    # Only instantiate collectors listed in ENABLED_COLLECTORS (default: gate,mexc).
+    # Binance/Bybit are mark-price refs only — not needed for gate↔mexc arb.
+    # KuCoin and MexcSpot disabled: consume WS connections with no trading value.
+    _enabled = settings.enabled_collectors_set
+    _all_collectors = {
+        "gate":      GateCollector,
+        "mexc":      MexcCollector,
+        "binance":   BinanceCollector,
+        "bybit":     BybitCollector,
+        "kucoin":    KucoinCollector,
+        "mexc_spot": MexcSpotCollector,
+    }
+    collectors = [cls() for name, cls in _all_collectors.items() if name in _enabled]
+    log.info("Collectors enabled: %s", [c.name for c in collectors])
     for c in collectors:
         c.set_callback(matrix.on_price)
 

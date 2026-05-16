@@ -84,12 +84,23 @@ class Settings(BaseSettings):
     # Trading exchanges whitelist — ONLY open positions between these exchanges.
     # Binance and Bybit are mark-price references, NOT tradable venues.
     # Their prices structurally diverge from Gate/MEXC futures → phantom spreads.
-    # KuCoin added 2026-04-12: Tier-3, pre-funded, arb partner alongside Gate/MEXC.
-    TRADING_EXCHANGES: str = "gate,mexc,kucoin"
+    # KuCoin removed 2026-05-16: not actively trading, was wasting WS connections.
+    TRADING_EXCHANGES: str = "gate,mexc"
 
     @property
     def trading_exchanges_set(self) -> set[str]:
         return {s.strip().lower() for s in self.TRADING_EXCHANGES.split(",") if s.strip()}
+
+    # Collectors to enable. Comma-separated subset of:
+    #   gate, mexc, binance, bybit, kucoin, mexc_spot
+    # For gate↔mexc-only trading, binance/bybit/kucoin/mexc_spot are phantom
+    # references — they consume WS connections and CPU with zero trading value.
+    # Override via env: ENABLED_COLLECTORS=gate,mexc,binance
+    ENABLED_COLLECTORS: str = "gate,mexc"
+
+    @property
+    def enabled_collectors_set(self) -> set[str]:
+        return {s.strip().lower() for s in self.ENABLED_COLLECTORS.split(",") if s.strip()}
 
     # ── Dynamic MM sizing (tiered by entry spread) ───────────────────────────
     # Data analysis (2796 zscore trades) shows fee-to-gross ratio drops sharply
