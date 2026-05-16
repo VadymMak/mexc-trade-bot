@@ -176,8 +176,8 @@ function HourlyHeatmap({ data }: { data: AnalyzeData['hourly'] }) {
         const bg = hasData ? wrBg(d.win_rate) : '#1e293b';
         const borderColor = hasData ? wrColor(d.win_rate) : '#334155';
         const tooltip = hasData
-          ? `${h}:00 UTC — ${d.trades} trades · WR ${(d.win_rate * 100).toFixed(0)}% · PnL ${d.net_pnl >= 0 ? '+' : ''}$${d.net_pnl.toFixed(2)}`
-          : `${h}:00 UTC — no data`;
+          ? `Hour ${h} UTC: ${d.trades} trades · WR ${(d.win_rate * 100).toFixed(0)}% · ${d.net_pnl >= 0 ? '+' : ''}$${d.net_pnl.toFixed(2)}`
+          : `Hour ${h} UTC: no data`;
         return (
           <div key={h} title={tooltip} style={{
             width: 38, height: 38, borderRadius: 6,
@@ -199,6 +199,59 @@ function HourlyHeatmap({ data }: { data: AnalyzeData['hourly'] }) {
   );
 }
 
+/* ─── Equity curve SVG ─── */
+function EquityCurve({ data }: { data: AnalyzeData['daily_pnl'] }) {
+  if (!data.length) return <p style={{ color: '#475569', fontSize: 12 }}>No data yet.</p>;
+
+  let cum = 0;
+  const pts = data.map(d => { cum += d.net_pnl; return { day: d.day, cum, daily: d.net_pnl }; });
+
+  const SVGH = 160;
+  const PAD = { t: 20, r: 20, b: 28, l: 44 };
+  const n = pts.length;
+  const svgW = Math.max(n * 36, 320);
+  const plotW = svgW - PAD.l - PAD.r;
+  const plotH = SVGH - PAD.t - PAD.b;
+  const cumVals = pts.map(p => p.cum);
+  const yMin = Math.min(0, ...cumVals);
+  const yMax = Math.max(0, ...cumVals);
+  const yRange = (yMax - yMin) || 1;
+  const xOf = (i: number) => PAD.l + (n > 1 ? (i / (n - 1)) * plotW : plotW / 2);
+  const yOf = (v: number) => PAD.t + plotH - ((v - yMin) / yRange) * plotH;
+  const y0line = yOf(0);
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <svg viewBox={`0 0 ${svgW} ${SVGH}`} style={{ width: '100%', minWidth: 300, display: 'block' }}>
+        <line x1={PAD.l} y1={y0line} x2={svgW - PAD.r} y2={y0line}
+          stroke="#334155" strokeWidth={1} strokeDasharray="4 3" />
+        {pts.slice(1).map((p, i) => (
+          <line key={p.day}
+            x1={xOf(i)} y1={yOf(pts[i].cum)} x2={xOf(i + 1)} y2={yOf(p.cum)}
+            stroke={p.cum >= pts[i].cum ? COLORS.green : COLORS.red}
+            strokeWidth={2} strokeLinecap="round" />
+        ))}
+        {pts.map((p, i) => (
+          <circle key={p.day} cx={xOf(i)} cy={yOf(p.cum)} r={3.5}
+            fill={p.daily >= 0 ? COLORS.green : COLORS.red} stroke="#0f172a" strokeWidth={1}>
+            <title>{`${p.day}: daily ${p.daily >= 0 ? '+' : ''}$${p.daily.toFixed(2)} · cumulative $${p.cum.toFixed(2)}`}</title>
+          </circle>
+        ))}
+        {pts.map((p, i) => (i === 0 || i % 3 === 0 || i === n - 1) ? (
+          <text key={p.day} x={xOf(i)} y={SVGH - 4}
+            textAnchor="middle" fontSize={7.5} fill="#475569">{p.day.slice(5)}</text>
+        ) : null)}
+        {Array.from(new Set([yMin, 0, yMax])).map((v, i) => (
+          <text key={i} x={PAD.l - 4} y={yOf(v) + 4}
+            textAnchor="end" fontSize={7.5} fill="#475569">
+            {v >= 0 ? '+' : ''}{v.toFixed(1)}
+          </text>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 /* ─── LiveDashboard ─── */
 function LiveDashboard() {
   const [data, setData] = useState<AnalyzeData | null>(null);
@@ -207,6 +260,7 @@ function LiveDashboard() {
   const [hours, setHours] = useState(24);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [showWorst, setShowWorst] = useState(false);
+  const [chartView, setChartView] = useState<'equity' | 'bars'>('equity');
 
   const load = useCallback(async (h: number) => {
     setLoading(true);
@@ -253,6 +307,11 @@ function LiveDashboard() {
   const topSymbols = symbols.slice(0, 10);
   const worstSymbols = [...symbols].reverse().slice(0, 5);
   const displaySymbols = showWorst ? worstSymbols : topSymbols;
+  const startingCapital = 600;
+  const totalPnl30d = daily_pnl.reduce((s, d) => s + d.net_pnl, 0);
+  const currentEquity = startingCapital + totalPnl30d;
+  const roiPct = (totalPnl30d / startingCapital) * 100;
+  const utilizationPct = (open.exposure / startingCapital) * 100;
 
   const exitColor = (reason: string) => {
     if (reason === 'TAKE_PROFIT') return COLORS.green;
@@ -315,6 +374,21 @@ function LiveDashboard() {
         ))}
       </div>
 
+      {/* Capital metrics */}
+      <div className={styles.statsRow} style={{ marginBottom: 16 }}>
+        {[
+          { label: 'Capital',     value: `$${startingCapital}`,                                         color: '#94a3b8' },
+          { label: 'Equity Now',  value: `$${currentEquity.toFixed(2)}`,                                color: currentEquity >= startingCapital ? COLORS.green : COLORS.red },
+          { label: 'ROI (30d)',   value: `${roiPct >= 0 ? '+' : ''}${roiPct.toFixed(2)}%`,             color: roiPct >= 0 ? COLORS.teal : COLORS.red },
+          { label: 'Utilization', value: `${utilizationPct.toFixed(1)}%`,                               color: utilizationPct > 80 ? COLORS.red : utilizationPct > 50 ? COLORS.yellow : '#94a3b8' },
+        ].map(({ label, value, color }) => (
+          <div key={label} className={styles.statCard}>
+            <div className={styles.statLabel}>{label}</div>
+            <div className={styles.statValue} style={{ fontSize: 18, color }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
       {/* Vel-tier table */}
       <div className={styles.tableCard} style={{ marginBottom: 16 }}>
         <div className={styles.chartTitle}>Vel-Tier Breakdown</div>
@@ -346,11 +420,27 @@ function LiveDashboard() {
         </div>
       </div>
 
-      {/* Daily PnL + Exit reasons */}
+      {/* Equity curve / Daily bars + Exit reasons */}
       <div className={styles.chartsRow} style={{ marginBottom: 16 }}>
         <div className={styles.chartCard}>
-          <div className={styles.chartTitle}>PnL by Day (last 30 days)</div>
-          <DailyBars data={daily_pnl} />
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+            <span className={styles.chartTitle} style={{ margin: 0 }}>
+              {chartView === 'equity' ? 'Equity Curve (30d cumulative)' : 'PnL by Day (last 30 days)'}
+            </span>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+              {(['equity', 'bars'] as const).map(v => (
+                <button key={v} onClick={() => setChartView(v)} style={{
+                  padding: '2px 8px', fontSize: 10, borderRadius: 4, cursor: 'pointer',
+                  background: chartView === v ? '#1e3a5f' : '#1e293b',
+                  border: `1px solid ${chartView === v ? '#3b82f6' : '#334155'}`,
+                  color: chartView === v ? '#60a5fa' : '#64748b',
+                }}>
+                  {v === 'equity' ? '📈 Curve' : '📊 Bars'}
+                </button>
+              ))}
+            </div>
+          </div>
+          {chartView === 'equity' ? <EquityCurve data={daily_pnl} /> : <DailyBars data={daily_pnl} />}
         </div>
         <div className={styles.chartCard}>
           <div className={styles.chartTitle}>Exit Reasons</div>
