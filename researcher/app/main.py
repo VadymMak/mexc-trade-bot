@@ -68,6 +68,9 @@ async def main() -> None:
         try:
             await db.connect()
             log.info("Neon DB connected")
+            stale = await db.cleanup_stale_positions(max_hold_seconds=settings.MAX_HOLD_SECONDS)
+            if stale > 0:
+                log.warning("[DB] Cleaned %d stale open positions", stale)
         except Exception as exc:
             log.error("Neon DB connect failed: %r — running in dry-run mode", exc)
     else:
@@ -132,6 +135,19 @@ async def main() -> None:
         # ── PAPER TRADING (default) ────────────────────────────────────────────
         trader = PaperTrader(db=db, settings=settings)
         log.info("Paper trading mode (LIVE_TRADING not set)")
+
+    # ── Compound: restore historical PnL so equity ratio survives restarts ────
+    if hasattr(trader, 'update_equity_ratio') and db._pool:
+        try:
+            historical_pnl = await db.get_total_net_pnl()
+            trader._total_net_pnl = historical_pnl
+            trader.update_equity_ratio()
+            log.info(
+                "[Compound] Loaded historical PnL: +$%.4f → ratio=×%.3f",
+                historical_pnl, trader._equity_ratio,
+            )
+        except Exception as exc:
+            log.warning("[Compound] Failed to load historical PnL: %r", exc)
 
     # ── Flow tracker (tape + order book metrics for ML features) ──────────────
     flow_tracker    = FlowTracker()
@@ -213,6 +229,8 @@ async def main() -> None:
             while True:
                 await asyncio.sleep(60)
                 spreads = matrix.get_all_spreads()
+                if hasattr(trader, 'update_equity_ratio'):
+                    trader.update_equity_ratio()
                 summary = trader.session_summary()
 
                 log.info(
@@ -222,6 +240,14 @@ async def main() -> None:
                     summary["total_closed"],
                     summary["total_net_pnl"],
                 )
+                if hasattr(trader, '_equity_ratio'):
+                    log.info(
+                        "━━ equity  ━━  starting=$%.0f  equity=$%.2f  ratio=×%.3f  compound=%s",
+                        settings.STARTING_EQUITY_USDT,
+                        settings.STARTING_EQUITY_USDT + summary["total_net_pnl"],
+                        trader._equity_ratio,
+                        "ON" if settings.COMPOUND_ENABLED else "OFF",
+                    )
 
                 if scalp_trader:
                     scalp_summary = scalp_trader.session_summary()

@@ -797,6 +797,36 @@ class NeonDB:
         await self._pool.execute("DELETE FROM scalp_positions")
         logger.info("[ScalpDB] scalp_positions table cleared (fresh start)")
 
+    async def cleanup_stale_positions(self, max_hold_seconds: int = 14400) -> int:
+        """Mark positions older than max_hold_seconds as 'stale'. Returns count cleaned."""
+        assert self._pool
+        result = await self._pool.execute(
+            """
+            UPDATE paper_positions
+            SET status         = 'stale',
+                exit_reason    = 'STALE_CLEANUP',
+                closed_at      = NOW(),
+                net_pnl_usdt   = 0,
+                gross_pnl_usdt = 0,
+                hold_seconds   = EXTRACT(EPOCH FROM (NOW() - opened_at))::INT
+            WHERE status = 'open'
+              AND opened_at < NOW() - ($1 || ' seconds')::INTERVAL
+            """,
+            str(max_hold_seconds),
+        )
+        count = int(result.split()[-1]) if result else 0
+        if count:
+            logger.info("[DB] Cleaned %d stale open positions (older than %ds)", count, max_hold_seconds)
+        return count
+
+    async def get_total_net_pnl(self) -> float:
+        """Sum of all closed positions' net PnL — used to bootstrap compounding equity."""
+        assert self._pool
+        row = await self._pool.fetchrow(
+            "SELECT COALESCE(SUM(net_pnl_usdt), 0) AS total FROM paper_positions WHERE status = 'closed'"
+        )
+        return float(row["total"])
+
 
 # ── Time session helper ───────────────────────────────────────────────────────
 

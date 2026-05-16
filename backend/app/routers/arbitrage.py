@@ -669,12 +669,14 @@ async def analyze_trades(hours: int = Query(24, ge=1, le=720)) -> dict:
                 "net_pnl":  round(_f(r["net_pnl"]), 4),
             })
 
-        # 7. Open positions summary
+        # 7. Open positions summary (only recent — stale positions are marked 'stale' on startup)
         open_row = await conn.fetchrow(
             """
             SELECT COUNT(*)                         AS open_count,
                    COALESCE(SUM(deal_size_usdt), 0) AS open_exposure
-            FROM paper_positions WHERE status = 'open'
+            FROM paper_positions
+            WHERE status = 'open'
+              AND opened_at > NOW() - INTERVAL '4 hours'
             """
         )
         open_data = {
