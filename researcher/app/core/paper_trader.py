@@ -72,6 +72,8 @@ class PaperTrader:
         self._total_closed  = 0
         self._total_net_pnl = 0.0
 
+        self._equity_ratio: float = 1.0  # scales deal sizes when compounding is enabled
+
     async def on_spread(self, data: dict) -> None:
         """Called by SpreadMatrix on every aligned spread update."""
         symbol     = data["symbol"]
@@ -106,14 +108,25 @@ class PaperTrader:
 
     def session_summary(self) -> dict:
         return {
-            "open_positions":  len(self._open),
-            "total_opened":    self._total_opened,
-            "total_closed":    self._total_closed,
-            "total_net_pnl":   round(self._total_net_pnl, 4),
-            "breakeven_pct":   round(
+            "open_positions":   len(self._open),
+            "total_opened":     self._total_opened,
+            "total_closed":     self._total_closed,
+            "total_net_pnl":    round(self._total_net_pnl, 4),
+            "breakeven_pct":    round(
                 self.sim.simulate_trade("binance", "bybit", 0.5, 0.5).breakeven_spread_pct, 4
             ),
+            "equity_ratio":     round(self._equity_ratio, 4),
+            "compound_enabled": self.settings.COMPOUND_ENABLED,
         }
+
+    def update_equity_ratio(self) -> None:
+        """Recalculate equity ratio for compounding. Called from report_loop."""
+        if not self.settings.COMPOUND_ENABLED:
+            return
+        current_equity = self.settings.STARTING_EQUITY_USDT + self._total_net_pnl
+        raw_ratio = current_equity / self.settings.STARTING_EQUITY_USDT
+        self._equity_ratio = min(raw_ratio, self.settings.COMPOUND_MAX_MULT)
+        self._equity_ratio = max(self._equity_ratio, 0.5)
 
     # ── Private ───────────────────────────────────────────────────────────────
 
@@ -139,7 +152,7 @@ class PaperTrader:
 
         Data simulation (2796 trades): flat $10 → $53 net, dynamic → $143 net (+169%).
         """
-        base = self.settings.PAPER_DEAL_SIZE_USDT
+        base = self.settings.PAPER_DEAL_SIZE_USDT * self._equity_ratio
 
         # Step 1: spread-quality tier
         if spread_pct >= self.settings.MM_TIER3_SPREAD_PCT:
@@ -257,12 +270,12 @@ class PaperTrader:
             entry_mode = "zscore"
             vel = trade_velocity or 0
             if vel > 50:
-                deal_size = self.settings.DEAL_SIZE_HIGH_USDT
+                deal_size = self.settings.DEAL_SIZE_HIGH_USDT * self._equity_ratio
             elif vel >= 10:
-                deal_size = self.settings.DEAL_SIZE_MED_USDT
+                deal_size = self.settings.DEAL_SIZE_MED_USDT * self._equity_ratio
             else:
-                deal_size = self.settings.PAPER_DEAL_SIZE_USDT
-            logger.info("[VEL] %s  vel=%.1f → deal_size=%.0f USDT", symbol, vel, deal_size)
+                deal_size = self.settings.PAPER_DEAL_SIZE_USDT * self._equity_ratio
+            logger.info("[VEL] %s  vel=%.1f → deal_size=%.0f USDT  ratio=×%.3f", symbol, vel, deal_size, self._equity_ratio)
             if current_exposure + deal_size > self.settings.MAX_EXPOSURE_USDT:
                 deal_size = self.settings.MAX_EXPOSURE_USDT - current_exposure
                 if deal_size < self.settings.PAPER_DEAL_SIZE_USDT:
@@ -463,7 +476,7 @@ class PaperTrader:
         suspend_hours = 0.0
         if wr == 0.0:
             suspend_hours = cfg.DYNAMIC_SUSPEND_HOURS_ZERO
-        elif wr < cfg.DYNAMIC_SUSPEND_WR_THRESHOLD:
+        elif wr < cfg.DYNAMIC_SUSPEND_WR_LOW:
             suspend_hours = cfg.DYNAMIC_SUSPEND_HOURS_LOW
 
         if suspend_hours > 0:

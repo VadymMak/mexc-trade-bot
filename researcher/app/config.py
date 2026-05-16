@@ -157,6 +157,11 @@ class Settings(BaseSettings):
     # At 1.5×: SL loss = entry×0.5×0.1+0.026 vs TP win = entry×0.5×0.1−0.026
     STOP_LOSS_RATIO: float = 1.5
 
+    # ── Compounding — scale deal sizes as equity grows ────────────────────────
+    STARTING_EQUITY_USDT: float = 600.0   # initial capital for ROI / compounding calc
+    COMPOUND_ENABLED:     bool  = True    # scale position sizes with equity growth
+    COMPOUND_MAX_MULT:    float = 5.0     # cap equity multiplier at 5× base
+
     class Config:
         env_file = ".env"
 
