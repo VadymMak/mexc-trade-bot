@@ -37,6 +37,28 @@ interface Row {
   [key: string]: string;
 }
 
+type AnalyzeData = {
+  generated_at: string;
+  hours: number;
+  overview: {
+    total_trades: number;
+    wins: number;
+    win_rate: number;
+    net_pnl: number;
+    gross_pnl: number;
+    total_fees: number;
+    avg_hold_seconds: number;
+    avg_size: number;
+    avg_pnl_per_trade: number;
+  };
+  tiers: { tier: number; trades: number; wins: number; win_rate: number; net_pnl: number; avg_pnl: number }[];
+  exit_reasons: { reason: string; count: number }[];
+  daily_pnl: { day: string; trades: number; net_pnl: number; wins: number }[];
+  symbols: { symbol: string; trades: number; wins: number; win_rate: number; net_pnl: number; avg_hold: number; avg_size: number }[];
+  hourly: { hour: number; trades: number; wins: number; win_rate: number; net_pnl: number }[];
+  open: { count: number; exposure: number };
+};
+
 /* ─── Helpers ─── */
 const COLORS = {
   green: '#4ade80', red: '#f87171', yellow: '#fbbf24',
@@ -72,24 +94,331 @@ const barOpts = (yLabel?: string, pct?: boolean): ChartOptions<'bar'> => ({
 const SESSION_ORDER = ['asia', 'europe', 'overlap', 'us', 'quiet'];
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-/* ─── Main component ─── */
-/* ─── Dirty data filters ─── */
 const PHANTOM_EXCHANGES = new Set(['binance', 'bybit']);
 const ZR_MIN_HOLD = 120;
 
 function applyFilters(rows: Row[], clean: boolean): Row[] {
   if (!clean) return rows;
   return rows.filter(r => {
-    // Remove phantom binance/bybit pairs
     if (PHANTOM_EXCHANGES.has(r.exchange_long?.toLowerCase()) ||
         PHANTOM_EXCHANGES.has(r.exchange_short?.toLowerCase())) return false;
-    // Remove ZSCORE_REVERT exits that fired before min-hold fix (hold < 120s)
     if (r.exit_reason === 'ZSCORE_REVERT' && parseFloat(r.hold_seconds) < ZR_MIN_HOLD) return false;
     return true;
   });
 }
 
-export default function AnalyzerPage() {
+/* ─── Live dashboard helpers ─── */
+const PERIODS = [
+  { label: '6h',  hours: 6 },
+  { label: '24h', hours: 24 },
+  { label: '7d',  hours: 168 },
+  { label: '30d', hours: 720 },
+];
+
+function wrColor(wr: number): string {
+  if (wr >= 0.9) return COLORS.green;
+  if (wr >= 0.7) return COLORS.yellow;
+  return COLORS.red;
+}
+function wrBg(wr: number): string {
+  if (wr >= 0.9) return '#16a34a18';
+  if (wr >= 0.7) return '#b4530918';
+  return '#dc262618';
+}
+
+/* ─── SVG bar chart for daily PnL ─── */
+function DailyBars({ data }: { data: AnalyzeData['daily_pnl'] }) {
+  const last14 = data.slice(-14);
+  if (!last14.length) return <p style={{ color: '#475569', fontSize: 12 }}>No data yet.</p>;
+  const maxAbs = Math.max(...last14.map(d => Math.abs(d.net_pnl)), 0.01);
+  const BAR_H = 60;
+  const CELL = 48;
+  const svgW = last14.length * CELL;
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <svg viewBox={`0 0 ${svgW} 148`} style={{ width: '100%', minWidth: svgW, display: 'block' }}>
+        {last14.map((d, i) => {
+          const h = Math.max((Math.abs(d.net_pnl) / maxAbs) * BAR_H, 2);
+          const pos = d.net_pnl >= 0;
+          const x = i * CELL + 6;
+          const barY = pos ? 72 - h : 72;
+          const color = pos ? COLORS.green : COLORS.red;
+          const label = (pos ? '+' : '') + d.net_pnl.toFixed(1);
+          return (
+            <g key={d.day}>
+              <rect x={x} y={barY} width={36} height={h}
+                fill={color + '88'} stroke={color} strokeWidth={0.5} rx={2} />
+              <text x={x + 18} y={pos ? Math.max(barY - 3, 8) : barY + h + 11}
+                textAnchor="middle" fontSize={9} fill={color}>{label}</text>
+              <text x={x + 18} y={140} textAnchor="middle" fontSize={7.5} fill="#475569">
+                {d.day.slice(5)}
+              </text>
+            </g>
+          );
+        })}
+        <line x1={0} y1={72} x2={svgW} y2={72} stroke="#334155" strokeWidth={1} />
+      </svg>
+    </div>
+  );
+}
+
+/* ─── Hourly heatmap ─── */
+function HourlyHeatmap({ data }: { data: AnalyzeData['hourly'] }) {
+  const byHour: Record<number, AnalyzeData['hourly'][0]> = {};
+  data.forEach(h => { byHour[h.hour] = h; });
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+      {Array.from({ length: 24 }, (_, h) => {
+        const d = byHour[h];
+        const hasData = d && d.trades >= 3;
+        const bg = hasData ? wrBg(d.win_rate) : '#1e293b';
+        const borderColor = hasData ? wrColor(d.win_rate) : '#334155';
+        const tooltip = hasData
+          ? `${h}:00 UTC — ${d.trades} trades · WR ${(d.win_rate * 100).toFixed(0)}% · PnL ${d.net_pnl >= 0 ? '+' : ''}$${d.net_pnl.toFixed(2)}`
+          : `${h}:00 UTC — no data`;
+        return (
+          <div key={h} title={tooltip} style={{
+            width: 38, height: 38, borderRadius: 6,
+            background: bg, border: `1px solid ${borderColor}`,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            cursor: 'default', userSelect: 'none',
+          }}>
+            <span style={{ fontSize: 8, color: '#64748b', lineHeight: 1 }}>{h}h</span>
+            {hasData && (
+              <span style={{ fontSize: 8.5, color: wrColor(d.win_rate), fontWeight: 700, lineHeight: 1.2 }}>
+                {(d.win_rate * 100).toFixed(0)}%
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── LiveDashboard ─── */
+function LiveDashboard() {
+  const [data, setData] = useState<AnalyzeData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hours, setHours] = useState(24);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [showWorst, setShowWorst] = useState(false);
+
+  const load = useCallback(async (h: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/proxy/api/arbitrage/analyze?hours=${h}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json() as AnalyzeData;
+      setData(json);
+      setLastUpdated(new Date());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(hours); }, [hours, load]);
+
+  if (loading) {
+    return (
+      <div className={styles.page} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 280 }}>
+        <span style={{ color: '#64748b', fontSize: 14 }}>Loading live data…</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.chartCard} style={{ color: COLORS.red }}>
+          Error: {error}
+          <button className={styles.resetBtn} style={{ marginLeft: 12 }} onClick={() => load(hours)}>Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { overview: ov, tiers, exit_reasons, daily_pnl, symbols, hourly, open } = data;
+  const totalExits = exit_reasons.reduce((s, r) => s + r.count, 0);
+  const projMonth = ov.avg_pnl_per_trade * 285 * 30;
+  const topSymbols = symbols.slice(0, 10);
+  const worstSymbols = [...symbols].reverse().slice(0, 5);
+  const displaySymbols = showWorst ? worstSymbols : topSymbols;
+
+  const exitColor = (reason: string) => {
+    if (reason === 'TAKE_PROFIT') return COLORS.green;
+    if (reason === 'STOP_LOSS')   return COLORS.red;
+    if (reason === 'ZSCORE_REVERT') return COLORS.blue;
+    return COLORS.yellow;
+  };
+
+  return (
+    <div className={styles.page}>
+      {/* Period selector + Refresh */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+        {PERIODS.map(p => (
+          <button key={p.hours} onClick={() => { setHours(p.hours); }}
+            style={{
+              padding: '4px 12px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+              background: hours === p.hours ? '#1e3a5f' : '#1e293b',
+              border: `1px solid ${hours === p.hours ? '#3b82f6' : '#334155'}`,
+              color: hours === p.hours ? '#60a5fa' : '#64748b',
+              fontWeight: hours === p.hours ? 700 : 400,
+            }}>
+            {p.label}
+          </button>
+        ))}
+        <button onClick={() => load(hours)} className={styles.resetBtn} style={{ marginLeft: 'auto' }}>
+          ↻ Refresh
+        </button>
+        {lastUpdated && (
+          <span style={{ fontSize: 11, color: '#475569' }}>
+            Updated {lastUpdated.toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+
+      {/* Open positions badge */}
+      {open.count > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <span style={{
+            background: '#1d4ed822', border: '1px solid #3b82f655',
+            color: COLORS.blue, fontSize: 12, padding: '3px 10px', borderRadius: 99,
+          }}>
+            {open.count} open · ${open.exposure.toFixed(0)} exposure
+          </span>
+        </div>
+      )}
+
+      {/* Overview cards */}
+      <div className={styles.statsRow} style={{ marginBottom: 16 }}>
+        {[
+          { label: 'Net PnL',     value: `${ov.net_pnl >= 0 ? '+' : ''}$${ov.net_pnl.toFixed(2)}`,                     color: ov.net_pnl >= 0 ? COLORS.green : COLORS.red },
+          { label: 'Win Rate',    value: `${(ov.win_rate * 100).toFixed(1)}%`,                                            color: wrColor(ov.win_rate) },
+          { label: 'Trades',      value: ov.total_trades.toLocaleString(),                                                color: '#e2e8f0' },
+          { label: 'Avg / trade', value: `${ov.avg_pnl_per_trade >= 0 ? '+' : ''}$${ov.avg_pnl_per_trade.toFixed(3)}`,  color: ov.avg_pnl_per_trade >= 0 ? COLORS.green : COLORS.red },
+          { label: 'Proj / mo',   value: `${projMonth >= 0 ? '+' : ''}$${projMonth.toFixed(0)}`,                         color: projMonth >= 0 ? COLORS.teal : COLORS.red },
+        ].map(({ label, value, color }) => (
+          <div key={label} className={styles.statCard}>
+            <div className={styles.statLabel}>{label}</div>
+            <div className={styles.statValue} style={{ fontSize: 18, color }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Vel-tier table */}
+      <div className={styles.tableCard} style={{ marginBottom: 16 }}>
+        <div className={styles.chartTitle}>Vel-Tier Breakdown</div>
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead><tr>
+              <th>Tier (deal size)</th><th>Trades</th><th>Win Rate</th><th>Net PnL</th><th>Avg / trade</th>
+            </tr></thead>
+            <tbody>
+              {tiers.map(t => (
+                <tr key={t.tier} style={{ background: wrBg(t.win_rate) }}>
+                  <td><strong style={{ color: COLORS.blue }}>${t.tier.toFixed(0)}</strong>
+                    <span style={{ color: '#475569', fontSize: 10, marginLeft: 6 }}>
+                      {t.tier <= 10 ? 'vel<10' : t.tier <= 20 ? 'vel 10-50' : 'vel>50'}
+                    </span>
+                  </td>
+                  <td>{t.trades}</td>
+                  <td style={{ color: wrColor(t.win_rate), fontWeight: 700 }}>{(t.win_rate * 100).toFixed(1)}%</td>
+                  <td style={{ color: t.net_pnl >= 0 ? COLORS.green : COLORS.red, fontWeight: 700 }}>
+                    {t.net_pnl >= 0 ? '+' : ''}${t.net_pnl.toFixed(2)}
+                  </td>
+                  <td style={{ color: t.avg_pnl >= 0 ? COLORS.green : COLORS.red }}>
+                    {t.avg_pnl >= 0 ? '+' : ''}${t.avg_pnl.toFixed(4)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Daily PnL + Exit reasons */}
+      <div className={styles.chartsRow} style={{ marginBottom: 16 }}>
+        <div className={styles.chartCard}>
+          <div className={styles.chartTitle}>PnL by Day (last 30 days)</div>
+          <DailyBars data={daily_pnl} />
+        </div>
+        <div className={styles.chartCard}>
+          <div className={styles.chartTitle}>Exit Reasons</div>
+          <div style={{ marginTop: 8 }}>
+            {exit_reasons.map(r => {
+              const pct = totalExits > 0 ? (r.count / totalExits * 100).toFixed(1) : '0.0';
+              const color = exitColor(r.reason);
+              return (
+                <div key={r.reason} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ color, fontSize: 12, fontWeight: 600 }}>{r.reason}</span>
+                  <span style={{ color, fontSize: 13, fontWeight: 700 }}>
+                    {pct}%
+                    <span style={{ color: '#475569', fontWeight: 400, fontSize: 11, marginLeft: 5 }}>({r.count})</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Symbols table */}
+      <div className={styles.tableCard} style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+          <span className={styles.chartTitle} style={{ margin: 0 }}>
+            {showWorst ? 'Worst 5 Symbols' : 'Top 10 Symbols'}
+          </span>
+          <button onClick={() => setShowWorst(v => !v)} className={styles.resetBtn} style={{ marginLeft: 'auto' }}>
+            {showWorst ? 'Show top 10' : 'Show worst 5'}
+          </button>
+        </div>
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead><tr>
+              <th>Symbol</th><th>Trades</th><th>Win Rate</th><th>Net PnL</th><th>Avg Hold</th><th>Avg Size</th>
+            </tr></thead>
+            <tbody>
+              {displaySymbols.map(s => (
+                <tr key={s.symbol}>
+                  <td>
+                    <strong>{s.symbol.replace('_USDT', '')}</strong>
+                    <span style={{ color: '#475569', fontSize: 10 }}>_USDT</span>
+                  </td>
+                  <td>{s.trades}</td>
+                  <td style={{ color: wrColor(s.win_rate), fontWeight: 700 }}>{(s.win_rate * 100).toFixed(1)}%</td>
+                  <td style={{ color: s.net_pnl >= 0 ? COLORS.green : COLORS.red, fontWeight: 700 }}>
+                    {s.net_pnl >= 0 ? '+' : ''}${s.net_pnl.toFixed(2)}
+                  </td>
+                  <td>{s.avg_hold < 60 ? `${s.avg_hold.toFixed(0)}s` : `${(s.avg_hold / 60).toFixed(1)}m`}</td>
+                  <td>${s.avg_size.toFixed(0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Hourly heatmap */}
+      <div className={styles.chartCard}>
+        <div className={styles.chartTitle}>Hourly Win Rate (UTC) — hover for details</div>
+        <HourlyHeatmap data={hourly} />
+      </div>
+    </div>
+  );
+}
+
+/* ─── CsvAnalyzer (formerly AnalyzerPage) ─── */
+function CsvAnalyzer() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [clean, setClean] = useState(true);
   const [dragging, setDragging] = useState(false);
@@ -145,7 +474,34 @@ export default function AnalyzerPage() {
   );
 }
 
-/* ─── Dashboard ─── */
+/* ─── AnalyzerPage — tab switcher (default export) ─── */
+export default function AnalyzerPage() {
+  const [tab, setTab] = useState<'live' | 'csv'>('live');
+  return (
+    <>
+      <div style={{
+        display: 'flex', gap: 6, padding: '10px 24px',
+        borderBottom: '1px solid #334155', background: '#0f172a',
+        position: 'sticky', top: 0, zIndex: 10,
+      }}>
+        {(['live', 'csv'] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)} style={{
+            padding: '5px 16px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+            background: tab === t ? '#1e3a5f' : '#1e293b',
+            border: `1px solid ${tab === t ? '#3b82f6' : '#334155'}`,
+            color: tab === t ? '#60a5fa' : '#64748b',
+            fontWeight: tab === t ? 700 : 400,
+          }}>
+            {t === 'live' ? '⚡ Live' : '📁 CSV History'}
+          </button>
+        ))}
+      </div>
+      {tab === 'live' ? <LiveDashboard /> : <CsvAnalyzer />}
+    </>
+  );
+}
+
+/* ─── Dashboard (CSV results — unchanged) ─── */
 function Dashboard({ rows, totalRaw, removed, clean, onCleanToggle, onReset }: {
   rows: Row[];
   totalRaw: number;
