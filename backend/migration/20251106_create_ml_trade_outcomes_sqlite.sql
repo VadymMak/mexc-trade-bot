@@ -110,6 +110,10 @@ CREATE TABLE IF NOT EXISTS ml_trade_outcomes (
     hit_trailing INTEGER DEFAULT 0,
     timed_out INTEGER DEFAULT 0,
     
+    -- ML score logging (filter disabled, for retraining)
+    ml_score REAL DEFAULT NULL,
+    ml_would_block INTEGER DEFAULT NULL,
+
     -- Metadata
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

@@ -418,6 +418,14 @@ try:
 except Exception as _e:
     print(f"⚠️ Scraper router import skipped: {_e}")
 
+# Admin router — protected by ADMIN_SECRET env var
+try:
+    from app.routers.admin import router as admin_router
+    app.include_router(admin_router)
+    print("✅ Admin router mounted at /api/admin")
+except Exception as _e:
+    print(f"⚠️ Admin router import skipped: {_e}")
+
 # --- Debug: list all routes at startup ---
 def _print_routes(app_: FastAPI) -> None:
     try:
