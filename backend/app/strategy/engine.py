@@ -681,50 +681,41 @@ class StrategyEngine:
                         if not mm_ok:
                             await asyncio.sleep(0.1)
                             continue
-                        # ═══════════════════════════════════════════════════════
-                        # ═══════════════════════════════════════════════════════
-                        # ML FILTER CHECK
-                        # ═══════════════════════════════════════════════════════
-                        ml_ok = True
+                        # ── ML SCORE LOGGING (filter disabled, logging only) ──────────────────
+                        # ml_score is computed for future retraining but does NOT block entry.
+                        # When to re-enable blocking: after 3000+ clean zscore trades accumulated,
+                        # RAG retrained on zscore-only data, A/B test >= 7 days, PnL(on) >= PnL(off).
+                        ml_score: float = -1.0
+                        ml_would_block: bool = False
                         try:
                             from app.config.settings import settings
                             if settings.ML_ENABLED:
                                 from app.services.ml_predictor import get_ml_predictor
                                 ml_pred = get_ml_predictor()
-                                
+
                                 features = {
                                     "symbol": sym,
                                     "spread_bps_entry": spread_bps,
                                     "imbalance_entry": imb,
                                 }
-                                
-                                # Get ML prediction
+
                                 ml_score = await ml_pred.predict(features)
-                                should_enter = ml_score >= settings.ML_MIN_CONFIDENCE
-                                
-                                if not should_enter:
-                                    ml_ok = False
-                                    if not hasattr(st, '_last_ml_log') or (now - st._last_ml_log) > 30:
-                                        st._last_ml_log = now
-                                        print(f"[ML] ❌ Filtered: {sym} ml_score={ml_score:.3f} < {settings.ML_MIN_CONFIDENCE}")
-                                else:
-                                    # Log pass only once per 30 seconds to avoid spam
-                                    if not hasattr(st, '_last_ml_pass_log') or (now - st._last_ml_pass_log) > 30:
-                                        st._last_ml_pass_log = now
-                                        print(f"[ML] ✅ Passed: {sym} ml_score={ml_score:.3f} >= {settings.ML_MIN_CONFIDENCE}")
-                        
+                                ml_would_block = ml_score < settings.ML_MIN_CONFIDENCE
+
+                                # Log for monitoring — throttled to once per 60s per symbol
+                                if not hasattr(st, '_last_ml_log') or (now - st._last_ml_log) > 60:
+                                    st._last_ml_log = now
+                                    status = "⚠️ would_block" if ml_would_block else "✅ would_pass"
+                                    print(f"[ML-LOG] {sym} score={ml_score:.3f} threshold={settings.ML_MIN_CONFIDENCE} {status} (not blocking)")
+
                         except asyncio.TimeoutError:
-                            # ML prediction timed out - fail open
-                            print(f"[ML] ⏱️ Timeout for {sym}, allowing entry")
-                            ml_ok = True
-                        
+                            print(f"[ML] ⏱️ Timeout for {sym}, continuing")
+
                         except Exception as e:
-                            print(f"[ML] ⚠️ Error filtering {sym}: {e}")
-                            ml_ok = True  # Fail open - allow trade if ML errors
-                        
-                        if not ml_ok:
-                            await asyncio.sleep(0.1)
-                            continue
+                            print(f"[ML] ⚠️ Score error for {sym}: {e}")
+
+                        # NOTE: ml_ok check REMOVED — no longer blocking on ML score
+                        # ml_score and ml_would_block are passed to log_entry for data collection
 
                         # ═══════════════════════════════════════════════════════════
                         # POSITION SIZER: Calculate optimal size (Phase 2)
@@ -1037,6 +1028,8 @@ class StrategyEngine:
                                         'trail_distance_bps': actual_trail_distance,
                                         'timeout_seconds': actual_timeout,
                                         'exploration_mode': 1 if is_exploration else 0,
+                                        'ml_score': ml_score,
+                                        'ml_would_block': int(ml_would_block),
                                     }
                                     
                                     ml_logger.log_entry(

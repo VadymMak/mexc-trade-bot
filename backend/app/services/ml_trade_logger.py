@@ -125,6 +125,10 @@ class MLTradeLogger:
                 # WHY context: объяснение входа для ML-анализа
                 'entry_reason_text': entry_reason_text,
                 'top_score_rank': top_score_rank,
+
+                # ML score at entry (filter disabled, logging only for retraining)
+                'ml_score': strategy_params.get('ml_score', -1.0),
+                'ml_would_block': strategy_params.get('ml_would_block', None),
             })
             
             # Store in memory until exit
@@ -504,6 +508,9 @@ class MLTradeLogger:
                 # WHY exit context
                 'spread_at_exit', 'mm_present_at_exit',
                 'depth_at_exit', 'price_continued_bps',
+
+                # ML score logging (filter disabled, for retraining)
+                'ml_score', 'ml_would_block',
 
                 # Metadata
                 'created_at',
