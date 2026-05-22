@@ -275,143 +275,52 @@ def _is_dirty(row: dict, exchange_long: str, exchange_short: str,
 
 
 @router.get("/research/export-dataset")
-async def export_dataset(clean: bool = False) -> StreamingResponse:
+async def export_dataset() -> StreamingResponse:
     """
-    Export all closed paper_positions as a CSV file for ML model training.
-    Connects directly to Neon DB (NEON_DATABASE_URL env var).
-
-    Features: entry_mode, entry_spread_pct, entry_zscore, spread_mean, spread_std,
-              spread_zscore_ratio, spread_cv, hour_of_day, day_of_week
-    Labels:   exit_reason, hold_seconds, net_pnl_usdt, pnl_pct, profitable
+    Export ml_trade_outcomes as CSV for ML model training.
+    Reads from NeonDB (ML_DATABASE_URL) — full 80+ feature dataset.
+    Only closed trades (exit_time IS NOT NULL).
     """
     import csv
     import io
-    import os
-    import asyncpg
+    from app.db.ml_engine import MLSessionLocal, ML_DB_ENABLED
+    from sqlalchemy import text
 
-    neon_dsn = os.getenv("NEON_DATABASE_URL", "")
-    if not neon_dsn:
-        return StreamingResponse(
-            iter(["error: NEON_DATABASE_URL not set"]),
-            media_type="text/plain",
-            status_code=500,
-        )
-
-    conn = await asyncpg.connect(dsn=neon_dsn, statement_cache_size=0)
+    db = MLSessionLocal()
     try:
-        rows = await conn.fetch(
-            """
-            SELECT
-                symbol, exchange_long, exchange_short,
-                entry_mode, entry_spread_pct, entry_zscore,
-                spread_mean, spread_std,
-                buy_pressure, trade_velocity, book_imbalance,
-                exit_reason, exit_spread_pct, exit_zscore,
-                deal_size_usdt, gross_pnl_usdt, net_pnl_usdt,
-                hold_seconds, opened_at, closed_at
-            FROM paper_positions
-            WHERE status = 'closed'
-              AND entry_spread_pct IS NOT NULL
-            ORDER BY opened_at ASC
-            """
-        )
+        rows = db.execute(text("""
+            SELECT *
+            FROM ml_trade_outcomes
+            WHERE exit_time IS NOT NULL
+            ORDER BY entry_time ASC
+        """)).fetchall()
+        keys = db.execute(text("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'ml_trade_outcomes'
+            ORDER BY ordinal_position
+        """)).fetchall()
+        columns = [k[0] for k in keys]
     finally:
-        await conn.close()
+        db.close()
 
-    def _session(h: int) -> str:
-        if 0 <= h <= 6:   return "asia"
-        if 7 <= h <= 12:  return "europe"
-        if 13 <= h <= 15: return "overlap"
-        if 16 <= h <= 21: return "us"
-        return "quiet"
+    def generate():
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(columns)
+        yield buf.getvalue()
 
-    _FUNDING_SEC = (0, 28_800, 57_600)  # 00:00, 08:00, 16:00 UTC
+        for row in rows:
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(list(row))
+            yield buf.getvalue()
 
-    def _mins_to_funding(ts_ms: int) -> float:
-        now_sec = (ts_ms // 1000) % 86_400
-        return round(min(((f - now_sec) % 86_400) for f in _FUNDING_SEC) / 60, 2)
-
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow([
-        "symbol", "exchange_long", "exchange_short",
-        "entry_mode", "entry_spread_pct", "entry_zscore",
-        "spread_mean", "spread_std",
-        "spread_zscore_ratio", "spread_cv",
-        "buy_pressure", "trade_velocity", "book_imbalance",
-        "hour_utc", "day_of_week",
-        "trading_session", "is_weekend",
-        "mins_to_funding",
-        "deal_size_usdt",
-        "exit_reason", "exit_spread_pct", "exit_zscore",
-        "hold_seconds", "gross_pnl_usdt", "net_pnl_usdt",
-        "pnl_pct", "profitable",
-        "opened_at", "closed_at",
-    ])
-
-    for r in rows:
-        ex_long   = r["exchange_long"] or ""
-        ex_short  = r["exchange_short"] or ""
-        ex_reason = r["exit_reason"] or ""
-        hold_sec  = float(r["hold_seconds"] or 0)
-
-        if clean and _is_dirty(r, ex_long, ex_short, ex_reason, hold_sec):
-            continue
-
-        e_spread  = float(r["entry_spread_pct"] or 0)
-        s_mean    = float(r["spread_mean"] or 0)
-        s_std     = float(r["spread_std"] or 0)
-        net_pnl   = float(r["net_pnl_usdt"] or 0)
-        deal_size = float(r["deal_size_usdt"] or 10)
-        opened_at = r["opened_at"]
-
-        ratio = round(e_spread / s_mean, 4) if s_mean > 0 else ""
-        cv    = round(s_std / s_mean, 4)    if s_mean > 0 else ""
-
-        if opened_at:
-            h             = opened_at.hour
-            dow           = opened_at.weekday()
-            session       = _session(h)
-            weekend       = 1 if dow >= 5 else 0
-            ts_ms_entry   = int(opened_at.timestamp() * 1000)
-            mins_to_fund  = _mins_to_funding(ts_ms_entry)
-        else:
-            h = dow = session = weekend = mins_to_fund = ""
-
-        writer.writerow([
-            r["symbol"], r["exchange_long"], r["exchange_short"],
-            r["entry_mode"] or "large_spread", e_spread,
-            round(float(r["entry_zscore"]), 4) if r["entry_zscore"] is not None else "",
-            round(s_mean, 6) if s_mean else "",
-            round(s_std, 6)  if s_std  else "",
-            ratio, cv,
-            round(float(r["buy_pressure"]),   4) if r["buy_pressure"]   is not None else "",
-            round(float(r["trade_velocity"]), 2) if r["trade_velocity"] is not None else "",
-            round(float(r["book_imbalance"]), 4) if r["book_imbalance"] is not None else "",
-            h, dow, session, weekend,
-            mins_to_fund,
-            deal_size,
-            r["exit_reason"] or "",
-            float(r["exit_spread_pct"] or 0),
-            round(float(r["exit_zscore"]), 4) if r["exit_zscore"] is not None else "",
-            r["hold_seconds"] or 0,
-            round(float(r["gross_pnl_usdt"] or 0), 6),
-            round(net_pnl, 6),
-            round(net_pnl / deal_size * 100, 4),
-            1 if net_pnl > 0 else 0,
-            r["opened_at"].isoformat() if r["opened_at"] else "",
-            r["closed_at"].isoformat() if r["closed_at"] else "",
-        ])
-
-    from datetime import date
-    suffix = "_clean" if clean else ""
-    filename = f"arb_dataset_{date.today().isoformat()}{suffix}.csv"
-    csv_content = buf.getvalue()
-
+    filename = f"ml_dataset_{len(rows)}_trades.csv"
     return StreamingResponse(
-        iter([csv_content]),
+        generate(),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
