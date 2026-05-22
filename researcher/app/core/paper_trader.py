@@ -90,6 +90,15 @@ class PaperTrader:
         book_imbalance     = data.get("book_imbalance")
         mm_repeat_score    = data.get("mm_repeat_score")
         features_complete  = bool(data.get("features_complete", False))
+        # New: depth + price features
+        depth5_bid_usd     = data.get("depth5_bid_usd")
+        depth5_ask_usd     = data.get("depth5_ask_usd")
+        depth5_total_usd   = data.get("depth5_total_usd")
+        depth_imbalance    = data.get("depth_imbalance")
+        mid_price          = data.get("mid_price")
+        spread_bps         = data.get("spread_bps")
+        price_long         = data.get("price_long")
+        price_short        = data.get("price_short")
 
         key = (symbol, ex_long, ex_short)
 
@@ -102,7 +111,15 @@ class PaperTrader:
                                    buy_pressure=buy_pressure, trade_velocity=trade_velocity,
                                    book_imbalance=book_imbalance,
                                    mm_repeat_score=mm_repeat_score,
-                                   features_complete=features_complete)
+                                   features_complete=features_complete,
+                                   depth5_bid_usd=depth5_bid_usd,
+                                   depth5_ask_usd=depth5_ask_usd,
+                                   depth5_total_usd=depth5_total_usd,
+                                   depth_imbalance=depth_imbalance,
+                                   mid_price=mid_price,
+                                   spread_bps=spread_bps,
+                                   price_long=price_long,
+                                   price_short=price_short)
 
     # ── Session stats (called from report_loop) ───────────────────────────────
 
@@ -189,6 +206,14 @@ class PaperTrader:
         book_imbalance:    Optional[float] = None,
         mm_repeat_score:   Optional[float] = None,
         features_complete: bool = False,
+        depth5_bid_usd:    Optional[float] = None,
+        depth5_ask_usd:    Optional[float] = None,
+        depth5_total_usd:  Optional[float] = None,
+        depth_imbalance:   Optional[float] = None,
+        mid_price:         Optional[float] = None,
+        spread_bps:        Optional[float] = None,
+        price_long:        Optional[float] = None,
+        price_short:       Optional[float] = None,
     ) -> None:
         # Reject bogus data: price-scale mismatches produce absurd spreads
         if spread_pct > self.settings.MAX_SPREAD_PCT:
@@ -322,6 +347,8 @@ class PaperTrader:
 
                 # ── ML dataset logging ──────────────────────────────────
                 if pos_id:
+                    from datetime import datetime, timezone
+                    _now = datetime.now(timezone.utc)
                     await self.db.log_ml_entry(
                         pos_id=pos_id,
                         symbol=symbol,
@@ -335,6 +362,22 @@ class PaperTrader:
                         buy_pressure=buy_pressure,
                         trade_velocity=trade_velocity,
                         book_imbalance=book_imbalance,
+                        # depth + price features
+                        depth5_bid_usd=depth5_bid_usd,
+                        depth5_ask_usd=depth5_ask_usd,
+                        depth5_total_usd=depth5_total_usd,
+                        depth_imbalance=depth_imbalance,
+                        mid_price=mid_price,
+                        spread_bps=spread_bps,
+                        entry_price=price_long,
+                        # time features
+                        hour_of_day=_now.hour,
+                        day_of_week=_now.weekday(),
+                        minute_of_hour=_now.minute,
+                        # strategy params
+                        take_profit_bps=self.settings.TAKE_PROFIT_RATIO * spread_pct * 100,
+                        stop_loss_bps=self.settings.STOP_LOSS_RATIO * spread_pct * 100,
+                        timeout_seconds=self.settings.MAX_HOLD_SECONDS,
                     )
 
             # Breakeven: total round-trip cost as % of entry spread
@@ -425,6 +468,9 @@ class PaperTrader:
             )
             # ── ML dataset logging (BEFORE upsert_pair_stats so it always runs) ──
             if state.pos_id:
+                _deal = state.deal_size or self.settings.PAPER_DEAL_SIZE_USDT
+                _pnl_bps     = round(result.net_pnl_usdt / _deal * 10000, 4) if _deal else None
+                _pnl_percent = round(result.net_pnl_usdt / _deal * 100,   4) if _deal else None
                 await self.db.log_ml_exit(
                     pos_id=state.pos_id,
                     exit_spread_pct=spread_pct,
@@ -433,6 +479,8 @@ class PaperTrader:
                     net_pnl_usdt=result.net_pnl_usdt,
                     hold_seconds=hold_sec,
                     exit_reason=reason,
+                    pnl_bps=_pnl_bps,
+                    pnl_percent=_pnl_percent,
                 )
             try:
                 await self.db.upsert_pair_stats(symbol, ex_long, ex_short)

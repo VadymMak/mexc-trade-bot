@@ -61,8 +61,10 @@ class _TradeTick:
 
 @dataclass
 class _BookSnap:
-    bid_qty: float   # sum of top-N bid sizes
-    ask_qty: float   # sum of top-N ask sizes
+    bid_qty: float   # sum of top-N bid sizes (contracts)
+    ask_qty: float   # sum of top-N ask sizes (contracts)
+    bid_usd: float = 0.0  # sum of top-N bid value in USD (price × size)
+    ask_usd: float = 0.0  # sum of top-N ask value in USD (price × size)
 
 
 # ── FlowTracker ────────────────────────────────────────────────────────────────
@@ -98,7 +100,16 @@ class FlowTracker:
                 asks: list[tuple[float, float]]) -> None:
         bid_qty = sum(s for _, s in bids[:_BOOK_LEVELS])
         ask_qty = sum(s for _, s in asks[:_BOOK_LEVELS])
-        self._book[(symbol, exchange)] = _BookSnap(bid_qty, ask_qty)
+        bid_usd = sum(p * s for p, s in bids[:_BOOK_LEVELS])
+        ask_usd = sum(p * s for p, s in asks[:_BOOK_LEVELS])
+        self._book[(symbol, exchange)] = _BookSnap(bid_qty, ask_qty, bid_usd, ask_usd)
+
+    def get_depth_usd(self, symbol: str, exchange: str) -> tuple[Optional[float], Optional[float]]:
+        """Returns (bid_usd, ask_usd) for top-5 levels. None if no data."""
+        snap = self._book.get((symbol, exchange))
+        if snap is None or (snap.bid_usd == 0.0 and snap.ask_usd == 0.0):
+            return None, None
+        return round(snap.bid_usd, 2), round(snap.ask_usd, 2)
 
     # ── query ──────────────────────────────────────────────────────────────────
 

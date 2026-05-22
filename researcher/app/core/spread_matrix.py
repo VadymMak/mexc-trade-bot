@@ -94,6 +94,22 @@ class SpreadMatrix:
                 flow_long  = self._flow.get_metrics(symbol, exch_long)  if self._flow else {}
                 flow_short = self._flow.get_metrics(symbol, exch_short) if self._flow else {}
 
+                # USD depth (top-5 levels) per exchange, then combined for arb
+                if self._flow:
+                    depth_bid_long,  depth_ask_long  = self._flow.get_depth_usd(symbol, exch_long)
+                    depth_bid_short, depth_ask_short = self._flow.get_depth_usd(symbol, exch_short)
+                else:
+                    depth_bid_long = depth_ask_long = depth_bid_short = depth_ask_short = None
+
+                depth5_bid_usd   = (depth_bid_long  or 0.0) + (depth_bid_short or 0.0) or None
+                depth5_ask_usd   = (depth_ask_long  or 0.0) + (depth_ask_short or 0.0) or None
+                depth5_total_usd = ((depth5_bid_usd or 0.0) + (depth5_ask_usd or 0.0)) or None
+                depth_imbalance  = (
+                    round((depth5_bid_usd - depth5_ask_usd) / depth5_total_usd, 4)
+                    if depth5_total_usd and depth5_bid_usd is not None and depth5_ask_usd is not None
+                    else None
+                )
+
                 # Always include MEXC-specific flow regardless of which side MEXC is on.
                 # ScalpPaperTrader needs MEXC metrics even when MEXC is the short side.
                 mexc_flow = (
@@ -108,13 +124,20 @@ class SpreadMatrix:
                     "exchange_short": exch_short,
                     "price_long":     price_long,
                     "price_short":    price_short,
+                    "mid_price":      round((price_long + price_short) / 2, 8),
                     "spread_pct":     spread_pct,
+                    "spread_bps":     round(spread_pct * 100, 4),
                     "ratio":          ratio,
                     "zscore":         zscore,
                     "spread_mean":    spread_mean,
                     "spread_std":     spread_std,
                     "spread_cv":      spread_cv,
                     "ts_ms":          now,
+                    # USD depth (combined both legs)
+                    "depth5_bid_usd":   depth5_bid_usd,
+                    "depth5_ask_usd":   depth5_ask_usd,
+                    "depth5_total_usd": depth5_total_usd,
+                    "depth_imbalance":  depth_imbalance,
                     # flow features (long-side exchange) — used by PaperTrader/arb
                     # fallbacks: 0.5 = neutral buy_pressure/book_imbalance, 0.0 = no velocity data
                     "buy_pressure":    flow_long.get("buy_pressure") if flow_long.get("buy_pressure") is not None else 0.5,

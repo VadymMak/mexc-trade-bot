@@ -311,6 +311,22 @@ class NeonDB:
         buy_pressure:     Optional[float],
         trade_velocity:   Optional[float],
         book_imbalance:   Optional[float],
+        # depth + price features
+        depth5_bid_usd:   Optional[float] = None,
+        depth5_ask_usd:   Optional[float] = None,
+        depth5_total_usd: Optional[float] = None,
+        depth_imbalance:  Optional[float] = None,
+        mid_price:        Optional[float] = None,
+        spread_bps:       Optional[float] = None,
+        entry_price:      Optional[float] = None,
+        # time features
+        hour_of_day:      Optional[int]   = None,
+        day_of_week:      Optional[int]   = None,
+        minute_of_hour:   Optional[int]   = None,
+        # strategy params
+        take_profit_bps:  Optional[float] = None,
+        stop_loss_bps:    Optional[float] = None,
+        timeout_seconds:  Optional[int]   = None,
     ) -> None:
         """Log arb trade entry to ml_trade_outcomes for ML dataset collection."""
         if not self._pool:
@@ -324,6 +340,12 @@ class NeonDB:
                      spread_mean, spread_std,
                      buy_pressure, trade_velocity, book_imbalance,
                      entry_mode, mm_safe_size_entry,
+                     depth5_bid_usd_entry, depth5_ask_usd_entry,
+                     depth5_total_usd_entry, depth_imbalance_entry,
+                     mid_price_entry, spread_bps_entry,
+                     entry_price,
+                     hour_of_day, day_of_week, minute_of_hour,
+                     take_profit_bps, stop_loss_bps, timeout_seconds,
                      ml_score, ml_would_block)
                 VALUES
                     ($1, $2, $3, NOW(),
@@ -331,6 +353,12 @@ class NeonDB:
                      $6, $7,
                      $8, $9, $10,
                      $11, $12,
+                     $13, $14,
+                     $15, $16,
+                     $17, $18,
+                     $19,
+                     $20, $21, $22,
+                     $23, $24, $25,
                      NULL, NULL)
                 ON CONFLICT DO NOTHING
                 """,
@@ -339,6 +367,12 @@ class NeonDB:
                 spread_mean, spread_std,
                 buy_pressure, trade_velocity, book_imbalance,
                 entry_mode, deal_size_usdt,
+                depth5_bid_usd, depth5_ask_usd,
+                depth5_total_usd, depth_imbalance,
+                mid_price, spread_bps,
+                entry_price,
+                hour_of_day, day_of_week, minute_of_hour,
+                take_profit_bps, stop_loss_bps, timeout_seconds,
             )
         except Exception as e:
             logger.warning(f"[ML_LOG] entry log failed: {e}")
@@ -352,6 +386,8 @@ class NeonDB:
         net_pnl_usdt:     float,
         hold_seconds:     int,
         exit_reason:      Optional[str],
+        pnl_bps:          Optional[float] = None,
+        pnl_percent:      Optional[float] = None,
     ) -> None:
         """Log arb trade exit to ml_trade_outcomes."""
         if not self._pool:
@@ -373,6 +409,8 @@ class NeonDB:
                     pnl_usd           = $4,
                     hold_duration_sec = $5,
                     exit_reason       = $6,
+                    pnl_bps           = $7,
+                    pnl_percent       = $8,
                     win               = CASE WHEN $4::NUMERIC > 0 THEN 1 ELSE 0 END,
                     hit_tp            = CASE WHEN $6::TEXT = 'TAKE_PROFIT' THEN 1 ELSE 0 END,
                     hit_sl            = CASE WHEN $6::TEXT = 'STOP_LOSS' THEN 1 ELSE 0 END,
@@ -383,6 +421,7 @@ class NeonDB:
                 exit_spread_pct, exit_zscore,
                 net_pnl_usdt,
                 float(hold_seconds), exit_reason,
+                pnl_bps, pnl_percent,
             )
             # status = "UPDATE N" — N=0 means row not found in ml_trade_outcomes
             logger.info(f"[ML_LOG] exit done trade_id={trade_id} status={status!r}")
