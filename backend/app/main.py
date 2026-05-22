@@ -148,6 +148,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️ DB schema init failed: {e}")
 
+    try:
+        from app.db.ml_engine import ensure_ml_table
+        ensure_ml_table()
+    except Exception as e:
+        print(f"⚠️ ML NeonDB table init failed: {e}")
+
     app.state.start_mono = time.monotonic()
 
     # State holders
