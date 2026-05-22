@@ -423,8 +423,7 @@ class PaperTrader:
                 hold_seconds=hold_sec,
                 exit_reason=reason,
             )
-            await self.db.upsert_pair_stats(symbol, ex_long, ex_short)
-            # ── ML dataset logging ──────────────────────────────────────
+            # ── ML dataset logging (BEFORE upsert_pair_stats so it always runs) ──
             if state.pos_id:
                 await self.db.log_ml_exit(
                     pos_id=state.pos_id,
@@ -435,6 +434,10 @@ class PaperTrader:
                     hold_seconds=hold_sec,
                     exit_reason=reason,
                 )
+            try:
+                await self.db.upsert_pair_stats(symbol, ex_long, ex_short)
+            except Exception as _ups_err:
+                logger.warning(f"[DB] upsert_pair_stats failed: {_ups_err}")
             # Evaluate symbol lifecycle after every close (async, non-blocking)
             await self.evaluator.on_trade_closed(symbol)
 
