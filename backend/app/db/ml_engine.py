@@ -132,6 +132,16 @@ CREATE TABLE IF NOT EXISTS ml_trade_outcomes (
     price_continued_bps NUMERIC,
     ml_score NUMERIC DEFAULT NULL,
     ml_would_block BOOLEAN DEFAULT NULL,
+    -- Arb-specific columns (from researcher service)
+    entry_zscore NUMERIC DEFAULT NULL,
+    exit_zscore NUMERIC DEFAULT NULL,
+    exit_spread_pct NUMERIC DEFAULT NULL,
+    spread_mean NUMERIC DEFAULT NULL,
+    spread_std NUMERIC DEFAULT NULL,
+    buy_pressure NUMERIC DEFAULT NULL,
+    trade_velocity NUMERIC DEFAULT NULL,
+    book_imbalance NUMERIC DEFAULT NULL,
+    entry_mode TEXT DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_ml_outcomes_symbol ON ml_trade_outcomes(symbol);
@@ -139,14 +149,33 @@ CREATE INDEX IF NOT EXISTS idx_ml_outcomes_entry_time ON ml_trade_outcomes(entry
 CREATE INDEX IF NOT EXISTS idx_ml_outcomes_exit_reason ON ml_trade_outcomes(exit_reason);
 """
 
+# Migration SQL: add arb-specific columns to existing table
+_MIGRATE_SQL = """
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS entry_zscore    NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS exit_zscore     NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS exit_spread_pct NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS spread_mean     NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS spread_std      NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS buy_pressure    NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS trade_velocity  NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS book_imbalance  NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS entry_mode      TEXT    DEFAULT NULL;
+"""
+
 
 def ensure_ml_table() -> None:
-    """Create ml_trade_outcomes table in NeonDB if it doesn't exist."""
+    """Create ml_trade_outcomes table in NeonDB if it doesn't exist, then migrate."""
     if not ML_DB_ENABLED or ml_engine is None:
         return
     try:
         with ml_engine.connect() as conn:
+            # Create table (idempotent)
             for stmt in _CREATE_SQL.strip().split(";"):
+                stmt = stmt.strip()
+                if stmt:
+                    conn.execute(text(stmt))
+            # Migrate: add arb-specific columns to existing table (idempotent)
+            for stmt in _MIGRATE_SQL.strip().split(";"):
                 stmt = stmt.strip()
                 if stmt:
                     conn.execute(text(stmt))
