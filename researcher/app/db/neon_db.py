@@ -373,10 +373,10 @@ class NeonDB:
                     pnl_usd           = $4,
                     hold_duration_sec = $5,
                     exit_reason       = $6,
-                    win               = CASE WHEN $4 > 0 THEN 1 ELSE 0 END,
-                    hit_tp            = CASE WHEN $6 = 'TAKE_PROFIT' THEN 1 ELSE 0 END,
-                    hit_sl            = CASE WHEN $6 = 'STOP_LOSS' THEN 1 ELSE 0 END,
-                    timed_out         = CASE WHEN $6 = 'TIME_STOP' THEN 1 ELSE 0 END
+                    win               = CASE WHEN $4::NUMERIC > 0 THEN 1 ELSE 0 END,
+                    hit_tp            = CASE WHEN $6::TEXT = 'TAKE_PROFIT' THEN 1 ELSE 0 END,
+                    hit_sl            = CASE WHEN $6::TEXT = 'STOP_LOSS' THEN 1 ELSE 0 END,
+                    timed_out         = CASE WHEN $6::TEXT = 'TIME_STOP' THEN 1 ELSE 0 END
                 WHERE trade_id = $1
                 """,
                 trade_id,
