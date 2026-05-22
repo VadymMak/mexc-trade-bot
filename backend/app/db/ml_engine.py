@@ -151,15 +151,19 @@ CREATE INDEX IF NOT EXISTS idx_ml_outcomes_exit_reason ON ml_trade_outcomes(exit
 
 # Migration SQL: add arb-specific columns to existing table
 _MIGRATE_SQL = """
-ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS entry_zscore    NUMERIC DEFAULT NULL;
-ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS exit_zscore     NUMERIC DEFAULT NULL;
-ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS exit_spread_pct NUMERIC DEFAULT NULL;
-ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS spread_mean     NUMERIC DEFAULT NULL;
-ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS spread_std      NUMERIC DEFAULT NULL;
-ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS buy_pressure    NUMERIC DEFAULT NULL;
-ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS trade_velocity  NUMERIC DEFAULT NULL;
-ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS book_imbalance  NUMERIC DEFAULT NULL;
-ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS entry_mode      TEXT    DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS entry_zscore       NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS exit_zscore        NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS exit_spread_pct    NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS spread_mean        NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS spread_std         NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS buy_pressure       NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS trade_velocity     NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS book_imbalance     NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS entry_mode         TEXT    DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS is_weekend         INTEGER DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS trading_session    TEXT    DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS mins_to_funding    NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS mexc_spot_basis_pct NUMERIC DEFAULT NULL;
 """
 
 

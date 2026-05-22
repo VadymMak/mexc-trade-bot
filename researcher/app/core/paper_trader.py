@@ -43,6 +43,20 @@ def _mins_to_funding(ts_ms: int) -> float:
     return round(_seconds_to_next_funding(ts_ms) / 60, 2)
 
 
+def _trading_session(hour_utc: int) -> str:
+    """Classify UTC hour into named crypto trading session."""
+    if 0 <= hour_utc <= 6:
+        return "asia"
+    elif 7 <= hour_utc <= 12:
+        return "europe"
+    elif 13 <= hour_utc <= 15:
+        return "overlap"
+    elif 16 <= hour_utc <= 21:
+        return "us"
+    else:
+        return "quiet"
+
+
 class PaperTrader:
     def __init__(self, db: NeonDB, settings: Settings) -> None:
         self.db        = db
@@ -99,6 +113,7 @@ class PaperTrader:
         spread_bps         = data.get("spread_bps")
         price_long         = data.get("price_long")
         price_short        = data.get("price_short")
+        mexc_spot_basis    = data.get("mexc_spot_basis_pct")
 
         key = (symbol, ex_long, ex_short)
 
@@ -119,7 +134,8 @@ class PaperTrader:
                                    mid_price=mid_price,
                                    spread_bps=spread_bps,
                                    price_long=price_long,
-                                   price_short=price_short)
+                                   price_short=price_short,
+                                   mexc_spot_basis=mexc_spot_basis)
 
     # ── Session stats (called from report_loop) ───────────────────────────────
 
@@ -214,6 +230,7 @@ class PaperTrader:
         spread_bps:        Optional[float] = None,
         price_long:        Optional[float] = None,
         price_short:       Optional[float] = None,
+        mexc_spot_basis:   Optional[float] = None,
     ) -> None:
         # Reject bogus data: price-scale mismatches produce absurd spreads
         if spread_pct > self.settings.MAX_SPREAD_PCT:
@@ -348,7 +365,9 @@ class PaperTrader:
                 # ── ML dataset logging ──────────────────────────────────
                 if pos_id:
                     from datetime import datetime, timezone
-                    _now = datetime.now(timezone.utc)
+                    _now   = datetime.now(timezone.utc)
+                    _ts_ms = int(_now.timestamp() * 1000)
+                    _dow   = _now.weekday()  # 0=Mon … 6=Sun
                     await self.db.log_ml_entry(
                         pos_id=pos_id,
                         symbol=symbol,
@@ -359,9 +378,11 @@ class PaperTrader:
                         entry_mode=entry_mode,
                         spread_mean=spread_mean,
                         spread_std=spread_std,
+                        spread_cv=spread_cv,
                         buy_pressure=buy_pressure,
                         trade_velocity=trade_velocity,
                         book_imbalance=book_imbalance,
+                        mm_repeat_score=mm_repeat_score,
                         # depth + price features
                         depth5_bid_usd=depth5_bid_usd,
                         depth5_ask_usd=depth5_ask_usd,
@@ -370,10 +391,14 @@ class PaperTrader:
                         mid_price=mid_price,
                         spread_bps=spread_bps,
                         entry_price=price_long,
+                        mexc_spot_basis_pct=mexc_spot_basis,
                         # time features
                         hour_of_day=_now.hour,
-                        day_of_week=_now.weekday(),
+                        day_of_week=_dow,
                         minute_of_hour=_now.minute,
+                        is_weekend=1 if _dow >= 5 else 0,
+                        trading_session=_trading_session(_now.hour),
+                        mins_to_funding=_mins_to_funding(_ts_ms),
                         # strategy params
                         take_profit_bps=self.settings.TAKE_PROFIT_RATIO * spread_pct * 100,
                         stop_loss_bps=self.settings.STOP_LOSS_RATIO * spread_pct * 100,
