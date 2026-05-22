@@ -320,6 +320,23 @@ class PaperTrader:
                 )
                 self._open[key].pos_id = pos_id  # update with real id
 
+                # ── ML dataset logging ──────────────────────────────────
+                if pos_id:
+                    await self.db.log_ml_entry(
+                        pos_id=pos_id,
+                        symbol=symbol,
+                        exchange_long=ex_long,
+                        entry_spread_pct=spread_pct,
+                        entry_zscore=zscore,
+                        deal_size_usdt=deal_size,
+                        entry_mode=entry_mode,
+                        spread_mean=spread_mean,
+                        spread_std=spread_std,
+                        buy_pressure=buy_pressure,
+                        trade_velocity=trade_velocity,
+                        book_imbalance=book_imbalance,
+                    )
+
             # Breakeven: total round-trip cost as % of entry spread
             be = entry_costs["total_cost_usdt"] * 2 / deal_size * 100
             tp_target = spread_pct * self.settings.TAKE_PROFIT_RATIO
@@ -407,6 +424,17 @@ class PaperTrader:
                 exit_reason=reason,
             )
             await self.db.upsert_pair_stats(symbol, ex_long, ex_short)
+            # ── ML dataset logging ──────────────────────────────────────
+            if state.pos_id:
+                await self.db.log_ml_exit(
+                    pos_id=state.pos_id,
+                    exit_spread_pct=spread_pct,
+                    exit_zscore=zscore,
+                    gross_pnl_usdt=result.gross_pnl_usdt,
+                    net_pnl_usdt=result.net_pnl_usdt,
+                    hold_seconds=hold_sec,
+                    exit_reason=reason,
+                )
             # Evaluate symbol lifecycle after every close (async, non-blocking)
             await self.evaluator.on_trade_closed(symbol)
 

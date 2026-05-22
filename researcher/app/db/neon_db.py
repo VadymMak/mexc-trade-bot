@@ -295,6 +295,91 @@ class NeonDB:
             exit_reason,
         )
 
+    # ── ml_trade_outcomes logging ─────────────────────────────────────────────
+
+    async def log_ml_entry(
+        self,
+        pos_id:           int,
+        symbol:           str,
+        exchange_long:    str,
+        entry_spread_pct: float,
+        entry_zscore:     Optional[float],
+        deal_size_usdt:   float,
+        entry_mode:       Optional[str],
+        spread_mean:      Optional[float],
+        spread_std:       Optional[float],
+        buy_pressure:     Optional[float],
+        trade_velocity:   Optional[float],
+        book_imbalance:   Optional[float],
+    ) -> None:
+        """Log arb trade entry to ml_trade_outcomes for ML dataset collection."""
+        if not self._pool:
+            return
+        try:
+            await self._pool.execute(
+                """
+                INSERT INTO ml_trade_outcomes
+                    (trade_id, symbol, exchange, entry_time,
+                     spread_pct_entry, entry_zscore,
+                     spread_mean, spread_std,
+                     buy_pressure, trade_velocity, book_imbalance,
+                     entry_mode, mm_safe_size_entry,
+                     ml_score, ml_would_block)
+                VALUES
+                    ($1, $2, $3, NOW(),
+                     $4, $5,
+                     $6, $7,
+                     $8, $9, $10,
+                     $11, $12,
+                     NULL, NULL)
+                ON CONFLICT DO NOTHING
+                """,
+                f"arb_{pos_id}", symbol, exchange_long,
+                entry_spread_pct, entry_zscore,
+                spread_mean, spread_std,
+                buy_pressure, trade_velocity, book_imbalance,
+                entry_mode, deal_size_usdt,
+            )
+        except Exception as e:
+            logger.warning(f"[ML_LOG] entry log failed: {e}")
+
+    async def log_ml_exit(
+        self,
+        pos_id:           int,
+        exit_spread_pct:  float,
+        exit_zscore:      Optional[float],
+        gross_pnl_usdt:   float,
+        net_pnl_usdt:     float,
+        hold_seconds:     int,
+        exit_reason:      Optional[str],
+    ) -> None:
+        """Log arb trade exit to ml_trade_outcomes."""
+        if not self._pool:
+            return
+        try:
+            await self._pool.execute(
+                """
+                UPDATE ml_trade_outcomes SET
+                    exit_time         = NOW(),
+                    exit_spread_pct   = $2,
+                    exit_zscore       = $3,
+                    pnl_usd           = $4,
+                    hold_duration_sec = $5,
+                    exit_reason       = $6,
+                    win               = CASE WHEN $4 > 0 THEN 1 ELSE 0 END,
+                    hit_tp            = CASE WHEN $6 = 'TAKE_PROFIT' THEN 1 ELSE 0 END,
+                    hit_sl            = CASE WHEN $6 = 'STOP_LOSS' THEN 1 ELSE 0 END,
+                    timed_out         = CASE WHEN $6 = 'TIME_STOP' THEN 1 ELSE 0 END
+                WHERE trade_id = $1
+                """,
+                f"arb_{pos_id}",
+                exit_spread_pct, exit_zscore,
+                net_pnl_usdt,
+                float(hold_seconds), exit_reason,
+            )
+        except Exception as e:
+            logger.warning(f"[ML_LOG] exit log failed: {e}")
+
     # ── pair_stats ────────────────────────────────────────────────────────────
 
     async def upsert_pair_stats(
