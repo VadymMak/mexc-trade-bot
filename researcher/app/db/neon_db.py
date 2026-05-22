@@ -355,9 +355,16 @@ class NeonDB:
     ) -> None:
         """Log arb trade exit to ml_trade_outcomes."""
         if not self._pool:
+            logger.warning("[ML_LOG] exit skip: no pool")
             return
+        trade_id = f"arb_{pos_id}"
+        logger.info(
+            f"[ML_LOG] exit attempt trade_id={trade_id} "
+            f"exit_spread_pct={exit_spread_pct} pnl={net_pnl_usdt} "
+            f"reason={exit_reason} hold={hold_seconds}s"
+        )
         try:
-            await self._pool.execute(
+            status = await self._pool.execute(
                 """
                 UPDATE ml_trade_outcomes SET
                     exit_time         = NOW(),
@@ -372,13 +379,16 @@ class NeonDB:
                     timed_out         = CASE WHEN $6 = 'TIME_STOP' THEN 1 ELSE 0 END
                 WHERE trade_id = $1
                 """,
-                f"arb_{pos_id}",
+                trade_id,
                 exit_spread_pct, exit_zscore,
                 net_pnl_usdt,
                 float(hold_seconds), exit_reason,
             )
+            # status = "UPDATE N" — N=0 means row not found in ml_trade_outcomes
+            logger.info(f"[ML_LOG] exit done trade_id={trade_id} status={status!r}")
         except Exception as e:
-            logger.warning(f"[ML_LOG] exit log failed: {e}")
+            import traceback
+            logger.warning(f"[ML_LOG] exit log failed trade_id={trade_id}: {e}\n{traceback.format_exc()}")
 
     # ── pair_stats ────────────────────────────────────────────────────────────
 
