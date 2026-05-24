@@ -87,6 +87,7 @@ class PaperTrader:
         self._total_net_pnl = 0.0
 
         self._equity_ratio: float = 1.0  # scales deal sizes when compounding is enabled
+        self._current_spreads: dict = {}   # cache latest spread per key for delayed measurement
 
     async def on_spread(self, data: dict) -> None:
         """Called by SpreadMatrix on every aligned spread update."""
@@ -116,6 +117,7 @@ class PaperTrader:
         mexc_spot_basis    = data.get("mexc_spot_basis_pct")
 
         key = (symbol, ex_long, ex_short)
+        self._current_spreads[key] = data   # cache for price_continued_bps delayed task
 
         if key in self._open:
             await self._maybe_close(key, zscore, spread_pct, ts_ms)
@@ -508,6 +510,35 @@ class PaperTrader:
                     pnl_percent=_pnl_percent,
                     spread_at_exit=spread_pct * 100,
                 )
+
+                # Delayed spread continuation measurement (60s post-exit)
+                _pos_id_snap      = state.pos_id
+                _key_snap         = key
+                _exit_spread_snap = spread_pct * 100   # bps at exit moment
+
+                async def _track_spread_continuation(
+                    pos_id=_pos_id_snap,
+                    key=_key_snap,
+                    exit_bps=_exit_spread_snap,
+                ) -> None:
+                    import asyncio as _asyncio
+                    await _asyncio.sleep(60)
+                    try:
+                        spread_data = self._current_spreads.get(key, {})
+                        spread_60s = spread_data.get("spread_bps")
+                        if spread_60s is not None and exit_bps > 0:
+                            # positive = spread kept narrowing = exited too early
+                            # negative = spread widened = good exit timing
+                            bps = round(exit_bps - spread_60s, 4)
+                            await self.db.update_price_continued_arb(pos_id, bps)
+                    except Exception as _e:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            f"price_continuation task failed for arb_{pos_id}: {_e}"
+                        )
+
+                import asyncio as _asyncio_outer
+                _asyncio_outer.create_task(_track_spread_continuation())
             try:
                 await self.db.upsert_pair_stats(symbol, ex_long, ex_short)
             except Exception as _ups_err:

@@ -447,6 +447,24 @@ class NeonDB:
             import traceback
             logger.warning(f"[ML_LOG] exit log failed trade_id={trade_id}: {e}\n{traceback.format_exc()}")
 
+    async def update_price_continued_arb(self, pos_id: int, price_continued_bps: float) -> None:
+        """UPDATE price_continued_bps 60s after arb exit — delayed measurement."""
+        trade_id = f"arb_{pos_id}"
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE ml_trade_outcomes "
+                    "SET price_continued_bps = $1 "
+                    "WHERE trade_id = $2",
+                    round(price_continued_bps, 4),
+                    trade_id,
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                f"Failed to update price_continued_bps for {trade_id}: {e}"
+            )
+
     # ── pair_stats ────────────────────────────────────────────────────────────
 
     async def upsert_pair_stats(
