@@ -506,6 +506,7 @@ class PaperTrader:
                     exit_reason=reason,
                     pnl_bps=_pnl_bps,
                     pnl_percent=_pnl_percent,
+                    spread_at_exit=spread_pct * 100,
                 )
             try:
                 await self.db.upsert_pair_stats(symbol, ex_long, ex_short)

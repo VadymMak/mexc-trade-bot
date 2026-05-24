@@ -403,6 +403,7 @@ class NeonDB:
         exit_reason:      Optional[str],
         pnl_bps:          Optional[float] = None,
         pnl_percent:      Optional[float] = None,
+        spread_at_exit:   float = 0.0,
     ) -> None:
         """Log arb trade exit to ml_trade_outcomes."""
         if not self._pool:
@@ -426,6 +427,7 @@ class NeonDB:
                     exit_reason       = $6,
                     pnl_bps           = $7,
                     pnl_percent       = $8,
+                    spread_at_exit    = $9,
                     win               = CASE WHEN $4::NUMERIC > 0 THEN 1 ELSE 0 END,
                     hit_tp            = CASE WHEN $6::TEXT = 'TAKE_PROFIT' THEN 1 ELSE 0 END,
                     hit_sl            = CASE WHEN $6::TEXT = 'STOP_LOSS' THEN 1 ELSE 0 END,
@@ -437,6 +439,7 @@ class NeonDB:
                 net_pnl_usdt,
                 float(hold_seconds), exit_reason,
                 pnl_bps, pnl_percent,
+                spread_at_exit,
             )
             # status = "UPDATE N" — N=0 means row not found in ml_trade_outcomes
             logger.info(f"[ML_LOG] exit done trade_id={trade_id} status={status!r}")
