@@ -1177,6 +1177,8 @@ class StrategyEngine:
                                         max_adverse_excursion_bps=None,
                                         peak_price=None,
                                         lowest_price=None,
+                                        spread_at_exit=spread_bps,
+                                        mm_present_at_exit=1 if mm_detector.get_pattern(sym) else 0,
                                     )
                                 except Exception:
                                     pass
@@ -1437,7 +1439,8 @@ class StrategyEngine:
                                 
                                 pnl_usd = (exit_price - entry_px) * actual_qty if entry_px > 0 else 0.0
                                 pnl_percent = (exit_price - entry_px) / entry_px * 100 if entry_px > 0 else 0.0
-                                
+
+                                _mm_detector_exit = get_mm_detector()
                                 ml_logger.log_exit(
                                     symbol=sym,
                                     exit_price=exit_price,
@@ -1451,6 +1454,8 @@ class StrategyEngine:
                                     max_adverse_excursion_bps=None,
                                     peak_price=None,
                                     lowest_price=None,
+                                    spread_at_exit=spread_bps,
+                                    mm_present_at_exit=1 if _mm_detector_exit.get_pattern(sym) else 0,
                                 )
                                 
                                 print(f"[ML_LOGGER] ✅ Exit logged: {st.current_trade_id}")
