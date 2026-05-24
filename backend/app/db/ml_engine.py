@@ -164,6 +164,7 @@ ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS is_weekend         INTEGE
 ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS trading_session    TEXT    DEFAULT NULL;
 ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS mins_to_funding    NUMERIC DEFAULT NULL;
 ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS mexc_spot_basis_pct NUMERIC DEFAULT NULL;
+ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS price_continued_bps NUMERIC DEFAULT NULL;
 """
 
 

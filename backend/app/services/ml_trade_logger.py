@@ -244,7 +244,31 @@ class MLTradeLogger:
             
         except Exception as e:
             logger.error(f"Failed to log exit for {symbol}: {e}", exc_info=True)
-    
+
+    def update_price_continued(self, trade_id: str, price_continued_bps: float) -> None:
+        """UPDATE price_continued_bps 60s after exit — delayed measurement."""
+        if not self.enabled:
+            return
+        db = SessionLocal()
+        try:
+            db.execute(
+                text(
+                    "UPDATE ml_trade_outcomes "
+                    "SET price_continued_bps = :val "
+                    "WHERE trade_id = :tid"
+                ),
+                {"val": round(price_continued_bps, 4), "tid": trade_id},
+            )
+            db.commit()
+            logger.debug(
+                f"📈 price_continued_bps updated: {trade_id} → {price_continued_bps:.2f} bps"
+            )
+        except Exception as e:
+            logger.error(f"Failed to update price_continued_bps for {trade_id}: {e}")
+            db.rollback()
+        finally:
+            db.close()
+
     def _extract_features(self, scan_row: Any) -> Dict[str, Any]:
         """
         Extract all 50+ features from ScanRow.

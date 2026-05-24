@@ -1180,6 +1180,31 @@ class StrategyEngine:
                                         spread_at_exit=spread_bps,
                                         mm_present_at_exit=1 if mm_detector.get_pattern(sym) else 0,
                                     )
+
+                                    # Delayed price continuation measurement (60s post-exit)
+                                    _trade_id_snap   = st.current_trade_id
+                                    _exit_price_snap = exit_price
+                                    _sym_snap        = sym
+
+                                    async def _track_price_continuation_a(
+                                        tid=_trade_id_snap,
+                                        ep=_exit_price_snap,
+                                        s=_sym_snap,
+                                    ) -> None:
+                                        await asyncio.sleep(60)
+                                        try:
+                                            from app.services.price_poller import get_poller
+                                            from app.services.ml_trade_logger import get_ml_trade_logger
+                                            price_data = get_poller().get_price(s)
+                                            if price_data and ep > 0:
+                                                mid_60s = price_data.get("mid", 0.0)
+                                                if mid_60s > 0:
+                                                    bps = (mid_60s - ep) / ep * 1e4
+                                                    get_ml_trade_logger().update_price_continued(tid, bps)
+                                        except Exception as _e:
+                                            print(f"[ML_LOGGER] ⚠️ price_continuation task failed (HARD_SL): {_e}")
+
+                                    asyncio.create_task(_track_price_continuation_a())
                                 except Exception:
                                     pass
                             
@@ -1457,7 +1482,32 @@ class StrategyEngine:
                                     spread_at_exit=spread_bps,
                                     mm_present_at_exit=1 if _mm_detector_exit.get_pattern(sym) else 0,
                                 )
-                                
+
+                                # Delayed price continuation measurement (60s post-exit)
+                                _trade_id_snap   = st.current_trade_id
+                                _exit_price_snap = exit_price
+                                _sym_snap        = sym
+
+                                async def _track_price_continuation_b(
+                                    tid=_trade_id_snap,
+                                    ep=_exit_price_snap,
+                                    s=_sym_snap,
+                                ) -> None:
+                                    await asyncio.sleep(60)
+                                    try:
+                                        from app.services.price_poller import get_poller
+                                        from app.services.ml_trade_logger import get_ml_trade_logger
+                                        price_data = get_poller().get_price(s)
+                                        if price_data and ep > 0:
+                                            mid_60s = price_data.get("mid", 0.0)
+                                            if mid_60s > 0:
+                                                bps = (mid_60s - ep) / ep * 1e4
+                                                get_ml_trade_logger().update_price_continued(tid, bps)
+                                    except Exception as _e:
+                                        print(f"[ML_LOGGER] ⚠️ price_continuation task failed: {_e}")
+
+                                asyncio.create_task(_track_price_continuation_b())
+
                                 print(f"[ML_LOGGER] ✅ Exit logged: {st.current_trade_id}")
                                 
                             except Exception as e:
