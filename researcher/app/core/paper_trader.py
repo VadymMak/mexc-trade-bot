@@ -405,6 +405,8 @@ class PaperTrader:
                         take_profit_bps=self.settings.TAKE_PROFIT_RATIO * spread_pct * 100,
                         stop_loss_bps=self.settings.STOP_LOSS_RATIO * spread_pct * 100,
                         timeout_seconds=self.settings.MAX_HOLD_SECONDS,
+                        entry_qty=deal_size,
+                        entry_side="ARB_LONG",
                     )
 
             # Breakeven: total round-trip cost as % of entry spread

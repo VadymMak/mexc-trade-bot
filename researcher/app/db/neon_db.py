@@ -333,6 +333,8 @@ class NeonDB:
         take_profit_bps:    Optional[float] = None,
         stop_loss_bps:      Optional[float] = None,
         timeout_seconds:    Optional[int]   = None,
+        entry_qty:          float           = 0.0,
+        entry_side:         str             = "ARB_LONG",
     ) -> None:
         """Log arb trade entry to ml_trade_outcomes for ML dataset collection."""
         if not self._pool:
@@ -355,6 +357,7 @@ class NeonDB:
                      take_profit_bps, stop_loss_bps, timeout_seconds,
                      is_weekend, trading_session, mins_to_funding,
                      mexc_spot_basis_pct,
+                     entry_qty, entry_side,
                      ml_score, ml_would_block)
                 VALUES
                     ($1, $2, $3, NOW(),
@@ -371,6 +374,7 @@ class NeonDB:
                      $25, $26, $27,
                      $28, $29, $30,
                      $31,
+                     $32, $33,
                      NULL, NULL)
                 ON CONFLICT DO NOTHING
                 """,
@@ -388,6 +392,7 @@ class NeonDB:
                 take_profit_bps, stop_loss_bps, timeout_seconds,
                 is_weekend, trading_session, mins_to_funding,
                 mexc_spot_basis_pct,
+                entry_qty, entry_side,
             )
         except Exception as e:
             logger.warning(f"[ML_LOG] entry log failed: {e}")
