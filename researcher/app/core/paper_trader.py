@@ -312,14 +312,17 @@ class PaperTrader:
 
         if zscore_entry:
             entry_mode = "zscore"
-            vel = trade_velocity or 0
-            if vel > 50:
-                deal_size = self.settings.DEAL_SIZE_HIGH_USDT * self._equity_ratio
-            elif vel >= 10:
-                deal_size = self.settings.DEAL_SIZE_MED_USDT * self._equity_ratio
-            else:
-                deal_size = self.settings.PAPER_DEAL_SIZE_USDT * self._equity_ratio
-            logger.info("[VEL] %s  vel=%.1f → deal_size=%.0f USDT  ratio=×%.3f", symbol, vel, deal_size, self._equity_ratio)
+            # Dynamic sizing: mm_safe_size × zscore_multiplier × velocity_bonus
+            _base_safe  = 20.0  # mm_safe_size not in researcher spread data — fixed base
+            _zscore_abs = abs(zscore) if zscore is not None else 2.0
+            _z_mult     = min(_zscore_abs / 3.0, 1.5)
+            _vel        = float(trade_velocity or 0.0)
+            _vel_bonus  = 1.1 if _vel > 0 else 1.0
+            deal_size   = max(10.0, min(_base_safe * _z_mult * _vel_bonus, _base_safe * 1.5))
+            logger.info(
+                "[DYN-SIZE] %s  z=%.2f z_mult=×%.2f vel=%.1f vel_bonus=×%.1f → deal_size=%.1f USDT",
+                symbol, _zscore_abs, _z_mult, _vel, _vel_bonus, deal_size,
+            )
             if current_exposure + deal_size > self.settings.MAX_EXPOSURE_USDT:
                 deal_size = self.settings.MAX_EXPOSURE_USDT - current_exposure
                 if deal_size < self.settings.PAPER_DEAL_SIZE_USDT:
