@@ -18,7 +18,7 @@ class SpreadMatrix:
     Computes spread between all exchange pairs.
     """
 
-    def __init__(self, max_lag_ms: int = 30) -> None:
+    def __init__(self, max_lag_ms: int = 5000) -> None:
         self.max_lag_ms = max_lag_ms
         # { symbol: { exchange: (price, ts_ms) } }
         self._prices: dict[str, dict[str, tuple[float, int]]] = {}
