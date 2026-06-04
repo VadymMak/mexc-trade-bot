@@ -217,6 +217,13 @@ class NeonDB:
             CREATE INDEX IF NOT EXISTS idx_scalp_symbol
                 ON scalp_positions(symbol, status);
         """)
+        await self._pool.execute("""
+            CREATE TABLE IF NOT EXISTS bot_config (
+                key        TEXT PRIMARY KEY,
+                value      TEXT NOT NULL,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+        """)
         logger.info("[DB] Schema verified / created OK")
 
     # ── paper_positions ───────────────────────────────────────────────────────
@@ -1001,6 +1008,34 @@ class NeonDB:
             "SELECT COALESCE(SUM(net_pnl_usdt), 0) AS total FROM paper_positions WHERE status = 'closed'"
         )
         return float(row["total"])
+
+    # ── bot_config ────────────────────────────────────────────────────────────
+
+    async def save_bot_config(self, key: str, value: str) -> None:
+        """Persist arbitrary config value to NeonDB (survives Railway restarts)."""
+        if not self._pool:
+            return
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO bot_config (key, value, updated_at)
+                   VALUES ($1, $2, NOW())
+                   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()""",
+                key, value,
+            )
+
+    async def load_bot_config(self, key: str) -> Optional[str]:
+        """Load a persisted config value from NeonDB. Returns None if not found."""
+        if not self._pool:
+            return None
+        try:
+            async with self._pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT value FROM bot_config WHERE key = $1", key
+                )
+                return row["value"] if row else None
+        except Exception as exc:
+            logger.warning("[NeonDB] load_bot_config failed: %r", exc)
+            return None
 
 
 # ── Time session helper ───────────────────────────────────────────────────────

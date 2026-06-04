@@ -39,29 +39,6 @@ async def main() -> None:
     )
     log = logging.getLogger("researcher")
 
-    # ── Symbols ───────────────────────────────────────────────────────────────
-    symbols_file = Path(settings.SYMBOLS_FILE)
-    if symbols_file.exists():
-        try:
-            discovered = json.loads(symbols_file.read_text())
-            symbols    = discovered["symbols"]
-            new_count  = len(discovered.get("new_listings", []))
-            log.info(
-                "Loaded %d symbols from %s (%d new listings, generated %s)",
-                len(symbols), symbols_file, new_count, discovered.get("generated_at", "?"),
-            )
-        except Exception as exc:
-            log.warning("Failed to load %s: %r — running discovery now", symbols_file, exc)
-            symbols = await discover_symbols(save=True)
-    else:
-        log.info("No symbols file — running live discovery…")
-        try:
-            symbols = await discover_symbols(save=True)
-            log.info("Discovery found %d symbols", len(symbols))
-        except Exception as exc:
-            log.warning("Discovery failed: %r — using env var fallback", exc)
-            symbols = settings.symbols_list
-
     # ── Database ──────────────────────────────────────────────────────────────
     db = NeonDB(settings.NEON_DATABASE_URL)
     if settings.NEON_DATABASE_URL:
@@ -75,6 +52,54 @@ async def main() -> None:
             log.error("Neon DB connect failed: %r — running in dry-run mode", exc)
     else:
         log.warning("No NEON_DATABASE_URL — running without DB (dry run, no persistence)")
+
+    # ── Symbols — loaded from NeonDB → file → fresh discovery → env fallback ──
+    symbols: list[str] = []
+
+    # Priority 1: NeonDB (persists across Railway restarts)
+    if db._pool:
+        try:
+            raw = await db.load_bot_config("discovered_symbols")
+            if raw:
+                symbols = json.loads(raw)
+                log.info("[Symbols] Loaded %d symbols from NeonDB cache", len(symbols))
+        except Exception as exc:
+            log.warning("[Symbols] NeonDB load failed: %r", exc)
+
+    # Priority 2: local file (useful in local dev)
+    if not symbols:
+        symbols_file = Path(settings.SYMBOLS_FILE)
+        if symbols_file.exists():
+            try:
+                discovered = json.loads(symbols_file.read_text())
+                symbols = discovered["symbols"]
+                new_count = len(discovered.get("new_listings", []))
+                log.info(
+                    "[Symbols] Loaded %d symbols from file %s (%d new listings)",
+                    len(symbols), symbols_file, new_count,
+                )
+                if db._pool:
+                    await db.save_bot_config("discovered_symbols", json.dumps(symbols))
+                    log.info("[Symbols] File list persisted to NeonDB")
+            except Exception as exc:
+                log.warning("[Symbols] File load failed: %r", exc)
+
+    # Priority 3: fresh discovery
+    if not symbols:
+        log.info("[Symbols] No cache found — running live discovery…")
+        try:
+            symbols = await discover_symbols(save=True)
+            log.info("[Symbols] Discovery found %d symbols", len(symbols))
+            if db._pool:
+                await db.save_bot_config("discovered_symbols", json.dumps(symbols))
+                log.info("[Symbols] Discovery result persisted to NeonDB")
+        except Exception as exc:
+            log.warning("[Symbols] Discovery failed: %r — using env fallback", exc)
+
+    # Priority 4: env var fallback (only BTC/ETH/SOL etc — not ideal)
+    if not symbols:
+        symbols = settings.symbols_list
+        log.warning("[Symbols] Using env var fallback: %d symbols only", len(symbols))
 
     # ── Core components ───────────────────────────────────────────────────────
     matrix       = SpreadMatrix(max_lag_ms=settings.MAX_SPREAD_LAG_MS)
@@ -388,6 +413,14 @@ async def main() -> None:
             # Update our local reference
             symbols.clear()
             symbols.extend(new_symbols)
+
+            # Persist refreshed list to NeonDB so next restart doesn't lose it
+            if db._pool:
+                try:
+                    await db.save_bot_config("discovered_symbols", json.dumps(new_symbols))
+                    log.info("[Watcher] Refreshed symbol list persisted to NeonDB (%d symbols)", len(new_symbols))
+                except Exception as exc:
+                    log.warning("[Watcher] Failed to persist symbols to NeonDB: %r", exc)
 
     # Make symbols mutable for hot reload
     symbols = list(symbols)
