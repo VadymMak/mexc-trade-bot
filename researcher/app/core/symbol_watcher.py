@@ -193,6 +193,45 @@ async def fetch_mexc(session: aiohttp.ClientSession) -> dict[str, dict]:
 
 # ── Core discovery logic ──────────────────────────────────────────────────────
 
+def _score_and_filter(
+    all_symbols: set[str],
+    per_exchange: list[dict[str, dict]],
+    new_cutoff_ms: int,
+    now_ms: int,
+    min_vol: float,
+) -> list[dict]:
+    scored = []
+    for sym in all_symbols:
+        coverage = sum(1 for ex in per_exchange if sym in ex)
+        if coverage < MIN_EXCHANGE_COVERAGE:
+            continue
+        volumes = [ex[sym]["volume_usdt"] for ex in per_exchange if sym in ex]
+        max_vol = max(volumes) if volumes else 0
+        if min_vol > 0 and max_vol < min_vol:
+            continue
+        listed_mss = [
+            ex[sym]["listed_ms"]
+            for ex in per_exchange
+            if sym in ex and ex[sym].get("listed_ms")
+        ]
+        listed_ms = min(listed_mss) if listed_mss else None
+        is_new = listed_ms is not None and listed_ms >= new_cutoff_ms
+        age_days = int((now_ms - listed_ms) / 86400_000) if listed_ms else None
+        score = coverage * 10 + min(max_vol / 1_000_000, 100)
+        if is_new:
+            score += 50
+        scored.append({
+            "symbol":      sym,
+            "coverage":    coverage,
+            "volume_usdt": max_vol,
+            "listed_ms":   listed_ms,
+            "age_days":    age_days,
+            "is_new":      is_new,
+            "score":       score,
+        })
+    return scored
+
+
 async def discover_symbols(save: bool = True) -> list[str]:
     """
     Main entry point. Returns list of symbol strings (e.g. ["BTC_USDT", ...]).
@@ -225,46 +264,18 @@ async def discover_symbols(save: bool = True) -> list[str]:
     for ex in per_exchange:
         all_symbols.update(s for s in ex.keys() if _is_valid_symbol(s))
 
-    scored: list[dict] = []
-    for sym in all_symbols:
-        coverage = sum(1 for ex in per_exchange if sym in ex)
-        if coverage < MIN_EXCHANGE_COVERAGE:
-            continue
+    # Pass 1: with volume filter
+    scored = _score_and_filter(all_symbols, per_exchange, new_cutoff_ms, now_ms, MIN_VOLUME_USDT)
 
-        # Best volume across exchanges
-        volumes = [ex[sym]["volume_usdt"] for ex in per_exchange if sym in ex]
-        max_vol = max(volumes) if volumes else 0
-        if max_vol < MIN_VOLUME_USDT:
-            continue
-
-        # Listing date (earliest known across exchanges)
-        listed_mss = [
-            ex[sym]["listed_ms"]
-            for ex in per_exchange
-            if sym in ex and ex[sym].get("listed_ms")
-        ]
-        listed_ms: Optional[int] = min(listed_mss) if listed_mss else None
-
-        # Is it a new listing?
-        is_new = listed_ms is not None and listed_ms >= new_cutoff_ms
-        age_days: Optional[int] = (
-            int((now_ms - listed_ms) / 86400_000) if listed_ms else None
+    # Pass 2: if volume data is broken (API returns 0/contract-units), skip volume filter
+    if len(scored) < 20:
+        log.warning(
+            "[Watcher] Only %d symbols passed volume filter (threshold $%.0f) — "
+            "volume data likely in wrong units. Retrying without volume filter.",
+            len(scored), MIN_VOLUME_USDT,
         )
-
-        # Score: new listings score higher
-        score = coverage * 10 + min(max_vol / 1_000_000, 100)
-        if is_new:
-            score += 50  # big boost for new listings
-
-        scored.append({
-            "symbol":    sym,
-            "coverage":  coverage,
-            "volume_usdt": max_vol,
-            "listed_ms": listed_ms,
-            "age_days":  age_days,
-            "is_new":    is_new,
-            "score":     score,
-        })
+        scored = _score_and_filter(all_symbols, per_exchange, new_cutoff_ms, now_ms, 0)
+        log.info("[Watcher] Pass 2 (no volume filter): %d symbols found", len(scored))
 
     scored.sort(key=lambda x: x["score"], reverse=True)
 

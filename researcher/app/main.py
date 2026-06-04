@@ -96,6 +96,24 @@ async def main() -> None:
         except Exception as exc:
             log.warning("[Symbols] Discovery failed: %r — using env fallback", exc)
 
+    # Priority 3.5: historical symbols from symbol_states (proven arb candidates)
+    # Triggered when discovery returns only fallback symbols (≤ 5) or fails entirely
+    if len(symbols) <= 5 and db._pool:
+        try:
+            historical = await db.get_active_symbols()
+            if len(historical) > 5:
+                symbols = historical
+                log.info(
+                    "[Symbols] Loaded %d historical symbols from symbol_states DB "
+                    "(discovery returned only fallback symbols)",
+                    len(symbols),
+                )
+                await db.save_bot_config("discovered_symbols", json.dumps(symbols))
+            else:
+                log.warning("[Symbols] symbol_states has only %d non-blacklisted symbols", len(historical))
+        except Exception as exc:
+            log.warning("[Symbols] Historical symbols load failed: %r", exc)
+
     # Priority 4: env var fallback (only BTC/ETH/SOL etc — not ideal)
     if not symbols:
         symbols = settings.symbols_list

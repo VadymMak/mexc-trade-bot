@@ -1023,6 +1023,21 @@ class NeonDB:
                 key, value,
             )
 
+    async def get_active_symbols(self) -> list[str]:
+        """Return symbols that have historical trading data (not blacklisted).
+        Used as fallback when discovery fails — these symbols are proven arb candidates."""
+        if not self._pool:
+            return []
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT DISTINCT symbol FROM symbol_states WHERE state != 'BLACKLISTED'"
+                )
+                return [row["symbol"] for row in rows]
+        except Exception as exc:
+            logger.warning("[NeonDB] get_active_symbols failed: %r", exc)
+            return []
+
     async def load_bot_config(self, key: str) -> Optional[str]:
         """Load a persisted config value from NeonDB. Returns None if not found."""
         if not self._pool:
