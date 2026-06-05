@@ -264,6 +264,12 @@ class PaperTrader:
         if current_exposure >= self.settings.MAX_EXPOSURE_USDT:
             return
 
+        # Safety net: block self-hedging when Fix 1 misses a race condition.
+        # _latest_spreads may briefly hold both directions; reject if any open
+        # position already tracks this symbol in any direction.
+        if any(k[0] == symbol for k in self._open):
+            return
+
         # Guard: two ticks 140ms apart can both pass `key in self._open` before
         # either sets it (first await yields the loop). _pending_open blocks dupe opens.
         if key in self._pending_open:

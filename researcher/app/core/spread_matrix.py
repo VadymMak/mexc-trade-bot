@@ -163,6 +163,9 @@ class SpreadMatrix:
                 # Store latest result per directed pair
                 key = (symbol, entry["exchange_long"], entry["exchange_short"])
                 self._latest_spreads[key] = entry
+                # Remove stale ghost entry for the opposite direction
+                reverse_key = (symbol, entry["exchange_short"], entry["exchange_long"])
+                self._latest_spreads.pop(reverse_key, None)
 
                 results.append(entry)
 
