@@ -26,7 +26,7 @@ class SpreadMatrix:
         self._history: dict[str, deque] = {}
         self._window = 300
         self._callbacks: list[Callable] = []
-        # { (symbol, ex_a, ex_b): spread_dict } — latest result per directed pair
+        # { (symbol, ex_a, ex_b): spread_dict } — canonical key (alphabetically ordered)
         self._latest_spreads: dict[tuple[str, str, str], dict] = {}
         # optional flow tracker (tape + book metrics)
         self._flow: Optional[FlowTracker] = None
@@ -160,12 +160,12 @@ class SpreadMatrix:
                     "mexc_spot_basis_pct":  self._compute_spot_basis(symbol),
                 }
 
-                # Store latest result per directed pair
-                key = (symbol, entry["exchange_long"], entry["exchange_short"])
+                # Canonical key — alphabetically ordered so gate↔mexc is always
+                # the same key regardless of which exchange is cheaper this tick
+                exch_a = min(entry["exchange_long"], entry["exchange_short"])
+                exch_b = max(entry["exchange_long"], entry["exchange_short"])
+                key = (symbol, exch_a, exch_b)
                 self._latest_spreads[key] = entry
-                # Remove stale ghost entry for the opposite direction
-                reverse_key = (symbol, entry["exchange_short"], entry["exchange_long"])
-                self._latest_spreads.pop(reverse_key, None)
 
                 results.append(entry)
 
