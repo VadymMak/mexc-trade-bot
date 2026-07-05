@@ -39,6 +39,10 @@ logs/
 # ===== Data =====
 *.csv
 *.db
+*.db-wal
+*.db-shm
+trading_bot.db*
+mexc.db*
 *.sqlite
 data/
 
