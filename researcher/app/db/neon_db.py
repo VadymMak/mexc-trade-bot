@@ -349,6 +349,13 @@ class NeonDB:
         """Log arb trade entry to ml_trade_outcomes for ML dataset collection."""
         if not self._pool:
             return
+        # Derived entry feature (class-b, trivial): spread in bps per USD of top-5
+        # depth. Both inputs are already computed upstream and passed in here.
+        _spread_to_depth5 = (
+            float(spread_bps) / float(depth5_total_usd)
+            if spread_bps is not None and depth5_total_usd not in (None, 0)
+            else None
+        )
         try:
             await self._pool.execute(
                 """
@@ -368,6 +375,7 @@ class NeonDB:
                      is_weekend, trading_session, mins_to_funding,
                      mexc_spot_basis_pct,
                      entry_qty, entry_side,
+                     imbalance_entry, trades_per_min_entry, spread_to_depth5_ratio_entry,
                      ml_score, ml_would_block)
                 VALUES
                     ($1, $2, $3, NOW(),
@@ -385,6 +393,7 @@ class NeonDB:
                      $28, $29, $30,
                      $31,
                      $32, $33,
+                     $34, $35, $36,
                      NULL, NULL)
                 ON CONFLICT DO NOTHING
                 """,
@@ -403,6 +412,7 @@ class NeonDB:
                 is_weekend, trading_session, mins_to_funding,
                 mexc_spot_basis_pct,
                 entry_qty, entry_side,
+                book_imbalance, trade_velocity, _spread_to_depth5,
             )
         except Exception as e:
             logger.warning(f"[ML_LOG] entry log failed: {e}")
