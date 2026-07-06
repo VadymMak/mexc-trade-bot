@@ -2,6 +2,36 @@ import type { NextRequest } from "next/server";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
+// Headers forwarded verbatim when streaming a non-JSON upstream response
+// (e.g. CSV downloads) straight through to the browser.
+const PASSTHROUGH_HEADERS = [
+  "content-type",
+  "content-disposition",
+  "content-length",
+  "cache-control",
+];
+
+/**
+ * Relay an upstream fetch response to the client.
+ * - application/json → parse + re-emit as JSON (unchanged dashboard behavior).
+ * - anything else    → stream the body through with the upstream status and
+ *                      file-download headers (Content-Type/Content-Disposition/…).
+ * Non-JSON bodies are streamed, never buffered in memory.
+ */
+async function relay(upstream: Response, jsonInit?: ResponseInit): Promise<Response> {
+  const ct = upstream.headers.get("content-type") || "";
+  if (ct.includes("application/json")) {
+    const data = await upstream.json();
+    return Response.json(data, { status: upstream.status, ...(jsonInit ?? {}) });
+  }
+  const headers = new Headers();
+  for (const h of PASSTHROUGH_HEADERS) {
+    const v = upstream.headers.get(h);
+    if (v) headers.set(h, v);
+  }
+  return new Response(upstream.body, { status: upstream.status, headers });
+}
+
 export async function GET(
   request: NextRequest,
   ctx: RouteContext<"/api/proxy/[...path]">
@@ -15,9 +45,7 @@ export async function GET(
     headers: { "Content-Type": "application/json" },
   });
 
-  const data = await response.json();
-  return Response.json(data, {
-    status: response.status,
+  return relay(response, {
     headers: {
       'Cache-Control': 'public, s-maxage=10, stale-while-revalidate=20',
     },
@@ -44,8 +72,7 @@ export async function POST(
     body: JSON.stringify(body),
   });
 
-  const data = await response.json();
-  return Response.json(data, { status: response.status });
+  return relay(response);
 }
 
 export async function PUT(
@@ -63,8 +90,7 @@ export async function PUT(
     body: JSON.stringify(body),
   });
 
-  const data = await response.json();
-  return Response.json(data, { status: response.status });
+  return relay(response);
 }
 
 export async function DELETE(
@@ -80,6 +106,5 @@ export async function DELETE(
     headers: { "Content-Type": "application/json" },
   });
 
-  const data = await response.json();
-  return Response.json(data, { status: response.status });
+  return relay(response);
 }
