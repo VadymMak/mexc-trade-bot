@@ -72,7 +72,8 @@ class NeonDB:
                 hold_seconds          INT,
                 status                TEXT         NOT NULL DEFAULT 'open',
                 opened_at             TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-                closed_at             TIMESTAMPTZ
+                closed_at             TIMESTAMPTZ,
+                features_complete     BOOLEAN      NOT NULL DEFAULT FALSE
             );
             CREATE INDEX IF NOT EXISTS idx_pp_pair
                 ON paper_positions(symbol, exchange_long, exchange_short);
@@ -119,6 +120,8 @@ class NeonDB:
             # MM robot detector: fraction of trades with same contract size (0-1)
             # High score = MM robot active → predictable spread → better arb signal
             "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS mm_repeat_score NUMERIC(6,4)",
+            # Whether all ML features were captured at entry (INSERT arg; was missing from DDL)
+            "ALTER TABLE paper_positions ADD COLUMN IF NOT EXISTS features_complete BOOLEAN NOT NULL DEFAULT FALSE",
         ]:
             await self._pool.execute(col_ddl)
         await self._pool.execute("""
