@@ -476,7 +476,9 @@ class NeonDB:
                     win               = CASE WHEN $4::NUMERIC > 0 THEN 1 ELSE 0 END,
                     hit_tp            = CASE WHEN $6::TEXT = 'TAKE_PROFIT' THEN 1 ELSE 0 END,
                     hit_sl            = CASE WHEN $6::TEXT = 'STOP_LOSS' THEN 1 ELSE 0 END,
-                    timed_out         = CASE WHEN $6::TEXT = 'TIME_STOP' THEN 1 ELSE 0 END
+                    timed_out         = CASE WHEN $6::TEXT = 'TIME_STOP' THEN 1 ELSE 0 END,
+                    -- Step C: P&L now priced by book-walked VWAP fills, not the mark spread.
+                    sim_priced        = 'exec'
                 WHERE trade_id = $1
                 """,
                 trade_id,

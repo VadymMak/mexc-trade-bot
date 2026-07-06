@@ -71,6 +71,8 @@ class _BookSnap:
     # Raw top-_BOOK_LEVELS (price, size) levels — kept for book-walking / VWAP.
     bids: list[tuple[float, float]] = field(default_factory=list)
     asks: list[tuple[float, float]] = field(default_factory=list)
+    # Wall-clock ms when this snapshot was ingested — for freshness checks.
+    ts_ms: int = 0
 
 
 # ── FlowTracker ────────────────────────────────────────────────────────────────
@@ -145,6 +147,7 @@ class FlowTracker:
             bid_qty, ask_qty, bid_usd, ask_usd,
             best_bid=best_bid, best_ask=best_ask,
             bids=top_bids, asks=top_asks,
+            ts_ms=int(time.time() * 1000),
         )
 
     def get_depth_usd(self, symbol: str, exchange: str) -> tuple[Optional[float], Optional[float]]:
@@ -169,6 +172,59 @@ class FlowTracker:
         if snap is None or (not snap.bids and not snap.asks):
             return None
         return snap.bids, snap.asks
+
+    def walk_book(
+        self,
+        symbol: str,
+        exchange: str,
+        side: str,                 # "ask" = buying (walk asks up); "bid" = selling (walk bids down)
+        intended_usd: float,
+        max_age_ms: int = 2000,
+        require_full: bool = True,
+    ) -> Optional[tuple[float, float]]:
+        """
+        Depth-walk one side of the book to fill `intended_usd` of notional and
+        return (vwap_price, filled_usd) — the price a market order actually pays.
+
+        Per-level USD = price × size × contract-multiplier (Step C0 units). We
+        accumulate whole levels until the intended USD is covered; the fill PRICE
+        is the size-weighted VWAP (Σp·s / Σs, unit-invariant → multiplier cancels).
+
+        Returns None (→ caller must NOT trade / must defer) when the book is:
+          - missing, or that side is empty (one-sided),
+          - stale (snapshot older than max_age_ms),
+          - has no cached contract spec (units unknown — never fake),
+          - or (require_full=True) total visible depth < intended_usd.
+        """
+        snap = self._book.get((symbol, exchange))
+        if snap is None:
+            return None
+        # Freshness: a book we stopped receiving updates for is not executable.
+        if (int(time.time() * 1000) - snap.ts_ms) > max_age_ms:
+            return None
+        mult = self.get_multiplier(symbol, exchange)
+        if mult is None:                       # units unknown → depth unavailable
+            return None
+        levels = snap.asks if side == "ask" else snap.bids
+        if not levels:                         # one-sided book on the side we need
+            return None
+
+        num = 0.0   # Σ price·size (raw contracts)
+        den = 0.0   # Σ size       (raw contracts)
+        usd = 0.0   # Σ price·size·mult (USD notional covered)
+        for price, size in levels:
+            if price <= 0 or size <= 0:
+                continue
+            num += price * size
+            den += size
+            usd += price * size * mult
+            if usd >= intended_usd:
+                break
+        if den <= 0:
+            return None
+        if require_full and usd < intended_usd:   # not enough visible depth
+            return None
+        return num / den, usd
 
     # ── query ──────────────────────────────────────────────────────────────────
 

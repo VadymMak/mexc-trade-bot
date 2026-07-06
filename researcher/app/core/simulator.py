@@ -80,6 +80,23 @@ class SimResult:
     breakeven_spread_pct: float   # minimum spread to break even
 
 
+@dataclass
+class SimExecResult:
+    """Book-walked (executable) round-trip result — Step C.
+
+    P&L comes from the four VWAP prices actually crossed on the real books
+    (bid-ask crossing on both entry AND exit + depth slippage are already
+    baked in), so there is NO separate fixed-slippage term — only fees.
+    """
+    deal_size_usdt: float
+    gross_pnl_usdt: float
+    net_pnl_usdt:   float
+    fee_usdt:       float
+    net_pnl_pct:    float   # % of deal_size (one leg notional)
+    pnl_long_usdt:  float
+    pnl_short_usdt: float
+
+
 class TradingSimulator:
     """
     Calculates realistic P&L for a single paper cross-exchange arb round-trip.
@@ -157,6 +174,46 @@ class TradingSimulator:
             net_pnl_usdt=net,
             net_pnl_pct=net / size * 100.0,
             breakeven_spread_pct=breakeven,
+        )
+
+    def simulate_exec_trade(
+        self,
+        exchange_long:   str,
+        exchange_short:  str,
+        deal_size:       float,
+        entry_ask_long:  float,   # long leg BUYS at ask-VWAP  (entry)
+        entry_bid_short: float,   # short leg SELLS at bid-VWAP (entry)
+        exit_bid_long:   float,   # long leg SELLS at bid-VWAP  (exit)
+        exit_ask_short:  float,   # short leg BUYS  at ask-VWAP (exit)
+    ) -> SimExecResult:
+        """
+        Executable round-trip P&L from the four book-walked VWAP fill prices.
+
+          pnl_long  = size * (exit_bid_long   − entry_ask_long)  / entry_ask_long
+          pnl_short = size * (entry_bid_short − exit_ask_short)  / entry_bid_short
+          gross     = pnl_long + pnl_short
+          net       = gross − fees        (per-exchange taker fee × 2 legs × 2 sides)
+
+        Bid-ask crossing (entry AND exit) and depth slippage are already inside
+        the VWAP prices, so no fixed-slippage term is applied here.
+        """
+        size = deal_size
+        pnl_long  = size * (exit_bid_long   - entry_ask_long)  / entry_ask_long
+        pnl_short = size * (entry_bid_short - exit_ask_short)  / entry_bid_short
+        gross = pnl_long + pnl_short
+        fees = (
+            self._fees(exchange_long,  size) * 2   # long entry + long exit
+            + self._fees(exchange_short, size) * 2   # short entry + short exit
+        )
+        net = gross - fees
+        return SimExecResult(
+            deal_size_usdt=size,
+            gross_pnl_usdt=gross,
+            net_pnl_usdt=net,
+            fee_usdt=fees,
+            net_pnl_pct=(net / size * 100.0) if size else 0.0,
+            pnl_long_usdt=pnl_long,
+            pnl_short_usdt=pnl_short,
         )
 
     def position_size(

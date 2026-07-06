@@ -210,6 +210,13 @@ async def main() -> None:
     except Exception as exc:
         log.warning("[ContractSpecs] load failed: %r — depth USD reported None until next restart", exc)
 
+    # ── Book-aware execution (Step C): price paper P&L against real books ──────
+    # PaperTrader walks the live book (VWAP + depth) for executable entry/exit
+    # fills. ArbLiveExecutor (live/testnet) has no such method — guard with hasattr.
+    if hasattr(trader, "set_flow_tracker"):
+        trader.set_flow_tracker(flow_tracker)
+        log.info("[Exec] PaperTrader wired to FlowTracker — P&L priced on real books (sim_priced=exec)")
+
     # Evaluate any symbols that accumulated data during previous session
     # ArbLiveExecutor has no evaluator — skip in live/testnet mode
     if hasattr(trader, 'evaluator'):
@@ -295,6 +302,16 @@ async def main() -> None:
                     summary["total_closed"],
                     summary["total_net_pnl"],
                 )
+                if "exec_entry_rejects" in summary:
+                    _op = summary["total_opened"]
+                    _rj = summary["exec_entry_rejects"]
+                    _denom = _op + _rj
+                    log.info(
+                        "━━ exec gate  ━━  opened=%d  entry_rejects=%d  reject_rate=%.1f%%  exit_defers=%d",
+                        _op, _rj,
+                        (100.0 * _rj / _denom) if _denom else 0.0,
+                        summary["exec_exit_defers"],
+                    )
                 if hasattr(trader, '_equity_ratio'):
                     log.info(
                         "━━ equity  ━━  starting=$%.0f  equity=$%.2f  ratio=×%.3f  compound=%s",

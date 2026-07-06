@@ -89,6 +89,63 @@ class PaperTrader:
         self._equity_ratio: float = 1.0  # scales deal sizes when compounding is enabled
         self._current_spreads: dict = {}   # cache latest spread per key for delayed measurement
 
+        # ── Book-aware execution (Step C) ────────────────────────────────────
+        # FlowTracker supplies real order-book levels for executable VWAP fills.
+        self._flow = None
+        # Counters for how executable the strategy actually is (log summaries).
+        self._exec_entry_rejects = 0   # opportunities skipped: no/thin/stale/spec-less book
+        self._exec_exit_defers   = 0   # close ticks deferred waiting for a fresh exit book
+
+    def set_flow_tracker(self, tracker) -> None:
+        """Attach the FlowTracker so entry/exit are priced against real books.
+
+        Required for Step C executable P&L. If absent, every entry is rejected
+        by the executability gate (we never fake a fill)."""
+        self._flow = tracker
+
+    def _exec_entry_fills(
+        self, symbol: str, ex_long: str, ex_short: str, size_usd: float,
+    ) -> Optional[tuple[float, float]]:
+        """Book-walk both legs to open `size_usd` per leg.
+
+        Long leg BUYS → pays ask-VWAP on ex_long; short leg SELLS → hits
+        bid-VWAP on ex_short. Requires FULL depth + fresh + cached spec on both.
+        Returns (entry_ask_long, entry_bid_short) or None → reject the entry.
+        """
+        if self._flow is None:
+            return None
+        long_fill  = self._flow.walk_book(symbol, ex_long,  side="ask", intended_usd=size_usd, require_full=True)
+        short_fill = self._flow.walk_book(symbol, ex_short, side="bid", intended_usd=size_usd, require_full=True)
+        if long_fill is None or short_fill is None:
+            return None
+        entry_ask_long  = long_fill[0]
+        entry_bid_short = short_fill[0]
+        if entry_ask_long <= 0 or entry_bid_short <= 0:
+            return None
+        return entry_ask_long, entry_bid_short
+
+    def _exec_exit_fills(
+        self, symbol: str, ex_long: str, ex_short: str, size_usd: float,
+    ) -> Optional[tuple[float, float]]:
+        """Book-walk both legs to close `size_usd` per leg (reverse of entry).
+
+        Long leg SELLS → hits bid-VWAP on ex_long; short leg BUYS back → pays
+        ask-VWAP on ex_short. Fresh + spec required; partial depth allowed (we
+        are forced to exit and cross whatever is visible). Returns
+        (exit_bid_long, exit_ask_short) or None → defer the close to next tick.
+        """
+        if self._flow is None:
+            return None
+        long_fill  = self._flow.walk_book(symbol, ex_long,  side="bid", intended_usd=size_usd, require_full=False)
+        short_fill = self._flow.walk_book(symbol, ex_short, side="ask", intended_usd=size_usd, require_full=False)
+        if long_fill is None or short_fill is None:
+            return None
+        exit_bid_long  = long_fill[0]
+        exit_ask_short = short_fill[0]
+        if exit_bid_long <= 0 or exit_ask_short <= 0:
+            return None
+        return exit_bid_long, exit_ask_short
+
     async def on_spread(self, data: dict) -> None:
         """Called by SpreadMatrix on every aligned spread update."""
         symbol     = data["symbol"]
@@ -152,6 +209,9 @@ class PaperTrader:
             "total_opened":     self._total_opened,
             "total_closed":     self._total_closed,
             "total_net_pnl":    round(self._total_net_pnl, 4),
+            # Step C executability telemetry
+            "exec_entry_rejects": self._exec_entry_rejects,
+            "exec_exit_defers":   self._exec_exit_defers,
             "breakeven_pct":    round(
                 self.sim.simulate_trade("binance", "bybit", 0.5, 0.5).breakeven_spread_pct, 4
             ),
@@ -344,6 +404,19 @@ class PaperTrader:
                     return
             entry_costs = self.sim.simulate_entry(ex_long, ex_short, spread_pct, deal_size=deal_size)
 
+            # ── Executable entry gate (Step C) ────────────────────────────────
+            # Price both legs against the REAL book (VWAP over depth). If either
+            # leg's book is missing / one-sided / stale / has no contract spec /
+            # can't fill `deal_size` → do NOT open (folds in the min-depth gate).
+            # Mark-spread z-score selection above is unchanged — this only decides
+            # whether the selected trade is actually executable.
+            exec_fills = self._exec_entry_fills(symbol, ex_long, ex_short, deal_size)
+            if exec_fills is None:
+                self._exec_entry_rejects += 1
+                self._pending_open.discard(key)
+                return
+            entry_ask_long, entry_bid_short = exec_fills
+
             # Reserve the key BEFORE the async DB insert to prevent duplicate opens
             # from concurrent ticks arriving while the INSERT is in flight.
             self._open[key] = _OpenState(
@@ -355,6 +428,8 @@ class PaperTrader:
                 fee_entry=entry_costs["fee_usdt"],
                 entry_mode=entry_mode,
                 deal_size=deal_size,
+                entry_ask_long=entry_ask_long,
+                entry_bid_short=entry_bid_short,
             )
             self._pending_open.discard(key)  # _open now guards this key
             self._total_opened += 1
@@ -487,6 +562,20 @@ class PaperTrader:
         if reason is None:
             return
 
+        symbol, ex_long, ex_short = key
+
+        # ── Executable exit fills (Step C) ────────────────────────────────
+        # Reverse the entry against the CURRENT book: long leg SELLS at bid-VWAP,
+        # short leg BUYS back at ask-VWAP. If either book is missing / one-sided /
+        # stale / spec-less we cannot price the close honestly → defer to the next
+        # tick (position stays open; the exit reason re-evaluates on the next
+        # spread update). We never fall back to mark pricing for an 'exec' row.
+        exit_fills = self._exec_exit_fills(symbol, ex_long, ex_short, state.deal_size)
+        if exit_fills is None:
+            self._exec_exit_defers += 1
+            return
+        exit_bid_long, exit_ask_short = exit_fills
+
         # ── Execute close ─────────────────────────────────────────────────
         self._open.pop(key)
 
@@ -494,14 +583,17 @@ class PaperTrader:
         if reason == "STOP_LOSS":
             cooldown_ms = self.settings.STOP_LOSS_COOLDOWN_SECONDS * 1000
             self._stop_loss_cooldown[key] = ts_ms + cooldown_ms
-        symbol, ex_long, ex_short = key
 
-        result = self.sim.simulate_trade(
+        # Honest P&L from the four executed VWAP prices (crossing on entry AND
+        # exit + depth slippage baked in); fees kept, fixed-slippage term dropped.
+        result = self.sim.simulate_exec_trade(
             exchange_long=ex_long,
             exchange_short=ex_short,
-            entry_spread_pct=entry,
-            exit_spread_pct=spread_pct,
             deal_size=state.deal_size,
+            entry_ask_long=state.entry_ask_long,
+            entry_bid_short=state.entry_bid_short,
+            exit_bid_long=exit_bid_long,
+            exit_ask_short=exit_ask_short,
         )
 
         if self.db._pool:
@@ -509,7 +601,7 @@ class PaperTrader:
                 pos_id=state.pos_id,
                 exit_spread_pct=spread_pct,
                 exit_zscore=zscore,
-                slippage_exit_usdt=result.slippage_exit_usdt,
+                slippage_exit_usdt=0.0,   # exec: slippage is inside the VWAP fills
                 gross_pnl_usdt=result.gross_pnl_usdt,
                 net_pnl_usdt=result.net_pnl_usdt,
                 hold_seconds=hold_sec,
@@ -576,16 +668,18 @@ class PaperTrader:
         self._update_symbol_suspension(symbol, is_win=(result.net_pnl_usdt > 0), ts_ms=ts_ms)
 
         logger.info(
-            "[CLOSE %s | %s] %s %s/%s  "
+            "[CLOSE %s | %s | exec] %s %s/%s  "
             "spread %.3f%%→%.3f%%  (entry_mode=%s)  "
-            "gross=%+.4f  slip=%.4f  fee=%.4f  net=%+.4f USDT  "
+            "entryVWAP L=%.6f/S=%.6f  exitVWAP L=%.6f/S=%.6f  "
+            "gross=%+.4f  fee=%.4f  net=%+.4f USDT  "
             "pnl%%=%+.3f%%  hold=%ds",
             verdict, reason,
             symbol, ex_long, ex_short,
             entry, spread_pct,
             state.entry_mode,
+            state.entry_ask_long, state.entry_bid_short,
+            exit_bid_long, exit_ask_short,
             result.gross_pnl_usdt,
-            result.slippage_entry_usdt + result.slippage_exit_usdt,
             result.fee_usdt,
             result.net_pnl_usdt,
             result.net_pnl_pct,
@@ -651,7 +745,8 @@ class PaperTrader:
 class _OpenState:
     """Lightweight container for an open position's state."""
     __slots__ = ("pos_id", "opened_ms", "entry_spread", "entry_zscore",
-                 "slip_entry", "fee_entry", "entry_mode", "deal_size")
+                 "slip_entry", "fee_entry", "entry_mode", "deal_size",
+                 "entry_ask_long", "entry_bid_short")
 
     def __init__(
         self,
@@ -663,6 +758,8 @@ class _OpenState:
         fee_entry:    float,
         entry_mode:   str = "zscore",
         deal_size:    float = 10.0,
+        entry_ask_long:  float = 0.0,   # executable entry VWAP — long leg (paid ask)
+        entry_bid_short: float = 0.0,   # executable entry VWAP — short leg (hit bid)
     ) -> None:
         self.pos_id       = pos_id
         self.opened_ms    = opened_ms
@@ -672,3 +769,5 @@ class _OpenState:
         self.fee_entry    = fee_entry
         self.entry_mode   = entry_mode
         self.deal_size    = deal_size
+        self.entry_ask_long  = entry_ask_long
+        self.entry_bid_short = entry_bid_short
