@@ -110,6 +110,25 @@ class SpreadMatrix:
                     else None
                 )
 
+                # ── Executable (book-crossing) entry spread — MEASUREMENT ONLY ──
+                # Long leg = cheaper exchange → we pay its ASK.
+                # Short leg = dearer exchange → we hit its BID.
+                # executable_entry_spread = (bid_short − ask_long) / mid. This is the
+                # edge that actually survives crossing both real books at entry; the
+                # mark-price spread above (spread_pct) is unattainable. No P&L impact —
+                # nothing consumes these; they are logged as features only.
+                executable_entry_spread_bps: float | None = None
+                exec_vs_mark_edge_bps:       float | None = None
+                _mid_exec = (price_long + price_short) / 2
+                _ba_long  = self._flow.get_best_bid_ask(symbol, exch_long)  if self._flow else None
+                _ba_short = self._flow.get_best_bid_ask(symbol, exch_short) if self._flow else None
+                if _ba_long is not None and _ba_short is not None and _mid_exec > 0:
+                    ask_long  = _ba_long[1]    # pay ask on the long (cheaper) leg
+                    bid_short = _ba_short[0]   # hit bid on the short (dearer) leg
+                    executable_entry_spread_bps = round((bid_short - ask_long) / _mid_exec * 10000, 4)
+                    # How much entry edge is lost just crossing the book on entry.
+                    exec_vs_mark_edge_bps = round(round(spread_pct * 100, 4) - executable_entry_spread_bps, 4)
+
                 # Always include MEXC-specific flow regardless of which side MEXC is on.
                 # ScalpPaperTrader needs MEXC metrics even when MEXC is the short side.
                 mexc_flow = (
@@ -138,6 +157,9 @@ class SpreadMatrix:
                     "depth5_ask_usd":   depth5_ask_usd,
                     "depth5_total_usd": depth5_total_usd,
                     "depth_imbalance":  depth_imbalance,
+                    # Executable (book-crossing) entry spread — measurement only, no P&L impact
+                    "executable_entry_spread_bps": executable_entry_spread_bps,
+                    "exec_vs_mark_edge_bps":       exec_vs_mark_edge_bps,
                     # flow features (long-side exchange) — used by PaperTrader/arb
                     # fallbacks: 0.5 = neutral buy_pressure/book_imbalance, 0.0 = no velocity data
                     "buy_pressure":    flow_long.get("buy_pressure") if flow_long.get("buy_pressure") is not None else 0.5,

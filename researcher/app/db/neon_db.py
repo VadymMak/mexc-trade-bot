@@ -227,6 +227,20 @@ class NeonDB:
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
         """)
+        # Book-aware measurement columns on ml_trade_outcomes (self-heal; additive,
+        # no behavior change). executable_* capture the book-crossing entry spread;
+        # sim_priced tags how P&L was priced ('mark' now; 'exec' after step C).
+        # Table is owned/created elsewhere (backend); guard so a missing table can't
+        # crash schema init.
+        try:
+            for col_ddl in [
+                "ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS executable_entry_spread_bps DOUBLE PRECISION",
+                "ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS exec_vs_mark_edge_bps       DOUBLE PRECISION",
+                "ALTER TABLE ml_trade_outcomes ADD COLUMN IF NOT EXISTS sim_priced                  TEXT DEFAULT 'mark'",
+            ]:
+                await self._pool.execute(col_ddl)
+        except Exception as _e:
+            logger.warning("[DB] ml_trade_outcomes self-heal ALTER skipped: %s", _e)
         logger.info("[DB] Schema verified / created OK")
 
     # ── paper_positions ───────────────────────────────────────────────────────
@@ -345,6 +359,9 @@ class NeonDB:
         timeout_seconds:    Optional[int]   = None,
         entry_qty:          float           = 0.0,
         entry_side:         str             = "ARB_LONG",
+        # book-aware measurement (no P&L impact) — sim_priced left to DEFAULT 'mark'
+        executable_entry_spread_bps: Optional[float] = None,
+        exec_vs_mark_edge_bps:       Optional[float] = None,
     ) -> None:
         """Log arb trade entry to ml_trade_outcomes for ML dataset collection."""
         if not self._pool:
@@ -376,6 +393,7 @@ class NeonDB:
                      mexc_spot_basis_pct,
                      entry_qty, entry_side,
                      imbalance_entry, trades_per_min_entry, spread_to_depth5_ratio_entry,
+                     executable_entry_spread_bps, exec_vs_mark_edge_bps,
                      ml_score, ml_would_block)
                 VALUES
                     ($1, $2, $3, NOW(),
@@ -394,6 +412,7 @@ class NeonDB:
                      $31,
                      $32, $33,
                      $34, $35, $36,
+                     $37, $38,
                      NULL, NULL)
                 ON CONFLICT DO NOTHING
                 """,
@@ -413,6 +432,7 @@ class NeonDB:
                 mexc_spot_basis_pct,
                 entry_qty, entry_side,
                 book_imbalance, trade_velocity, _spread_to_depth5,
+                executable_entry_spread_bps, exec_vs_mark_edge_bps,
             )
         except Exception as e:
             logger.warning(f"[ML_LOG] entry log failed: {e}")

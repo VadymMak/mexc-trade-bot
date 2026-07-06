@@ -115,6 +115,9 @@ class PaperTrader:
         price_long         = data.get("price_long")
         price_short        = data.get("price_short")
         mexc_spot_basis    = data.get("mexc_spot_basis_pct")
+        # Executable (book-crossing) entry spread — measurement only, no P&L impact
+        executable_entry_spread_bps = data.get("executable_entry_spread_bps")
+        exec_vs_mark_edge_bps       = data.get("exec_vs_mark_edge_bps")
 
         key = (symbol, ex_long, ex_short)
         self._current_spreads[key] = data   # cache for price_continued_bps delayed task
@@ -137,7 +140,9 @@ class PaperTrader:
                                    spread_bps=spread_bps,
                                    price_long=price_long,
                                    price_short=price_short,
-                                   mexc_spot_basis=mexc_spot_basis)
+                                   mexc_spot_basis=mexc_spot_basis,
+                                   executable_entry_spread_bps=executable_entry_spread_bps,
+                                   exec_vs_mark_edge_bps=exec_vs_mark_edge_bps)
 
     # ── Session stats (called from report_loop) ───────────────────────────────
 
@@ -233,6 +238,9 @@ class PaperTrader:
         price_long:        Optional[float] = None,
         price_short:       Optional[float] = None,
         mexc_spot_basis:   Optional[float] = None,
+        # Executable (book-crossing) entry spread — measurement only, no P&L impact
+        executable_entry_spread_bps: Optional[float] = None,
+        exec_vs_mark_edge_bps:       Optional[float] = None,
     ) -> None:
         # Reject bogus data: price-scale mismatches produce absurd spreads
         if spread_pct > self.settings.MAX_SPREAD_PCT:
@@ -416,6 +424,9 @@ class PaperTrader:
                         timeout_seconds=self.settings.MAX_HOLD_SECONDS,
                         entry_qty=deal_size,
                         entry_side="ARB_LONG",
+                        # Executable (book-crossing) entry spread — measurement only
+                        executable_entry_spread_bps=executable_entry_spread_bps,
+                        exec_vs_mark_edge_bps=exec_vs_mark_edge_bps,
                     )
 
             # Breakeven: total round-trip cost as % of entry spread

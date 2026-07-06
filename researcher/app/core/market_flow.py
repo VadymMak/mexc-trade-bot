@@ -65,6 +65,12 @@ class _BookSnap:
     ask_qty: float   # sum of top-N ask sizes (contracts)
     bid_usd: float = 0.0  # sum of top-N bid value in USD (price × size)
     ask_usd: float = 0.0  # sum of top-N ask value in USD (price × size)
+    # Best (top-of-book) prices — None if that side of the book is empty.
+    best_bid: Optional[float] = None
+    best_ask: Optional[float] = None
+    # Raw top-_BOOK_LEVELS (price, size) levels — kept for book-walking / VWAP.
+    bids: list[tuple[float, float]] = field(default_factory=list)
+    asks: list[tuple[float, float]] = field(default_factory=list)
 
 
 # ── FlowTracker ────────────────────────────────────────────────────────────────
@@ -98,11 +104,20 @@ class FlowTracker:
     def on_book(self, symbol: str, exchange: str,
                 bids: list[tuple[float, float]],
                 asks: list[tuple[float, float]]) -> None:
-        bid_qty = sum(s for _, s in bids[:_BOOK_LEVELS])
-        ask_qty = sum(s for _, s in asks[:_BOOK_LEVELS])
-        bid_usd = sum(p * s for p, s in bids[:_BOOK_LEVELS])
-        ask_usd = sum(p * s for p, s in asks[:_BOOK_LEVELS])
-        self._book[(symbol, exchange)] = _BookSnap(bid_qty, ask_qty, bid_usd, ask_usd)
+        top_bids = list(bids[:_BOOK_LEVELS])
+        top_asks = list(asks[:_BOOK_LEVELS])
+        bid_qty = sum(s for _, s in top_bids)
+        ask_qty = sum(s for _, s in top_asks)
+        bid_usd = sum(p * s for p, s in top_bids)
+        ask_usd = sum(p * s for p, s in top_asks)
+        # Top-of-book prices — None if that side is empty (one-sided book).
+        best_bid = top_bids[0][0] if top_bids else None
+        best_ask = top_asks[0][0] if top_asks else None
+        self._book[(symbol, exchange)] = _BookSnap(
+            bid_qty, ask_qty, bid_usd, ask_usd,
+            best_bid=best_bid, best_ask=best_ask,
+            bids=top_bids, asks=top_asks,
+        )
 
     def get_depth_usd(self, symbol: str, exchange: str) -> tuple[Optional[float], Optional[float]]:
         """Returns (bid_usd, ask_usd) for top-5 levels. None if no data."""
@@ -110,6 +125,22 @@ class FlowTracker:
         if snap is None or (snap.bid_usd == 0.0 and snap.ask_usd == 0.0):
             return None, None
         return round(snap.bid_usd, 2), round(snap.ask_usd, 2)
+
+    def get_best_bid_ask(self, symbol: str, exchange: str) -> Optional[tuple[float, float]]:
+        """Returns (best_bid, best_ask). None if no book, or either side empty (one-sided)."""
+        snap = self._book.get((symbol, exchange))
+        if snap is None or snap.best_bid is None or snap.best_ask is None:
+            return None
+        return snap.best_bid, snap.best_ask
+
+    def get_levels(
+        self, symbol: str, exchange: str
+    ) -> Optional[tuple[list[tuple[float, float]], list[tuple[float, float]]]]:
+        """Returns (bids, asks) top-_BOOK_LEVELS (price, size) lists. None if no book data."""
+        snap = self._book.get((symbol, exchange))
+        if snap is None or (not snap.bids and not snap.asks):
+            return None
+        return snap.bids, snap.asks
 
     # ── query ──────────────────────────────────────────────────────────────────
 
