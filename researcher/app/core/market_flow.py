@@ -164,6 +164,14 @@ class FlowTracker:
             return None
         return snap.best_bid, snap.best_ask
 
+    def get_book_age_ms(self, symbol: str, exchange: str) -> Optional[int]:
+        """Milliseconds since the latest book snapshot for this (symbol, exchange).
+        None if no book yet. Used by the spread sampler to flag stale books."""
+        snap = self._book.get((symbol, exchange))
+        if snap is None:
+            return None
+        return int(time.time() * 1000) - snap.ts_ms
+
     def get_levels(
         self, symbol: str, exchange: str
     ) -> Optional[tuple[list[tuple[float, float]], list[tuple[float, float]]]]:

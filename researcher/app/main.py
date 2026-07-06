@@ -472,11 +472,87 @@ async def main() -> None:
     # Make symbols mutable for hot reload
     symbols = list(symbols)
 
+    async def spread_observation_loop() -> None:
+        """MEASUREMENT ONLY — sample the executable (book-crossing) spread for ALL
+        notable ticks (mark ≥ 0.3%, NO upper cap) so we can test whether any
+        big-divergence taker regime is executable-positive. Reads books via
+        FlowTracker (top-of-book best bid/ask, consistent with Steps A+B) and
+        batch-inserts into spread_observations. Enters NO trades, touches NO P&L.
+        """
+        SAMPLE_INTERVAL = 15.0
+        MIN_MARK_BPS    = 30.0     # 0.3% — we want the big divergences too
+        STALE_MS        = 2000
+        z_thr    = settings.ZSCORE_THRESHOLD
+        cv_min   = settings.MIN_SPREAD_CV
+        max_bps  = settings.MAX_SPREAD_PCT * 100.0   # 50% → 5000 bps
+        allowed  = settings.trading_exchanges_set    # only pairs with real books both sides
+        while True:
+            await asyncio.sleep(SAMPLE_INTERVAL)
+            if not db._pool:
+                continue
+            try:
+                rows = []
+                for s in matrix.get_all_spreads():
+                    mark_bps = s.get("spread_bps")
+                    if mark_bps is None or mark_bps < MIN_MARK_BPS:
+                        continue
+                    ex_long  = s["exchange_long"]
+                    ex_short = s["exchange_short"]
+                    if ex_long not in allowed or ex_short not in allowed:
+                        continue   # binance/bybit are mark-only refs — no book to cross
+                    symbol = s["symbol"]
+                    mid    = s.get("mid_price") or 0.0
+
+                    bba_long  = flow_tracker.get_best_bid_ask(symbol, ex_long)
+                    bba_short = flow_tracker.get_best_bid_ask(symbol, ex_short)
+                    age_long  = flow_tracker.get_book_age_ms(symbol, ex_long)
+                    age_short = flow_tracker.get_book_age_ms(symbol, ex_short)
+                    book_fresh = (
+                        bba_long is not None and bba_short is not None
+                        and age_long is not None and age_short is not None
+                        and age_long <= STALE_MS and age_short <= STALE_MS
+                    )
+                    executable = cross_cost = None
+                    if book_fresh and mid > 0:
+                        ask_long  = bba_long[1]    # long leg pays the ask
+                        bid_short = bba_short[0]   # short leg hits the bid
+                        executable = round((bid_short - ask_long) / mid * 10000, 4)
+                        cross_cost = round(mark_bps - executable, 4)
+
+                    dl_bid, dl_ask = flow_tracker.get_depth_usd(symbol, ex_long)
+                    ds_bid, ds_ask = flow_tracker.get_depth_usd(symbol, ex_short)
+                    depth_long  = ((dl_bid or 0.0) + (dl_ask or 0.0)) or None
+                    depth_short = ((ds_bid or 0.0) + (ds_ask or 0.0)) or None
+
+                    z  = s.get("zscore")
+                    cv = s.get("spread_cv")
+                    entered_eligible = bool(
+                        z is not None and abs(z) >= z_thr
+                        and cv is not None and cv >= cv_min
+                        and mark_bps <= max_bps
+                    )
+                    rows.append({
+                        "symbol": symbol, "exchange_long": ex_long, "exchange_short": ex_short,
+                        "mark_spread_bps": round(mark_bps, 4),
+                        "executable_spread_bps": executable,
+                        "exec_vs_mark_edge_bps": cross_cost,
+                        "zscore": z, "spread_cv": cv,
+                        "depth5_long_usd": depth_long, "depth5_short_usd": depth_short,
+                        "book_fresh": book_fresh, "entered_eligible": entered_eligible,
+                    })
+                if rows:
+                    n = await db.insert_spread_observations(rows)
+                    log.info("[SpreadObs] sampled %d notable pairs (≥%.0fbps mark) → logged %d",
+                             len(rows), MIN_MARK_BPS, n)
+            except Exception as exc:
+                log.warning("[SpreadObs] sampler cycle failed: %r", exc)
+
     await asyncio.gather(
         report_loop(),
         matrix.push_loop(),
         promoter.run(),
         symbol_reload_loop(),   # 24h hot reload — no restart needed
+        spread_observation_loop(),   # measurement-only executable-spread sampler
     )
 
 

@@ -227,6 +227,31 @@ class NeonDB:
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
         """)
+        # spread_observations — MEASUREMENT ONLY. A periodic sampler logs the
+        # executable (book-crossing) spread for ALL notable ticks, including the
+        # big >5% divergences we never enter, to test if any big-divergence taker
+        # regime is executable-positive. No entry/P&L path reads this table.
+        await self._pool.execute("""
+            CREATE TABLE IF NOT EXISTS spread_observations (
+                id                    BIGSERIAL PRIMARY KEY,
+                ts                    TIMESTAMPTZ DEFAULT NOW(),
+                symbol                TEXT,
+                exchange_long         TEXT,
+                exchange_short        TEXT,
+                mark_spread_bps       DOUBLE PRECISION,
+                executable_spread_bps DOUBLE PRECISION,   -- (best_bid_short − best_ask_long)/mid * 10000
+                exec_vs_mark_edge_bps DOUBLE PRECISION,   -- mark − executable
+                zscore                DOUBLE PRECISION,
+                spread_cv             DOUBLE PRECISION,
+                depth5_long_usd       DOUBLE PRECISION,
+                depth5_short_usd      DOUBLE PRECISION,
+                book_fresh            BOOLEAN,
+                entered_eligible      BOOLEAN
+            );
+        """)
+        await self._pool.execute(
+            "CREATE INDEX IF NOT EXISTS idx_spread_obs_bucket ON spread_observations(mark_spread_bps);"
+        )
         # Book-aware measurement columns on ml_trade_outcomes (self-heal; additive,
         # no behavior change). executable_* capture the book-crossing entry spread;
         # sim_priced tags how P&L was priced ('mark' now; 'exec' after step C).
@@ -511,6 +536,43 @@ class NeonDB:
             logging.getLogger(__name__).error(
                 f"Failed to update price_continued_bps for {trade_id}: {e}"
             )
+
+    async def insert_spread_observations(self, rows: list[dict]) -> int:
+        """Batch-INSERT sampler rows into spread_observations. MEASUREMENT ONLY.
+
+        Each row dict: symbol, exchange_long, exchange_short, mark_spread_bps,
+        executable_spread_bps (or None), exec_vs_mark_edge_bps (or None), zscore,
+        spread_cv, depth5_long_usd, depth5_short_usd, book_fresh, entered_eligible.
+        Never raises — a failed sample must not disturb collectors/trading.
+        """
+        if not self._pool or not rows:
+            return 0
+        try:
+            records = [
+                (
+                    r.get("symbol"), r.get("exchange_long"), r.get("exchange_short"),
+                    r.get("mark_spread_bps"), r.get("executable_spread_bps"),
+                    r.get("exec_vs_mark_edge_bps"), r.get("zscore"), r.get("spread_cv"),
+                    r.get("depth5_long_usd"), r.get("depth5_short_usd"),
+                    r.get("book_fresh"), r.get("entered_eligible"),
+                )
+                for r in rows
+            ]
+            await self._pool.executemany(
+                """
+                INSERT INTO spread_observations (
+                    symbol, exchange_long, exchange_short,
+                    mark_spread_bps, executable_spread_bps, exec_vs_mark_edge_bps,
+                    zscore, spread_cv, depth5_long_usd, depth5_short_usd,
+                    book_fresh, entered_eligible
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                """,
+                records,
+            )
+            return len(records)
+        except Exception as e:
+            logger.warning("[SpreadObs] insert failed (%d rows): %s", len(rows), e)
+            return 0
 
     # ── pair_stats ────────────────────────────────────────────────────────────
 
