@@ -201,14 +201,14 @@ function StatsPanel({ stats }: { stats: ResearchStats | null }) {
         </div>
       )}
       <a
-        href="https://mexc-trade-bot-production.up.railway.app/api/arbitrage/research/export-dataset"
+        href="/api/proxy/api/arbitrage/research/export-dataset"
         download
         className={styles.csvBtn}
       >
         ⬇ Raw CSV
       </a>
       <a
-        href="https://mexc-trade-bot-production.up.railway.app/api/arbitrage/research/export-dataset?clean=true"
+        href="/api/proxy/api/arbitrage/research/export-dataset?clean=true"
         download
         className={`${styles.csvBtn} ${styles.csvBtnClean}`}
       >
