@@ -198,6 +198,18 @@ async def main() -> None:
     gate_flow       = GateFlowCollector(flow_tracker)
     matrix.set_flow_tracker(flow_tracker)
 
+    # ── Contract specs: size multipliers for correct book/tape USD notional ────
+    # Gate quanto_multiplier / MEXC contractSize vary per contract (0.0001…10000);
+    # without them depth5_*_usd is wrong. Fetched once here, before books arrive.
+    from .core.contract_specs import ContractSpecs
+    contract_specs = ContractSpecs()
+    try:
+        await contract_specs.load()
+        flow_tracker.set_specs(contract_specs)
+        log.info("[ContractSpecs] %d multipliers cached (book/tape USD now correct)", len(contract_specs))
+    except Exception as exc:
+        log.warning("[ContractSpecs] load failed: %r — depth USD reported None until next restart", exc)
+
     # Evaluate any symbols that accumulated data during previous session
     # ArbLiveExecutor has no evaluator — skip in live/testnet mode
     if hasattr(trader, 'evaluator'):

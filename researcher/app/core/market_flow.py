@@ -86,6 +86,21 @@ class FlowTracker:
         self._tape:  dict[tuple[str, str], deque] = {}
         # (symbol, exchange) → latest _BookSnap
         self._book:  dict[tuple[str, str], _BookSnap] = {}
+        # Contract-size specs (base-coin units per contract). None until loaded.
+        self._specs = None
+
+    def set_specs(self, specs) -> None:
+        """Attach a ContractSpecs cache so book/tape USD notionals are correct.
+
+        Without it, get_multiplier() returns None and USD depth is reported as
+        unavailable (we never guess with wrong units)."""
+        self._specs = specs
+
+    def get_multiplier(self, symbol: str, exchange: str) -> Optional[float]:
+        """base-coin units per contract for this (symbol, exchange), or None."""
+        if self._specs is None:
+            return None
+        return self._specs.get(exchange, symbol)
 
     # ── ingest ─────────────────────────────────────────────────────────────────
 
@@ -94,9 +109,13 @@ class FlowTracker:
         key = (symbol, exchange)
         if key not in self._tape:
             self._tape[key] = deque(maxlen=_MAX_TRADES)
+        # size is in CONTRACTS; convert to USD notional via the contract multiplier.
+        # (buy_pressure is a ratio so the multiplier cancels, but keep USD honest.)
+        mult = self.get_multiplier(symbol, exchange)
+        size_usd = price * size * mult if mult is not None else price * size
         self._tape[key].append(_TradeTick(
             ts_ms=ts_ms,
-            size_usd=price * size,
+            size_usd=size_usd,
             is_buy=is_buy,
             size_raw=size,
         ))
@@ -106,10 +125,19 @@ class FlowTracker:
                 asks: list[tuple[float, float]]) -> None:
         top_bids = list(bids[:_BOOK_LEVELS])
         top_asks = list(asks[:_BOOK_LEVELS])
+        # bid_qty/ask_qty stay in RAW contracts — book_imbalance is a same-exchange
+        # ratio so the multiplier cancels; keep it byte-for-byte identical.
         bid_qty = sum(s for _, s in top_bids)
         ask_qty = sum(s for _, s in top_asks)
-        bid_usd = sum(p * s for p, s in top_bids)
-        ask_usd = sum(p * s for p, s in top_asks)
+        # USD notional needs the contract multiplier: usd = price × size × mult.
+        # No spec → leave 0.0 so get_depth_usd() reports None (never fake units).
+        mult = self.get_multiplier(symbol, exchange)
+        if mult is not None:
+            bid_usd = sum(p * s for p, s in top_bids) * mult
+            ask_usd = sum(p * s for p, s in top_asks) * mult
+        else:
+            bid_usd = 0.0
+            ask_usd = 0.0
         # Top-of-book prices — None if that side is empty (one-sided book).
         best_bid = top_bids[0][0] if top_bids else None
         best_ask = top_asks[0][0] if top_asks else None
