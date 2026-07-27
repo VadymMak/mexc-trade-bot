@@ -39,11 +39,9 @@ CYCLE_SECONDS = int(os.getenv("CARRY_CYCLE_SECONDS", "300"))
 FUNDING_INTERVAL_HOURS = 8           # both MEXC and Gate settle every 8h (00/08/16 UTC)
 HTTP_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
-COINS = [
-    "BTC", "ETH", "SOL", "XRP", "BNB", "DOGE",
-    "LINK", "AVAX", "ARB", "OP", "LTC", "ATOM",
-]
-SYMBOLS = [f"{c}_USDT" for c in COINS]          # canonical: BTC_USDT
+# Universe is built DYNAMICALLY each cycle from the bulk responses (below):
+# every symbol that appears in BOTH the perp and spot bulk feed on an exchange.
+# No hardcoded coin list.
 
 MEXC_PERP_URL = "https://contract.mexc.com/api/v1/contract/ticker"
 MEXC_SPOT_URL = "https://api.mexc.com/api/v3/ticker/bookTicker"
@@ -116,61 +114,70 @@ async def fetch_all(session: aiohttp.ClientSession) -> tuple:
 
 
 # ── Build rows ───────────────────────────────────────────────────────────────
-def build_rows(mexc_perp, mexc_spot, gate_perp, gate_spot) -> list[tuple]:
-    # Index by canonical symbol (BTC_USDT).
-    mp = {d["symbol"]: d for d in mexc_perp.get("data", [])}          # BTC_USDT
-    ms = {d["symbol"]: d for d in mexc_spot}                          # BTCUSDT
-    gp = {d["contract"]: d for d in gate_perp}                        # BTC_USDT
-    gs = {d["currency_pair"]: d for d in gate_spot}                   # BTC_USDT
+def _row(exchange, sym, perp_mark, spot_price, funding, mins,
+         perp_bid, perp_ask, spot_bid, spot_ask) -> tuple:
+    return (
+        exchange, sym, perp_mark, spot_price,
+        _basis_bps(perp_mark, spot_price), funding,
+        FUNDING_INTERVAL_HOURS, mins, _funding_apr_pct(funding),
+        perp_bid, perp_ask, _spread_bps(perp_bid, perp_ask),
+        spot_bid, spot_ask, _spread_bps(spot_bid, spot_ask),
+        None, None,               # perp_depth5_usd, spot_depth5_usd (v1: NULL)
+    )
+
+
+def build_rows(mexc_perp, mexc_spot, gate_perp, gate_spot) -> tuple[list[tuple], dict]:
+    """
+    Dynamic universe: for each exchange, take every symbol present in BOTH the
+    perp and spot bulk feed. Insert a row only if it has a numeric spot price
+    AND a numeric perp mark. funding_rate may be NULL (never fabricated).
+    Returns (rows, per-exchange coin counts) for logging.
+    """
+    mp = {d["symbol"]: d for d in mexc_perp.get("data", [])}   # perp: BTC_USDT
+    ms = {d["symbol"]: d for d in mexc_spot}                    # spot: BTCUSDT (no sep)
+    gp = {d["contract"]: d for d in gate_perp}                  # perp: BTC_USDT
+    gs = {d["currency_pair"]: d for d in gate_spot}            # spot: BTC_USDT
 
     mins = _mins_to_funding()
     rows: list[tuple] = []
+    counts = {"mexc": 0, "gate": 0}
 
-    for sym in SYMBOLS:                          # sym = BTC_USDT
-        coin = sym.split("_")[0]
-        spot_key_mexc = f"{coin}USDT"            # BTCUSDT
+    # ── MEXC: perp = BASE_QUOTE, spot = BASEQUOTE. Match by stripping the '_'
+    #    from the perp symbol → spot lookup key (avoids splitting a sep-less spot).
+    for sym, m_p in mp.items():
+        m_s = ms.get(sym.replace("_", ""))
+        if m_s is None:
+            continue                                  # no matching spot pair
+        perp_mark = _f(m_p.get("fairPrice"))
+        spot_bid = _f(m_s.get("bidPrice"))
+        spot_ask = _f(m_s.get("askPrice"))
+        spot_price = _mid(spot_bid, spot_ask)
+        if perp_mark is None or spot_price is None:
+            continue                                  # dead/unpriced symbol — skip
+        rows.append(_row(
+            "mexc", sym, perp_mark, spot_price, _f(m_p.get("fundingRate")), mins,
+            _f(m_p.get("bid1")), _f(m_p.get("ask1")), spot_bid, spot_ask,
+        ))
+        counts["mexc"] += 1
 
-        # ---- MEXC row ----
-        m_p = mp.get(sym)
-        m_s = ms.get(spot_key_mexc)
-        if m_p or m_s:
-            perp_mark = _f(m_p.get("fairPrice")) if m_p else None
-            perp_bid = _f(m_p.get("bid1")) if m_p else None
-            perp_ask = _f(m_p.get("ask1")) if m_p else None
-            funding = _f(m_p.get("fundingRate")) if m_p else None
-            spot_bid = _f(m_s.get("bidPrice")) if m_s else None
-            spot_ask = _f(m_s.get("askPrice")) if m_s else None
-            spot_price = _mid(spot_bid, spot_ask)
-            rows.append((
-                "mexc", sym, perp_mark, spot_price,
-                _basis_bps(perp_mark, spot_price), funding,
-                FUNDING_INTERVAL_HOURS, mins, _funding_apr_pct(funding),
-                perp_bid, perp_ask, _spread_bps(perp_bid, perp_ask),
-                spot_bid, spot_ask, _spread_bps(spot_bid, spot_ask),
-                None, None,           # perp_depth5_usd, spot_depth5_usd (v1: NULL)
-            ))
-
-        # ---- Gate row ----
-        g_p = gp.get(sym)
+    # ── Gate: perp (contract) and spot (currency_pair) are both BASE_QUOTE.
+    for sym, g_p in gp.items():
         g_s = gs.get(sym)
-        if g_p or g_s:
-            perp_mark = _f(g_p.get("mark_price")) if g_p else None
-            perp_bid = _f(g_p.get("highest_bid")) if g_p else None
-            perp_ask = _f(g_p.get("lowest_ask")) if g_p else None
-            funding = _f(g_p.get("funding_rate")) if g_p else None
-            spot_bid = _f(g_s.get("highest_bid")) if g_s else None
-            spot_ask = _f(g_s.get("lowest_ask")) if g_s else None
-            spot_price = _mid(spot_bid, spot_ask)
-            rows.append((
-                "gate", sym, perp_mark, spot_price,
-                _basis_bps(perp_mark, spot_price), funding,
-                FUNDING_INTERVAL_HOURS, mins, _funding_apr_pct(funding),
-                perp_bid, perp_ask, _spread_bps(perp_bid, perp_ask),
-                spot_bid, spot_ask, _spread_bps(spot_bid, spot_ask),
-                None, None,
-            ))
+        if g_s is None:
+            continue
+        perp_mark = _f(g_p.get("mark_price"))
+        spot_bid = _f(g_s.get("highest_bid"))
+        spot_ask = _f(g_s.get("lowest_ask"))
+        spot_price = _mid(spot_bid, spot_ask)
+        if perp_mark is None or spot_price is None:
+            continue
+        rows.append(_row(
+            "gate", sym, perp_mark, spot_price, _f(g_p.get("funding_rate")), mins,
+            _f(g_p.get("highest_bid")), _f(g_p.get("lowest_ask")), spot_bid, spot_ask,
+        ))
+        counts["gate"] += 1
 
-    return rows
+    return rows, counts
 
 
 # ── DB ───────────────────────────────────────────────────────────────────────
@@ -233,17 +240,18 @@ async def run() -> None:
         command_timeout=20.0, statement_cache_size=0,  # Neon/pgBouncer safe
     )
     await ensure_schema(pool)
-    log.info("[carry] connected; table ready; %d symbols; cycle=%ds",
-             len(SYMBOLS), CYCLE_SECONDS)
+    log.info("[carry] connected; table ready; dynamic universe; cycle=%ds",
+             CYCLE_SECONDS)
 
     async with aiohttp.ClientSession() as session:
         while True:
             t0 = asyncio.get_event_loop().time()
             try:
                 mp, ms, gp, gs = await fetch_all(session)
-                rows = build_rows(mp, ms, gp, gs)
+                rows, counts = build_rows(mp, ms, gp, gs)
                 n = await insert_rows(pool, rows)
-                log.info("[carry] Inserted %d rows", n)
+                log.info("[carry] Inserted %d rows (mexc=%d, gate=%d)",
+                         n, counts["mexc"], counts["gate"])
             except Exception as e:
                 log.exception("[carry] cycle error: %s", e)
             elapsed = asyncio.get_event_loop().time() - t0
