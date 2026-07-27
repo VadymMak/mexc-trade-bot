@@ -77,6 +77,7 @@ def _mount_subrouters(root: APIRouter) -> None:
     from app.routers.strategy_params_api import router as params_router
     from app.routers.allocation import router as allocation_router
     from app.routers.arbitrage import router as arbitrage_router
+    from app.routers.carry import router as carry_router
 
     root.include_router(market_router)
     root.include_router(strategy_router)
@@ -91,6 +92,7 @@ def _mount_subrouters(root: APIRouter) -> None:
     root.include_router(strategy_router)
     root.include_router(allocation_router)
     root.include_router(arbitrage_router)   # /api/arbitrage/...
+    root.include_router(carry_router)        # /api/carry/...
 
     # Attach metrics only to the scanner router to avoid global cardinality.
     root.include_router(

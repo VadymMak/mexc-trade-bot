@@ -39,6 +39,7 @@ export default function RootLayout({
               { href: "/arbitrage/analyzer", label: "Analyzer" },
               { href: "/scalp", label: "Scalp" },
               { href: "/scalp/analyzer", label: "Scalp Analyzer" },
+              { href: "/carry", label: "Carry" },
               { href: "/history", label: "History" },
               { href: "/settings", label: "Settings" },
             ].map(({ href, label }) => (
