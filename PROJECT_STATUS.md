@@ -1,13 +1,104 @@
 # 🎯 KEEPER MEMORY AI - PROJECT STATUS
 
-> **Last Updated:** November 13, 2025 - 21:00 UTC  
+> **Last Updated:** August 13, 2026  
 > **Project Start:** November 6, 2025  
-> **Target Completion:** January 9, 2026  
-> **Version:** 3.2 (Phase 2 Day 2 Complete!)
+> **Version:** 4.0 (self-hosted / PostgreSQL)
 
 ---
 
-## 📍 CURRENT PHASE
+## 🖥️ CURRENT ARCHITECTURE (August 13, 2026)
+
+**Deployment: local server (self-host). Not Railway, not a cloud VPS.**
+
+```
+Host:      trading-server (Ubuntu 26.04 LTS, x86-64, kernel 7.0.0)
+Process mgr: systemd (NOT Docker, NOT PM2)
+Proxy:     none (no nginx/caddy — services listen directly)
+Remote access: Tailscale
+```
+
+The Railway migration is complete: all services and the database run on this
+machine. `VPS_MIGRATION_PLAN.md` (Hetzner) was **not** executed — the workload
+landed on the local server instead. `backend/docker-compose.yml`,
+`backend/Dockerfile`, `ecosystem.config.js` (PM2) and `researcher/Procfile`
+are **legacy artifacts and are not used**.
+
+### Services
+
+| Service (systemd)        | Port      | Runs                                    | State |
+|--------------------------|-----------|-----------------------------------------|-------|
+| `trading-bot`            | 8000      | `backend` FastAPI/uvicorn (0.0.0.0)     | active — owns :8000 |
+| `mexc-backend`           | 8000      | duplicate of the above (127.0.0.1)      | ⚠️ duplicate, cannot bind |
+| `mexc-carry-collector`   | —         | `researcher/app.carry.main`             | active |
+| `mexc-frontend`          | 3000      | Next.js dashboard (0.0.0.0)             | active |
+| `mexc-researcher`        | 8100/8101 | paper / live trader (`researcher`)      | ⚠️ disabled — not running |
+
+Ports by convention: **backend 8000, researcher 8100 (paper) / 8101 (live),
+frontend 3000, PostgreSQL 5432.**
+
+### Database
+
+**PostgreSQL — `postgresql://mexc@127.0.0.1:5432/trading_bot`** (local, listens
+on loopback only). Single database for all services. SQLite (`mexc.db`,
+`trading_bot.db`) is **retired** — no service writes to it.
+
+All services read the same DSN, though under legacy variable names:
+
+| Service        | Env var(s)                                        |
+|----------------|---------------------------------------------------|
+| backend        | `DATABASE_URL`, `ML_DATABASE_URL`, `NEON_DATABASE_URL` |
+| researcher     | `NEON_DATABASE_URL` (historical name — points local) |
+| ml_collector   | `DATABASE_URL`                                     |
+
+### ml_collector status
+
+✅ **Connected to PostgreSQL** (August 13, 2026). `ml_collector` reads
+`DATABASE_URL` from its `.env`; `DB_PATH`/SQLite has been removed from
+`config.py` and `collector.py` (now `psycopg2`). Snapshots go to the
+`ml_snapshots` table in `trading_bot`. Verified end-to-end.
+
+The collector is **not yet under systemd** — it is started manually
+(`python collector.py` from `ml_collector/`). The analysis helper scripts in
+that folder (`analyze_trades.py`, `analyze_mm_patterns.py`,
+`check_db_structure.py`, `trade_tracker.py`) still target SQLite and are stale.
+
+### Data status (August 13, 2026)
+
+| Table                     | Rows      | Latest      | Note |
+|---------------------------|-----------|-------------|------|
+| `funding_basis_snapshots` | 5.80 M    | live        | carry collector, ~1193 rows / 5 min, 727 coins × 2 exchanges |
+| `spread_observations`     | 471 k     | 2026-07-27  | frozen — researcher stopped |
+| `paper_positions`         | 1 900     | 2026-07-25  | frozen — researcher stopped |
+| `ml_trade_outcomes`       | 1 888     | 2026-07-25  | frozen — arb archive |
+| `ml_snapshots`            | seeding   | live-capable| ml_collector target (verified writing) |
+| `trades`                  | 0         | —           | empty |
+
+Database size ~1.26 GB, disk 45% used (52 G free).
+
+**Only the carry collector is producing new data.** The researcher (paper
+trader) has been stopped since 2026-07-27, so spread/paper-position datasets
+are static.
+
+### Known issues
+
+1. ⚠️ **Duplicate backend.** `trading-bot.service` and `mexc-backend.service`
+   both start the same app on port 8000. `trading-bot` wins the bind;
+   `mexc-backend` restarted 232× and now runs without a listening socket while
+   still consuming ~158 MB. One of the two should be disabled.
+2. ⚠️ `NEON_DATABASE_URL` is a misleading name — it points at local PostgreSQL,
+   not Neon. `researcher/.env.example` still shows a real Neon host.
+3. ⚠️ `ml_collector` has no systemd unit, so it does not survive reboot.
+
+---
+
+## 📜 HISTORICAL ARCHIVE — Phase 2, November 2025
+
+> ⚠️ Everything below describes the **November 2025 Railway/SQLite era** and is
+> kept for history only. The numbers (86-column SQLite `ml_trade_outcomes`,
+> Dataset v2 collection, 74–78% win rates) refer to the old mark-price paper
+> simulation and do **not** reflect the current system.
+
+### 📍 PHASE AS OF NOV 13, 2025
 
 **Phase:** Phase 2 - MM Detection & Adaptive Sizing (Day 2)  
 **Status:** ✅ DAY 2 COMPLETE - Integration & Dataset v2 Started  

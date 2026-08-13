@@ -1,15 +1,15 @@
-# Создать исправленный файл
 """
 ML Data Collector - Scanner API version with imbalance tracking
+
+Writes to the local PostgreSQL instance (trading_bot), same DB as backend/researcher.
 """
 import asyncio
 import aiohttp
-import sqlite3
+import psycopg2
 import time
 import logging
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
 
 import config
 
@@ -21,7 +21,7 @@ if sys.platform == 'win32':
         pass
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO),
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.FileHandler('collector.log', encoding='utf-8'),
@@ -34,50 +34,69 @@ class ScannerCollector:
     """Scanner API collector with full market data"""
     def __init__(self):
         self.symbols = config.SYMBOLS
-        self.db_path = config.DB_PATH
+        self.database_url = config.DATABASE_URL
         self.interval = config.COLLECTION_INTERVAL
         self.scanner_url = config.SCANNER_BASE_URL
         self.timeout = config.SCANNER_TIMEOUT
         self.records_written = 0
         self.errors = 0
         self.running = False
-        
+        self._conn = None
+
         self._init_db()
-    
+
+    @property
+    def db_target(self) -> str:
+        """DSN with the password stripped — safe for logs."""
+        try:
+            head, tail = self.database_url.split('://', 1)
+            creds, host = tail.rsplit('@', 1)
+            user = creds.split(':', 1)[0]
+            return f"{head}://{user}:***@{host}"
+        except ValueError:
+            return '<database>'
+
+    def _connect(self):
+        """Open (or reuse) the PostgreSQL connection."""
+        if self._conn is None or self._conn.closed:
+            self._conn = psycopg2.connect(self.database_url)
+            self._conn.autocommit = True
+        return self._conn
+
     def _init_db(self):
         """Initialize database (table should already exist)"""
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = self._connect()
             cursor = conn.cursor()
-            
+
             # Check if table exists
             cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='ml_snapshots'
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'ml_snapshots'
             """)
-            
+
             if cursor.fetchone():
-                logger.info(f"[OK] Database ready: {self.db_path}")
+                logger.info(f"[OK] Database ready: {self.db_target}")
             else:
-                logger.error(f"[ERROR] Table ml_snapshots not found in {self.db_path}")
-                logger.error("[ERROR] Run backend first to create schema")
+                logger.error(f"[ERROR] Table ml_snapshots not found in {self.db_target}")
+                logger.error("[ERROR] Run backend migrations first (migration/apply_postgres.py)")
                 sys.exit(1)
-            
-            conn.close()
-            
+
+            cursor.close()
+
         except Exception as e:
             logger.error(f"[ERROR] Database init failed: {e}")
             sys.exit(1)
-    
+
     def write_snapshot(self, symbol: str, data: dict):
         """Write snapshot to database"""
         try:
-            conn = sqlite3.connect(str(self.db_path))
+            conn = self._connect()
             cursor = conn.cursor()
-            
+
             # Use timezone-aware datetime
             now_utc = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-            
+
             cursor.execute("""
                 INSERT INTO ml_snapshots (
                     ts, symbol, exchange,
@@ -90,14 +109,15 @@ class ScannerCollector:
                     atr1m_pct, grinder_ratio, pullback_median_retrace,
                     scanner_preset, ml_version, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 int(time.time() * 1000),
                 symbol,
                 'mexc',
                 data.get('bid', 0),
                 data.get('ask', 0),
-                data.get('mid', 0),
+                # Scanner has no 'mid' field — derive it from bid/ask
+                data.get('mid') or (float(data.get('bid', 0)) + float(data.get('ask', 0))) / 2,
                 data.get('spread_bps', 0),
                 data.get('eff_spread_bps_maker', 0),
                 data.get('depth5_bid_usd', 0),
@@ -105,8 +125,9 @@ class ScannerCollector:
                 data.get('depth10_bid_usd', 0),
                 data.get('depth10_ask_usd', 0),
                 data.get('imbalance', 0.5),
-                data.get('tpm', 0),
-                data.get('usdpm', 0),
+                # Scanner returns trades_per_min / usd_per_min (not tpm / usdpm)
+                data.get('trades_per_min', 0),
+                data.get('usd_per_min', 0),
                 data.get('median_trade_usd', 0),
                 data.get('atr1m_pct', 0),
                 data.get('grinder_ratio', 0),
@@ -115,15 +136,21 @@ class ScannerCollector:
                 'v1_scanner',
                 now_utc
             ))
-            
-            conn.commit()
-            conn.close()
-            
+
+            cursor.close()
+
             self.records_written += 1
-            
+
         except Exception as e:
             logger.error(f"Write error for {symbol}: {e}")
             self.errors += 1
+            # Drop a broken connection so the next write reconnects
+            if self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                self._conn = None
     
     async def fetch_scanner_data(self, session: aiohttp.ClientSession, symbol: str):
         """Fetch from scanner (includes full market data)"""
@@ -182,7 +209,7 @@ class ScannerCollector:
         logger.info("=" * 60)
         logger.info("ML DATA COLLECTOR (SCANNER - TOP 5 SYMBOLS)")
         logger.info(f"Symbols: {', '.join(self.symbols)}")
-        logger.info(f"Database: {self.db_path}")
+        logger.info(f"Database: {self.db_target}")
         logger.info(f"Interval: {self.interval}s")
         logger.info(f"Timeout: {self.timeout}s")
         logger.info(f"Scanner: {self.scanner_url}")
@@ -192,7 +219,7 @@ class ScannerCollector:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    "http://localhost:8000/api/healthz",
+                    config.BACKEND_HEALTH_URL,
                     timeout=aiohttp.ClientTimeout(total=5)
                 ) as resp:
                     if resp.status == 200:
@@ -219,7 +246,7 @@ class ScannerCollector:
                         
                         if consecutive_failures >= 5:
                             logger.error("[ERROR] Too many consecutive failures, check backend!")
-                            logger.error("[ERROR] Run: curl http://localhost:8000/api/healthz")
+                            logger.error(f"[ERROR] Run: curl {config.BACKEND_HEALTH_URL}")
                     else:
                         consecutive_failures = 0
                     
@@ -240,6 +267,12 @@ class ScannerCollector:
     
     def stop(self):
         self.running = False
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
         logger.info(f"[STOP] Collected {self.records_written} snapshots with {self.errors} errors")
 
 async def main():
