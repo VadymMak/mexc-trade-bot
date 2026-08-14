@@ -1,5 +1,7 @@
 # 🎯 KEEPER MEMORY AI - PROJECT STATUS
 
+> Source of truth = CURRENT_STATUS.md (this file is historical).
+
 > **Last Updated:** August 13, 2026  
 > **Project Start:** November 6, 2025  
 > **Version:** 4.0 (self-hosted / PostgreSQL)
