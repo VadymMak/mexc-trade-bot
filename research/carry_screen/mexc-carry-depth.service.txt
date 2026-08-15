@@ -1,0 +1,18 @@
+[Unit]
+Description=MEXC/Gate carry basket L2 depth collector (perp+spot, capacity measurement, data only)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vadym
+WorkingDirectory=/home/vadym/mexc-trade-bot/researcher
+EnvironmentFile=/home/vadym/mexc-trade-bot/researcher/.env
+ExecStart=/home/vadym/mexc-trade-bot/researcher/.venv/bin/python -m app.carry.depth_main
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/vadym/mexc-trade-bot/researcher/carry_depth.log
+StandardError=append:/home/vadym/mexc-trade-bot/researcher/carry_depth.log
+
+[Install]
+WantedBy=multi-user.target
