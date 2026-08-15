@@ -46,12 +46,12 @@ CREATE INDEX IF NOT EXISTS idx_carry_book_l2_sym_ts
 
 _FLUSH_ROWS = 400
 _FLUSH_SECS = 2.0
-# Throttled 0.25 -> 2.0 on 2026-08-15 after the first capacity pass. At 0.25s this
-# wrote ~8.6M rows/day (~1.2 GB/day), which is far more resolution than a capacity
-# study needs — capacity is about depth LEVELS over hours, not tick dynamics.
-# 10.0s still yields ~360 snapshots/hour/stream — ample for hourly depth
-# percentiles — while cutting the write rate by roughly 4x.
-_SNAP_MIN_INTERVAL = 10.0          # <= 0.1 snapshots/sec per (ex, sym, market)
+# Set to 60s for the 24-48h capacity study (2026-08-15). Worst-hour capacity needs
+# good hourly COVERAGE, not intra-second resolution: 60s gives 60 snapshots per hour
+# per stream, ample for hourly percentiles. Budget at 61 names x 2 markets x 50
+# levels: ~203 rows/s ~ 17.6M rows/day ~ 2.4 GB/day worst case (less after dedupe),
+# inside the 2-3 GB/day budget with 52 GB free.
+_SNAP_MIN_INTERVAL = 60.0          # <= 1 snapshot/min per (ex, sym, market)
 
 
 class CarryBookStore:

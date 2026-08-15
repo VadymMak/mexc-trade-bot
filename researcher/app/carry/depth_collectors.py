@@ -41,7 +41,11 @@ _MEXC_WS = "wss://contract.mexc.com/edge"
 _PING_INTERVAL = 20.0
 _RECONNECT_DELAY = 5.0
 _RECV_TIMEOUT = _PING_INTERVAL * 3
-_SPOT_POLL_SECS = 0.5
+# One full sweep of the spot universe per 30s. With _SNAP_MIN_INTERVAL=60s in the
+# store, polling faster only produces work the throttle discards. _SPOT_CONCURRENCY
+# caps in-flight requests so 61 symbols do not arrive as a 61-wide burst.
+_SPOT_POLL_SECS = 30.0
+_SPOT_CONCURRENCY = 8
 
 
 def _levels(raw) -> list[tuple[float, float]]:
@@ -210,10 +214,16 @@ class SpotDepthPoller:
 
     async def _run(self) -> None:
         timeout = aiohttp.ClientTimeout(total=10)
+        sem = asyncio.Semaphore(_SPOT_CONCURRENCY)
+
+        async def guarded(sess, ex, sym):
+            async with sem:
+                await self._one(sess, ex, sym)
+
         async with aiohttp.ClientSession(timeout=timeout) as sess:
             while not self._stop.is_set():
                 t0 = time.monotonic()
-                await asyncio.gather(*(self._one(sess, ex, sym)
+                await asyncio.gather(*(guarded(sess, ex, sym)
                                        for ex, sym in self._basket),
                                      return_exceptions=True)
                 await asyncio.sleep(max(0.0, _SPOT_POLL_SECS - (time.monotonic() - t0)))
