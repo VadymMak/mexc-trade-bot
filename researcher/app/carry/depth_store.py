@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from typing import Optional
 
@@ -46,12 +47,16 @@ CREATE INDEX IF NOT EXISTS idx_carry_book_l2_sym_ts
 
 _FLUSH_ROWS = 400
 _FLUSH_SECS = 2.0
-# Set to 60s for the 24-48h capacity study (2026-08-15). Worst-hour capacity needs
-# good hourly COVERAGE, not intra-second resolution: 60s gives 60 snapshots per hour
-# per stream, ample for hourly percentiles. Budget at 61 names x 2 markets x 50
-# levels: ~203 rows/s ~ 17.6M rows/day ~ 2.4 GB/day worst case (less after dedupe),
-# inside the 2-3 GB/day budget with 52 GB free.
-_SNAP_MIN_INTERVAL = 60.0          # <= 1 snapshot/min per (ex, sym, market)
+# RUN 2 (2026-08-19): 120s, doubled from run 1's 60s to pay for doubling the
+# universe (61 -> 129 names) inside the same disk budget. Worst-hour capacity
+# needs hourly COVERAGE, not intra-minute resolution: 120s still gives 30
+# snapshots/hour/stream, ~210 per hour-of-day bucket over 7 days, versus the
+# ~40 that run 1's worst-hour analysis actually rested on.
+#
+# Measured from run 1 (not guessed): 137.4 bytes/row incl. index; a perp stream
+# realises exactly 1.00 snapshot per throttle interval, a spot stream 0.80.
+# 129 names x 2 markets at 120s -> ~16.7M rows/day -> ~2.30 GB/day.
+_SNAP_MIN_INTERVAL = float(os.getenv("CARRY_SNAP_INTERVAL", "120"))
 
 
 class CarryBookStore:

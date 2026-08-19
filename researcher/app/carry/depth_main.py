@@ -22,13 +22,14 @@ import contextlib
 import logging
 import os
 import signal
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from .depth_collectors import GatePerpDepth, MexcPerpDepth, SpotDepthPoller
 from .depth_store import CarryBookStore
-from .depth_symbols import CARRY_BASKET, GATE_SYMBOLS, MEXC_SYMBOLS
+from .depth_symbols import CARRY_BASKET, GATE_SYMBOLS, MEXC_SYMBOLS, chunks
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -75,13 +76,19 @@ async def main() -> None:
     await store.connect()
     store.set_multipliers(await _load_multipliers())
 
-    gate = GatePerpDepth(store, GATE_SYMBOLS)
-    mexc = MexcPerpDepth(store, MEXC_SYMBOLS)
+    # One websocket per CHUNK of symbols rather than one per venue: in run 1 a
+    # single zombie socket took out an entire venue's perp feed for 3.5 days.
+    perp = [GatePerpDepth(store, c, tag=str(i))
+            for i, c in enumerate(chunks(GATE_SYMBOLS), 1)]
+    perp += [MexcPerpDepth(store, c, tag=str(i))
+             for i, c in enumerate(chunks(MEXC_SYMBOLS), 1)]
     spot = SpotDepthPoller(store, CARRY_BASKET)
-    await gate.start()
-    await mexc.start()
+    for p in perp:
+        await p.start()
     await spot.start()
-    logger.info("[carry/l2] running — %d names, perp(ws) + spot(rest)", len(CARRY_BASKET))
+    logger.info("[carry/l2] running — %d names, %d perp sockets (%s) + spot(rest)",
+                len(CARRY_BASKET), len(perp),
+                ", ".join(f"{p.name}:{len(p._symbols)}" for p in perp))
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -90,10 +97,27 @@ async def main() -> None:
             loop.add_signal_handler(sig, stop.set)
 
     async def stats():
+        """Per-socket liveness, not just totals.
+
+        Run 1's stats line printed only store totals, which kept climbing on
+        spot data while both perp sockets were dead — the log looked healthy.
+        Age-since-last-message per socket is the number that would have shown
+        it, so it is printed every interval and shouted about when it grows.
+        """
         while not stop.is_set():
             await asyncio.sleep(_STATS_INTERVAL)
-            logger.info("[carry/l2] snaps=%d rows=%d skipped=%d",
-                        store.snaps_written, store.rows_written, store.snaps_skipped)
+            now = time.monotonic()
+            ages = [(p.name, now - p.last_msg_at if p.last_msg_at else -1.0)
+                    for p in perp]
+            stale = [f"{n}:{a:.0f}s" for n, a in ages if a < 0 or a > 90]
+            logger.info("[carry/l2] snaps=%d rows=%d skipped=%d | spot polls=%d "
+                        "err=%d | perp reconnects=%d msgs=%d | oldest socket %.0fs",
+                        store.snaps_written, store.rows_written, store.snaps_skipped,
+                        spot.polls, spot.errors,
+                        sum(p.reconnects for p in perp), sum(p.msgs for p in perp),
+                        max((a for _, a in ages), default=0.0))
+            if stale:
+                logger.warning("[carry/l2] STALE perp sockets: %s", ", ".join(stale))
 
     st = asyncio.create_task(stats())
     await stop.wait()
@@ -101,8 +125,8 @@ async def main() -> None:
     st.cancel()
     with contextlib.suppress(asyncio.CancelledError, Exception):
         await st
-    await gate.stop()
-    await mexc.stop()
+    for p in perp:
+        await p.stop()
     await spot.stop()
     await store.close()
 
