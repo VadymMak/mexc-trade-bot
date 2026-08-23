@@ -78,6 +78,17 @@ class CarryBotConfig:
     rebalance_delta_pct: float = _f("CARRY_REBALANCE_DELTA_PCT", 1.0)  # (c)
     max_drawdown_pct: float = _f("CARRY_MAX_DRAWDOWN_PCT", 5.0)        # R9
     max_data_staleness_min: float = _f("CARRY_MAX_STALENESS_MIN", 15.0)  # R9/f
+    # Beyond limit x this, a venue's data is dead and holding an unmonitorable
+    # leveraged position there is the larger risk -> derisk that venue only.
+    stale_derisk_multiple: float = _f("CARRY_STALE_DERISK_MULT", 4.0)
+
+    # ---- remediation (2026-08-23) ----------------------------------------
+    # Extra buffer a top-up/derisk aims for beyond the line it just crossed, so
+    # remediation does not re-fire on the next tick at the same threshold.
+    remediation_headroom_pp: float = _f("CARRY_REMEDIATION_HEADROOM_PP", 5.0)
+    min_effective_leverage: float = _f("CARRY_MIN_EFF_LEVERAGE", 1.0)
+    max_derisk_fraction: float = _f("CARRY_MAX_DERISK_FRACTION", 0.50)
+    max_rebalance_fraction: float = _f("CARRY_MAX_REBALANCE_FRACTION", 0.25)
     kill_switch_file: str = os.getenv(
         "CARRY_KILL_SWITCH", "/home/vadym/mexc-trade-bot/CARRY_BOT_KILL")  # R8
 
@@ -89,6 +100,14 @@ class CarryBotConfig:
     depth_lookback_hours: int = _i("CARRY_DEPTH_LOOKBACK_H", 168)
     min_hod_buckets: int = _i("CARRY_MIN_HOD_BUCKETS", 6)
     min_snaps_per_hod: int = _i("CARRY_MIN_SNAPS_PER_HOD", 3)
+    # Snapshots sampled per (day, hour) bucket. 4 x 24h x 7d = 672 per leg,
+    # against ~6,100 unsampled. The per-bucket median is unchanged; the memory
+    # is not. Per (day,hour) rather than per hour-of-day so all 7 days are
+    # represented — otherwise the sample collapses onto the last 24h.
+    max_snaps_per_hour: int = _i("CARRY_MAX_SNAPS_PER_HOUR", 4)
+    # Hard cap on cached per-leg curve sets. The cache is a within-name
+    # optimisation for the 24-step binary search, not a pass-wide store.
+    book_cache_entries: int = _i("CARRY_BOOK_CACHE_ENTRIES", 16)
 
     # ---- loop -------------------------------------------------------------
     tick_secs: float = _f("CARRY_TICK_SECS", 60.0)

@@ -46,6 +46,12 @@ CREATE TABLE IF NOT EXISTS paper_carry_positions (
 CREATE INDEX IF NOT EXISTS idx_pcp_status ON paper_carry_positions (status, exchange, symbol);
 CREATE INDEX IF NOT EXISTS idx_pcp_group  ON paper_carry_positions (group_id);
 
+-- Remediation bookkeeping (2026-08-23). Nullable, no DEFAULT => metadata-only.
+ALTER TABLE paper_carry_positions
+    ADD COLUMN IF NOT EXISTS margin_added_usd  DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS remediation_cost_usd DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS remediations      INTEGER;
+
 CREATE TABLE IF NOT EXISTS paper_carry_events (
     id        BIGSERIAL PRIMARY KEY,
     ts        TIMESTAMPTZ DEFAULT now(),
@@ -131,6 +137,9 @@ class BotStore:
                       max(interval_hours)                       AS interval_hours,
                       max(last_epoch)                           AS last_epoch,
                       max(notional_usd)                         AS notional_usd,
+                      max(notional_usd) FILTER (WHERE leg='spot') AS spot_notional,
+                      max(notional_usd) FILTER (WHERE leg='perp') AS perp_notional,
+                      max(leverage)    FILTER (WHERE leg='perp')  AS perp_leverage,
                       max(entry_depth_usd)                      AS entry_depth_usd,
                       min(opened_ts)                            AS opened_ts,
                       sum(realised_funding_usd)                 AS realised_funding,
@@ -170,6 +179,55 @@ class BotStore:
                    notes = coalesce(notes,'') || ' | closed: ' || $3
                WHERE group_id=$1 AND status='open'""",
             group_id, exit_cost_usd / 2.0, reason)
+
+    # ---- remediation (2026-08-23) -----------------------------------------
+    # Every handler below CHANGES THE POSITION. Until now a fired rule only
+    # logged: neutrality drifted to 2x its threshold and a margin buffer stayed
+    # breached for 32h because "rebalance"/"topup"/"derisk" had no handler at
+    # all. Detection without action is worse than no rule — it reads as safe.
+
+    async def adjust_perp_notional(self, group_id: str, new_notional_usd: float,
+                                   cost_usd: float) -> None:
+        """Resize the perp leg (neutrality rebalance). Cost is a real paper
+        debit — a rebalance is a trade, not a free correction."""
+        await self._pool.execute(
+            """UPDATE paper_carry_positions
+               SET notional_usd         = $2,
+                   paper_pnl_usd        = paper_pnl_usd - $3,
+                   remediation_cost_usd = coalesce(remediation_cost_usd,0) + $3,
+                   remediations         = coalesce(remediations,0) + 1
+               WHERE group_id=$1 AND leg='perp' AND status='open'""",
+            group_id, new_notional_usd, cost_usd)
+
+    async def set_leverage(self, group_id: str, new_leverage: float,
+                           margin_added_usd: float) -> None:
+        """Margin top-up, modelled as the deleveraging it actually is: posting
+        more margin against the same position lowers effective leverage, which
+        is what moves the liquidation price away."""
+        await self._pool.execute(
+            """UPDATE paper_carry_positions
+               SET leverage         = $2,
+                   margin_added_usd = coalesce(margin_added_usd,0) + $3,
+                   remediations     = coalesce(remediations,0) + 1
+               WHERE group_id=$1 AND leg='perp' AND status='open'""",
+            group_id, new_leverage, margin_added_usd)
+
+    async def partial_close(self, group_id: str, keep_fraction: float,
+                            cost_usd: float, new_leverage: float) -> None:
+        """Close (1-keep) of BOTH legs. Both, always — closing one side would
+        turn a hedged position into the naked directional bet this strategy
+        exists to avoid. Margin stays posted against the smaller position, so
+        effective leverage falls and the buffer is restored."""
+        await self._pool.execute(
+            """UPDATE paper_carry_positions
+               SET notional_usd         = notional_usd * $2,
+                   paper_pnl_usd        = paper_pnl_usd - $3,
+                   remediation_cost_usd = coalesce(remediation_cost_usd,0) + $3,
+                   remediations         = coalesce(remediations,0) + 1,
+                   leverage             = CASE WHEN leg='perp' THEN $4
+                                               ELSE leverage END
+               WHERE group_id=$1 AND status='open'""",
+            group_id, keep_fraction, cost_usd / 2.0, new_leverage)
 
     # ---- re-entry cooldown -------------------------------------------------
     async def block_reentry(self, ex: str, sym: str, base_hours: float,

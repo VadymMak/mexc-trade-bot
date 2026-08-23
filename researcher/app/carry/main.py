@@ -304,15 +304,38 @@ def _row(exchange, sym, perp_mark, spot_price, funding,
 
 
 def build_rows(mexc_perp, mexc_spot, gate_perp, gate_spot,
-               ivmap=None, mexc_spot_vol=None) -> tuple[list[tuple], dict]:
+               ivmap=None, mexc_spot_vol=None,
+               spot_known: set | None = None) -> tuple[list[tuple], dict]:
     """
     Dynamic universe: for each exchange, take every symbol present in BOTH the
     perp and spot bulk feed. Insert a row only if it has a numeric spot price
     AND a numeric perp mark. funding_rate may be NULL (never fabricated).
     Returns (rows, per-exchange coin counts) for logging.
 
-    UNIVERSE LOGIC IS UNCHANGED. `mexc_spot_vol` is a volume-only side lookup and
-    is NEVER consulted when deciding whether a symbol enters the universe.
+    `mexc_spot_vol` is a volume-only side lookup and is NEVER consulted when
+    deciding whether a symbol enters the universe.
+
+    PERP-ONLY DEGRADED ROWS (2026-08-23) — a deliberate semantics change.
+    api.mexc.com is Akamai-403'd at the IP level on ~42% of cycles while
+    contract.mexc.com (which carries the funding rate) stays healthy. Requiring
+    both legs meant a spot block put a hole in funding history we could
+    perfectly well have collected.
+
+    When the MEXC SPOT FEED ITSELF FAILED (mexc_spot is None), a symbol that we
+    have previously seen with a real spot leg — `spot_known`, carried over from
+    the last successful spot fetch — still gets a row, with every spot-derived
+    field NULL: spot_price, spot_bid, spot_ask, spot_spread_bps, basis_bps,
+    spot sizes and spot volumes. funding_rate, perp_mark, the perp book and the
+    interval are real.
+
+    This is NOT a widening of the universe: a symbol absent from a HEALTHY spot
+    feed is still skipped, exactly as before. It only keeps names we already
+    track from going dark when the venue blocks one endpoint.
+
+    Consumers are unaffected because they already require a real spot leg —
+    selector._QUOTE_SQL filters `spot_bid > 0 AND spot_ask > spot_bid`, so
+    degraded rows drop out of spread/basis statistics on their own, while
+    _FUNDING_SQL (funding_rate only) correctly keeps seeing them.
     """
     # A None feed means "that endpoint failed this cycle" — it degrades to an
     # empty map, so the venue contributes no rows and the OTHER venue is
@@ -328,22 +351,34 @@ def build_rows(mexc_perp, mexc_spot, gate_perp, gate_spot,
     sr_get = (lambda ex, sy: ivmap.source.get((ex, sy))) if ivmap else (lambda ex, sy: None)
 
     rows: list[tuple] = []
-    counts = {"mexc": 0, "gate": 0}
+    counts = {"mexc": 0, "gate": 0, "mexc_degraded": 0}
 
     # ── MEXC: perp = BASE_QUOTE, spot = BASEQUOTE. Match by stripping the '_'
     #    from the perp symbol → spot lookup key (avoids splitting a sep-less spot).
+    spot_feed_down = mexc_spot is None
+    known = spot_known or set()
     for sym, m_p in mp.items():
         spot_key = sym.replace("_", "")
         m_s = ms.get(spot_key)
+        degraded = False
         if m_s is None:
-            continue                                  # no matching spot pair
+            if not (spot_feed_down and spot_key in known):
+                continue                              # no matching spot pair
+            # Spot endpoint is down, but this name normally HAS a spot leg:
+            # keep its funding history alive with a perp-only row.
+            degraded = True
         perp_mark = _f(m_p.get("fairPrice"))
-        spot_bid = _f(m_s.get("bidPrice"))
-        spot_ask = _f(m_s.get("askPrice"))
-        spot_price = _mid(spot_bid, spot_ask)
-        if perp_mark is None or spot_price is None:
-            continue                                  # dead/unpriced symbol — skip
-        sv = msv.get(spot_key, {})
+        if perp_mark is None:
+            continue                                  # dead/unpriced perp — skip
+        if degraded:
+            spot_bid = spot_ask = spot_price = None
+        else:
+            spot_bid = _f(m_s.get("bidPrice"))
+            spot_ask = _f(m_s.get("askPrice"))
+            spot_price = _mid(spot_bid, spot_ask)
+            if spot_price is None:
+                continue                              # dead/unpriced spot — skip
+        sv = {} if degraded else msv.get(spot_key, {})
         rows.append(_row(
             "mexc", sym, perp_mark, spot_price, _f(m_p.get("fundingRate")),
             _f(m_p.get("bid1")), _f(m_p.get("ask1")), spot_bid, spot_ask,
@@ -351,10 +386,14 @@ def build_rows(mexc_perp, mexc_spot, gate_perp, gate_spot,
             _f(m_p.get("volume24")), _f(m_p.get("amount24")), _f(m_p.get("holdVol")),
             _f(sv.get("volume")), _f(sv.get("quoteVolume")),
             None, None,                                # MEXC perp ticker has no L1 sizes
-            _f(m_s.get("bidQty")), _f(m_s.get("askQty")),
+            # NULL on a degraded row — m_s does not exist when spot is blocked
+            (_f(m_s.get("bidQty")) if m_s else None),
+            (_f(m_s.get("askQty")) if m_s else None),
             None,                                      # multiplier not in this response
         ))
         counts["mexc"] += 1
+        if degraded:
+            counts["mexc_degraded"] = counts.get("mexc_degraded", 0) + 1
 
     # ── Gate: perp (contract) and spot (currency_pair) are both BASE_QUOTE.
     for sym, g_p in gp.items():
@@ -503,6 +542,28 @@ async def write_health(pool: asyncpg.Pool, **kw) -> None:
         log.warning("[carry] health write failed: %r", exc)
 
 
+async def seed_spot_known(pool: asyncpg.Pool) -> set:
+    """MEXC symbols we have already seen with a REAL spot leg.
+
+    Seeded from our own history so a restart DURING a 403 window can still emit
+    perp-only rows. Without this, `spot_known` starts empty and MEXC stays dark
+    until the block happens to lift — the restart would extend the outage it was
+    meant to survive.
+    """
+    try:
+        rows = await pool.fetch(
+            """SELECT DISTINCT symbol FROM funding_basis_snapshots
+               WHERE exchange='mexc' AND spot_price IS NOT NULL
+                     AND ts > now() - interval '7 days'""")
+        known = {r["symbol"].replace("_", "") for r in rows if r["symbol"]}
+        log.info("[carry] spot_known seeded from history: %d MEXC symbols", len(known))
+        return known
+    except Exception as exc:                          # noqa: BLE001
+        log.warning("[carry] spot_known seed failed: %r (perp-only rows "
+                    "unavailable until the first good spot fetch)", exc)
+        return set()
+
+
 async def insert_rows(pool: asyncpg.Pool, rows: list[tuple]) -> int:
     if not rows:
         return 0
@@ -519,7 +580,7 @@ class Stalled(RuntimeError):
 
 async def _cycle(session: aiohttp.ClientSession, pool: asyncpg.Pool,
                  ivmap: IntervalMap, t0: float,
-                 vol_cache: dict) -> tuple[int, dict, list[FetchError]]:
+                 vol_cache: dict, spot_known: set) -> tuple[int, dict, list[FetchError]]:
     """One collection cycle. Returns (rows_written, per-venue counts, failures).
 
     Raises only on a genuinely unrecoverable error (DB down). Endpoint failures
@@ -533,6 +594,14 @@ async def _cycle(session: aiohttp.ClientSession, pool: asyncpg.Pool,
 
     mp, ms, gp, gs, failures = await fetch_all(session)
 
+    # Remember which MEXC spot symbols really exist, from the last GOOD fetch.
+    # This set is what licenses a perp-only row when the spot endpoint 403s —
+    # without it we would have no way to tell "spot is blocked" from "this perp
+    # has no spot pair at all", and would widen the universe by ~1,000 names.
+    if ms is not None:
+        spot_known.clear()
+        spot_known.update(x["symbol"] for x in ms if x.get("symbol"))
+
     # Volume is polled every Nth cycle and cached; None means "call failed",
     # which keeps the last good map instead of nulling volumes for a cycle.
     if vol_cache["cycle"] % VOLUME_EVERY_N == 0:
@@ -541,13 +610,15 @@ async def _cycle(session: aiohttp.ClientSession, pool: asyncpg.Pool,
             vol_cache["data"] = fresh
     msv = vol_cache["data"]
 
-    rows, counts = build_rows(mp, ms, gp, gs, ivmap=ivmap, mexc_spot_vol=msv)
+    rows, counts = build_rows(mp, ms, gp, gs, ivmap=ivmap, mexc_spot_vol=msv,
+                              spot_known=spot_known)
     n = await insert_rows(pool, rows)
     n_iv = sum(1 for r in rows if r[6] is not None)
     n_vol = sum(1 for r in rows if r[20] is not None)
-    log.info("[carry] Inserted %d rows (mexc=%d, gate=%d) | interval=%d "
-             "perp_vol=%d spot_vol_mexc=%d%s",
-             n, counts["mexc"], counts["gate"], n_iv, n_vol, len(msv),
+    log.info("[carry] Inserted %d rows (mexc=%d [%d perp-only], gate=%d) | "
+             "interval=%d perp_vol=%d spot_vol_mexc=%d%s",
+             n, counts["mexc"], counts.get("mexc_degraded", 0), counts["gate"],
+             n_iv, n_vol, len(msv),
              ("  DEGRADED: " + ", ".join(f.url for f in failures)) if failures else "")
     return n, counts, failures
 
@@ -571,6 +642,7 @@ async def run() -> None:
     last_write = loop.time()          # monotonic time of the last SUCCESSFUL insert
     consecutive_failures = 0
     vol_cache: dict = {"cycle": 0, "data": {}}
+    spot_known: set = await seed_spot_known(pool)
     cycle = 0
 
     try:
@@ -578,11 +650,12 @@ async def run() -> None:
             cycle += 1
             vol_cache["cycle"] = cycle
             t0 = loop.time()
-            n, counts, failures = 0, {"mexc": 0, "gate": 0}, []
+            n, counts, failures = 0, {"mexc": 0, "gate": 0, "mexc_degraded": 0}, []
             action = "ok"
 
             try:
-                n, counts, failures = await _cycle(session, pool, ivmap, t0, vol_cache)
+                n, counts, failures = await _cycle(session, pool, ivmap, t0,
+                                                   vol_cache, spot_known)
                 if n:
                     last_write = loop.time()
                     consecutive_failures = 0

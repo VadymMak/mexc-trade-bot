@@ -34,7 +34,7 @@ from .book import BookSource
 from .config import CarryBotConfig
 from .executor import build_executor
 from .intervals import IntervalResolver
-from .risk import NeutralityManager, RiskManager
+from .risk import NeutralityManager, RiskManager, Verdict
 from .selector import Selector
 from .store import BotStore
 
@@ -72,36 +72,116 @@ class CarryBot:
             f"carry bot start — {self.cfg.describe()} | executor={self.exec.mode} "
             f"places_real_orders={self.exec.places_real_orders}")
 
-    # ---- 1. health --------------------------------------------------------
-    async def health(self) -> bool:
+    # ---- 1. health (PER EXCHANGE) -----------------------------------------
+    async def health(self) -> dict:
+        """Returns {exchange: action} where action is 'none' | 'freeze' | 'derisk'.
+
+        Returns None only when the whole book must stop (kill switch, or every
+        venue dark). Freshness is judged PER VENUE: Gate writing every 5 minutes
+        used to keep a table-wide max(ts) fresh while MEXC sat 73 minutes dark
+        and we held a MEXC position against it.
+        """
         v = self.risk.kill_switch()
         if v.fired:
             await self.store.event("risk", "risk", f"{v.rule}: {v.detail}")
-            return False
-        row = await self.pool.fetchrow(
-            """SELECT extract(epoch FROM (now() - max(ts)))/60.0 AS age
-               FROM funding_basis_snapshots""")
-        row2 = await self.pool.fetchrow(
-            """SELECT extract(epoch FROM (now() - max(ts)))/60.0 AS age
-               FROM carry_book_l2""")
-        v = self.risk.data_staleness(float(row["age"] or 1e9),
-                                     float(row2["age"] or 1e9))
-        if v.fired:
-            await self.store.event("risk", "risk", f"{v.rule}: {v.detail}", data=v.data)
-            return False
-        logger.info("[carry/bot][health] %s | %s", v.detail,
-                    "kill switch absent")
-        return True
+            return None
+
+        rows = await self.pool.fetch(
+            """SELECT exchange,
+                      extract(epoch FROM (now() - max(ts)))/60.0 AS age
+               FROM funding_basis_snapshots
+               WHERE ts > now() - interval '2 days'
+               GROUP BY exchange""")
+        funding_age = {r["exchange"]: float(r["age"] or 1e9) for r in rows}
+        rows = await self.pool.fetch(
+            """SELECT exchange,
+                      extract(epoch FROM (now() - max(ts)))/60.0 AS age
+               FROM carry_book_l2
+               WHERE ts > now() - interval '2 days'
+               GROUP BY exchange""")
+        book_age = {r["exchange"]: float(r["age"] or 1e9) for r in rows}
+
+        venues = set(funding_age) | set(book_age) | set(self.cfg.maker_bps)
+        actions: dict = {}
+        for ex in sorted(venues):
+            v = self.risk.data_staleness(ex, funding_age.get(ex, 1e9),
+                                         book_age.get(ex, 1e9))
+            actions[ex] = v.action
+            await self.store.event(
+                "risk" if v.fired else "info", "risk",
+                f"{v.rule} {'FIRED->' + v.action if v.fired else 'ok'}: {v.detail}",
+                ex, None, v.data)
+        if all(a != "none" for a in actions.values()):
+            # Every venue dark. This is the one case that still halts globally.
+            await self.store.event(
+                "risk", "risk",
+                "R9-data-staleness: ALL venues stale — halting the whole book",
+                data={"actions": actions})
+            return None
+        logger.info("[carry/bot][health] venues %s | kill switch absent",
+                    ", ".join(f"{e}={a}" for e, a in actions.items()))
+        return actions
 
     # ---- 2. risk ----------------------------------------------------------
-    async def check_risk(self) -> None:
+    async def check_risk(self, venue_actions: dict | None = None) -> None:
+        venue_actions = venue_actions or {}
         groups = await self.store.open_groups()
         for g in groups:
             ex, sym = g["exchange"], g["symbol"]
+            venue = venue_actions.get(ex, "none")
+
+            if venue == "freeze":
+                # We know this venue's data is old. Judging R4/R5 on it would be
+                # deciding from a stale book, which is how you exit a healthy
+                # position or hold a dead one. Say so and move on.
+                await self.store.event(
+                    "risk", "risk",
+                    "venue data STALE — position held, rules not evaluated on "
+                    "stale data (no opens on this venue either)", ex, sym)
+                continue
+
+            # perp_mark and spot_price come from DIFFERENT rows on purpose.
+            # MEXC perp-only rows (spot endpoint 403'd) carry a real perp mark
+            # and a NULL spot price; taking both from one row made neutrality
+            # report "prices unavailable" for every MEXC name. The spot mark is
+            # taken from the newest row that HAS one, with its age, so a stale
+            # spot can be refused rather than silently faking a drift.
             quote = await self.pool.fetchrow(
-                """SELECT perp_mark, spot_price FROM funding_basis_snapshots
-                   WHERE exchange=$1 AND symbol=$2 ORDER BY ts DESC LIMIT 1""",
+                """SELECT
+                     (SELECT perp_mark FROM funding_basis_snapshots
+                       WHERE exchange=$1 AND symbol=$2 AND perp_mark IS NOT NULL
+                       ORDER BY ts DESC LIMIT 1) AS perp_mark,
+                     (SELECT spot_price FROM funding_basis_snapshots
+                       WHERE exchange=$1 AND symbol=$2 AND spot_price IS NOT NULL
+                         AND ts > now() - interval '2 days'
+                       ORDER BY ts DESC LIMIT 1) AS spot_price,
+                     (SELECT extract(epoch FROM (now()-ts))/60.0
+                        FROM funding_basis_snapshots
+                       WHERE exchange=$1 AND symbol=$2 AND spot_price IS NOT NULL
+                         AND ts > now() - interval '2 days'
+                       ORDER BY ts DESC LIMIT 1) AS spot_age_min""",
                 ex, sym)
+            spot_age = float(quote["spot_age_min"] or 1e9) if quote else 1e9
+            spot_mark = float(quote["spot_price"] or 0.0) if quote else 0.0
+            spot_src = "snapshot"
+            if spot_age > self.cfg.max_data_staleness_min:
+                # The REST snapshot's spot mark is stale (MEXC spot 403), but
+                # the depth collector's websocket book is not — it is a
+                # different service on a different transport. Use the live
+                # touch rather than leaving neutrality unevaluated for hours.
+                curve = await self.books.latest_curve(ex, sym, "spot", "bid")
+                if curve is not None and curve.touch > 0:
+                    spot_mark, spot_age, spot_src = curve.touch, 0.0, "live-book"
+            spot_fresh = spot_age <= self.cfg.max_data_staleness_min
+
+            if venue == "derisk":
+                await self.store.event(
+                    "risk", "risk",
+                    "venue data DEAD past the hard limit — derisking this "
+                    "venue's position (other venues untouched)", ex, sym)
+                await self._do_derisk(g, quote, reason="R9-venue-data-dead")
+                continue
+
             verdicts = []
             verdicts.append(await self.risk.funding_flip(
                 ex, sym, float(g["interval_hours"] or 8.0)))
@@ -109,17 +189,51 @@ class CarryBot:
                 ex, sym, float(g["notional_usd"]), float(g["entry_depth_usd"] or 0.0)))
             if quote:
                 verdicts.append(self.risk.margin(
-                    float(g["perp_entry"] or 0.0), float(quote["perp_mark"] or 0.0)))
-                verdicts.append(self.neutral.check(
-                    float(g["notional_usd"]), float(g["spot_entry"] or 0.0),
-                    float(g["perp_entry"] or 0.0), float(quote["spot_price"] or 0.0),
-                    float(quote["perp_mark"] or 0.0)))
+                    float(g["perp_entry"] or 0.0), float(quote["perp_mark"] or 0.0),
+                    float(g["perp_leverage"] or self.cfg.leverage)))
+                if spot_fresh:
+                    verdicts.append(self.neutral.check(
+                        float(g["spot_notional"] or g["notional_usd"]),
+                        float(g["spot_entry"] or 0.0),
+                        float(g["perp_entry"] or 0.0), spot_mark,
+                        float(quote["perp_mark"] or 0.0),
+                        perp_notional=float(g["perp_notional"] or g["notional_usd"])))
+                    if spot_src != "snapshot":
+                        verdicts[-1].detail += f" [spot mark from {spot_src}]"
+                else:
+                    verdicts.append(Verdict(
+                        "neutrality", False, "none",
+                        f"spot mark {spot_age:.0f}min old (limit "
+                        f"{self.cfg.max_data_staleness_min:.0f}min) — NOT "
+                        f"evaluated rather than measured against a stale mark",
+                        {"spot_age_min": spot_age}))
             # log EVERY rule, fired or not — quiet must be visibly tested
             for v in verdicts:
                 await self.store.event(
                     "risk" if v.fired else "info", "risk",
                     f"{v.rule} {'FIRED->' + v.action if v.fired else 'ok'}: {v.detail}",
                     ex, sym, v.data)
+
+            # ---- REMEDIATION: a fired rule now TAKES ITS ACTION -------------
+            # Ordered by severity. Exit wins; otherwise derisk, then topup, then
+            # rebalance. Only one structural change per position per tick, so a
+            # handler's own effect is measurable on the next pass.
+            if not any(v.fired and v.action == "exit" for v in verdicts):
+                acted = False
+                for v in verdicts:
+                    if not v.fired or acted:
+                        continue
+                    if v.action == "derisk":
+                        await self._do_derisk(g, quote, reason=v.rule)
+                        acted = True
+                    elif v.action == "topup":
+                        await self._do_topup(g, quote, verdict=v)
+                        acted = True
+                    elif v.action == "rebalance":
+                        await self._do_rebalance(g, quote, verdict=v,
+                                                 spot_mark=spot_mark)
+                        acted = True
+
             exits = [v for v in verdicts if v.fired and v.action == "exit"]
             if exits:
                 cost, note = await self.exec.close_carry(
@@ -144,6 +258,136 @@ class CarryBot:
                     f">= {self.cfg.reentry_apr:.0f}% on capital with no negative "
                     f"epochs (exit floor is {self.cfg.min_hold_apr:.0f}%)",
                     ex, sym, {"cooldown_hours": hours, "exits": exits_n})
+
+    # ---- 2b. REMEDIATION HANDLERS -----------------------------------------
+    # Each logs FIRED -> action -> RESULT with the metric before and after, so a
+    # quiet rule reads as REMEDIATED rather than merely detected.
+
+    async def _do_rebalance(self, g, quote, verdict, spot_mark: float = 0.0) -> None:
+        """Neutrality: resize the perp leg until the two legs' mark values match."""
+        ex, sym = g["exchange"], g["symbol"]
+        if not quote:
+            await self.store.event("warn", "remediate",
+                                   "neutrality rebalance SKIPPED: no quote",
+                                   ex, sym)
+            return
+        spot_now = float(spot_mark or quote["spot_price"] or 0.0)
+        perp_now = float(quote["perp_mark"] or 0.0)
+        spot_entry = float(g["spot_entry"] or 0.0)
+        perp_entry = float(g["perp_entry"] or 0.0)
+        cur_perp = float(g["perp_notional"] or g["notional_usd"])
+        spot_notional = float(g["spot_notional"] or g["notional_usd"])
+        if not (spot_now and perp_now and spot_entry and perp_entry):
+            await self.store.event("warn", "remediate",
+                                   "neutrality rebalance SKIPPED: prices unusable",
+                                   ex, sym)
+            return
+
+        target = self.risk.neutral_perp_notional(
+            spot_notional, spot_entry, perp_entry, spot_now, perp_now)
+        delta_notional = target - cur_perp
+        cap = self.cfg.max_rebalance_fraction * cur_perp
+        if abs(delta_notional) > cap:                 # never resize violently
+            delta_notional = cap if delta_notional > 0 else -cap
+            target = cur_perp + delta_notional
+        traded_usd = abs(delta_notional) * (perp_now / perp_entry)
+        # growing the SHORT means selling more perp (hit the bid); shrinking it
+        # means buying perp back (lift the ask)
+        direction = "sell" if delta_notional > 0 else "buy"
+        price, cost, note = await self.exec.trade_leg(
+            ex, sym, "perp", traded_usd, direction)
+        await self.store.adjust_perp_notional(g["group_id"], target, cost)
+
+        before = float(verdict.data.get("delta_pct", 0.0))
+        after = self.neutral.check(spot_notional, spot_entry, perp_entry,
+                                   spot_now, perp_now, perp_notional=target)
+        await self.store.event(
+            "risk", "remediate",
+            f"neutrality FIRED->rebalance->DONE: perp notional "
+            f"${cur_perp:,.2f} -> ${target:,.2f} ({direction} ${traded_usd:,.2f}, "
+            f"cost ${cost:.4f}; {note}) | delta {before:+.2f}% -> "
+            f"{after.data.get('delta_pct', 0.0):+.2f}% "
+            f"(threshold {self.cfg.rebalance_delta_pct:.2f}%)",
+            ex, sym,
+            {"before_pct": before, "after_pct": after.data.get("delta_pct"),
+             "old_notional": cur_perp, "new_notional": target, "cost_usd": cost})
+
+    async def _do_topup(self, g, quote, verdict) -> None:
+        """R2/R3: post more margin, i.e. deleverage, until the buffer is back."""
+        ex, sym = g["exchange"], g["symbol"]
+        perp_entry = float(g["perp_entry"] or 0.0)
+        perp_now = float(quote["perp_mark"] or 0.0) if quote else 0.0
+        if not (perp_entry and perp_now):
+            await self.store.event("warn", "remediate",
+                                   "margin topup SKIPPED: no mark", ex, sym)
+            return
+        cur_lev = float(g["perp_leverage"] or self.cfg.leverage)
+        new_lev = self.risk.target_leverage(perp_entry, perp_now)
+        if new_lev >= cur_lev:
+            await self.store.event("warn", "remediate",
+                                   "margin topup SKIPPED: already deleveraged "
+                                   f"({cur_lev:.2f}x)", ex, sym)
+            return
+        notional = float(g["perp_notional"] or g["notional_usd"])
+        margin_added = notional / new_lev - notional / cur_lev
+        await self.store.set_leverage(g["group_id"], new_lev, margin_added)
+
+        after = self.risk.margin(perp_entry, perp_now, new_lev)
+        await self.store.event(
+            "risk", "remediate",
+            f"R2-margin FIRED->topup->DONE: posted ${margin_added:,.2f} extra "
+            f"margin, effective leverage {cur_lev:.2f}x -> {new_lev:.2f}x | "
+            f"buffer {verdict.data.get('buffer_pp', 0.0):.1f}pp -> "
+            f"{after.data.get('buffer_pp', 0.0):.1f}pp",
+            ex, sym,
+            {"margin_added_usd": margin_added, "old_leverage": cur_lev,
+             "new_leverage": new_lev,
+             "before_buffer_pp": verdict.data.get("buffer_pp"),
+             "after_buffer_pp": after.data.get("buffer_pp")})
+
+    async def _do_derisk(self, g, quote, reason: str) -> None:
+        """Past the derisk line: close part of BOTH legs.
+
+        Both legs, always. Closing one side converts a hedged carry into the
+        naked directional position this strategy exists to avoid — which would
+        be a far worse outcome than the margin breach we are fixing.
+        """
+        ex, sym = g["exchange"], g["symbol"]
+        perp_entry = float(g["perp_entry"] or 0.0)
+        perp_now = float(quote["perp_mark"] or 0.0) if quote else 0.0
+        cur_lev = float(g["perp_leverage"] or self.cfg.leverage)
+        notional = float(g["notional_usd"])
+
+        frac = self.cfg.max_derisk_fraction
+        if perp_entry and perp_now:
+            want_lev = self.risk.target_leverage(perp_entry, perp_now)
+            # margin stays posted against a smaller position: L_eff = L * keep
+            keep_needed = max(0.0, min(1.0, want_lev / cur_lev)) if cur_lev else 0.5
+            frac = min(self.cfg.max_derisk_fraction, 1.0 - keep_needed)
+        frac = max(0.05, frac)
+        keep = 1.0 - frac
+
+        closed_usd = notional * frac
+        _, c1, n1 = await self.exec.trade_leg(ex, sym, "spot", closed_usd, "sell")
+        _, c2, n2 = await self.exec.trade_leg(ex, sym, "perp", closed_usd, "buy")
+        cost = c1 + c2
+        new_lev = cur_lev * keep
+        await self.store.partial_close(g["group_id"], keep, cost, new_lev)
+
+        before = self.risk.margin(perp_entry, perp_now, cur_lev)
+        after = self.risk.margin(perp_entry, perp_now, new_lev)
+        await self.store.event(
+            "risk", "remediate",
+            f"{reason} FIRED->derisk->DONE: closed {frac:.0%} of BOTH legs "
+            f"(${closed_usd:,.2f}/leg, cost ${cost:.4f}; {n1}; {n2}), "
+            f"effective leverage {cur_lev:.2f}x -> {new_lev:.2f}x | buffer "
+            f"{before.data.get('buffer_pp', 0.0):.1f}pp -> "
+            f"{after.data.get('buffer_pp', 0.0):.1f}pp",
+            ex, sym,
+            {"closed_fraction": frac, "closed_usd": closed_usd, "cost_usd": cost,
+             "old_leverage": cur_lev, "new_leverage": new_lev,
+             "before_buffer_pp": before.data.get("buffer_pp"),
+             "after_buffer_pp": after.data.get("buffer_pp")})
 
     # ---- 3. accrue --------------------------------------------------------
     async def accrue(self) -> int:
@@ -195,7 +439,11 @@ class CarryBot:
         return float(row["r"] or 0.0) if row else 0.0
 
     # ---- 4. select + open -------------------------------------------------
-    async def rebalance_basket(self) -> None:
+    async def rebalance_basket(self, venue_actions: dict | None = None) -> None:
+        venue_actions = venue_actions or {}
+        # Peak RSS is set by the cache cap, not by how many names the universe
+        # holds — see BookSource. Drop the previous pass's curves first.
+        self.books.reset_cache()
         ranked, allc = await self.selector.select()
         rejects: dict[str, int] = {}
         for c in allc:
@@ -220,7 +468,12 @@ class CarryBot:
             return
 
         held = {(g["exchange"], g["symbol"]) for g in open_now}
-        fresh = [c for c in ranked if c.key not in held]
+        frozen = {ex for ex, a in venue_actions.items() if a != "none"}
+        if frozen:
+            logger.info("[carry/bot][select] no opens on stale venue(s): %s",
+                        ", ".join(sorted(frozen)))
+        fresh = [c for c in ranked
+                 if c.key not in held and c.ex not in frozen]
         for cand, capital in self.selector.allocate(fresh, free, already):
             notional = capital / self.cfg.capital_multiple
             res = await self.exec.open_carry(cand.ex, cand.sym, notional)
@@ -286,13 +539,15 @@ class CarryBot:
 
     # ---- cycle ------------------------------------------------------------
     async def cycle(self) -> dict:
-        if not await self.health():
+        venue_actions = await self.health()
+        if venue_actions is None:
             return {"halted": True}
-        await self.check_risk()
+        await self.check_risk(venue_actions)
         n = await self.accrue()
         if n:
             logger.info("[carry/bot][accrue] %d funding epoch(s) accrued", n)
-        await self.rebalance_basket()
+        await self.rebalance_basket(venue_actions)
+        self.books.reset_cache()          # do not hold curves between cycles
         return await self.report()
 
 
@@ -336,10 +591,12 @@ async def main() -> None:
                 await bot.cycle()
                 last_select = _t.monotonic()
             else:
-                if await bot.health():
-                    await bot.check_risk()
+                va = await bot.health()
+                if va is not None:
+                    await bot.check_risk(va)
                     if await bot.accrue():
                         await bot.report()
+                    bot.books.reset_cache()
         except Exception as exc:
             logger.exception("[carry/bot] cycle failed: %r", exc)
         with contextlib.suppress(asyncio.TimeoutError):

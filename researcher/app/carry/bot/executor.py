@@ -73,6 +73,35 @@ class PaperExecutor:
         r.spot_slip, r.perp_slip = s_slip, p_slip
         return r
 
+    async def trade_leg(self, ex: str, sym: str, market: str, usd: float,
+                        direction: str) -> tuple[float, float, str]:
+        """Price ONE leg's adjustment against the live book.
+
+        Used by the remediation handlers (rebalance / derisk). `direction` is
+        'buy' (lifts the ask) or 'sell' (hits the bid). Returns
+        (fill_price, cost_usd, note). A remediation is a trade and is charged
+        like one — otherwise the paper record would show risk management as
+        free, which is precisely the illusion that makes a backtest lie.
+        """
+        usd = abs(usd)
+        if usd <= 0:
+            return 0.0, 0.0, "nothing to trade"
+        side = "ask" if direction == "buy" else "bid"
+        curve = await self._books.latest_curve(ex, sym, market, side)
+        maker = self._cfg.maker_bps[ex]
+        if curve is None:
+            taker = self._cfg.taker_bps[ex]
+            cost = usd * ((self._cfg.max_rt_slip_bps + taker) / 1e4)
+            return 0.0, cost, f"no {market} {side} book — charged sweep cost"
+        slip = curve.slip_bps(usd)
+        if slip is None:
+            taker = self._cfg.taker_bps[ex]
+            cost = usd * ((self._cfg.max_rt_slip_bps + taker) / 1e4)
+            return curve.touch, cost, f"{market} {side} book too thin — sweep cost"
+        price = curve.vwap_price(usd, side) or curve.touch
+        return price, usd * ((slip + maker) / 1e4), \
+            f"{market} {direction} ${usd:,.0f} @ {price:.6g} ({slip:.1f}bps slip)"
+
     async def close_carry(self, ex: str, sym: str, notional_usd: float
                           ) -> tuple[float, str]:
         """Returns (exit_cost_usd, note). Exit sells spot, covers perp."""

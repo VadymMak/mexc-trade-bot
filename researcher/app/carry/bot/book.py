@@ -18,7 +18,7 @@ import bisect
 import datetime as dt
 import logging
 import statistics
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -90,24 +90,69 @@ class Curve:
         return self.touch * (1.0 + sign * s / 1e4)
 
 
+# SAMPLED, not exhaustive (2026-08-23). The old query pulled EVERY level of
+# EVERY snapshot in the 168h window — up to 304,200 rows for one leg of one
+# name. Held as Curve objects across a 153-name pass in an unbounded cache,
+# that is what took RSS from 1 GB to 6 GB in a single selection.
+#
+# The statistic we actually need is a MEDIAN per hour-of-day bucket. A median
+# over ~250 snapshots and a median over ~28 are the same number to well inside
+# the noise, so we sample instead of hoarding.
+#
+# Sampling is per (DAY, hour), not per hour-of-day: taking the N most recent
+# snapshots per hour-of-day would draw them all from the last 24h and destroy
+# the diurnal structure the worst-hour statistic exists to measure.
 _LEG_SQL = """
-SELECT ts, price, size_usd
-FROM carry_book_l2
-WHERE exchange=$1 AND symbol=$2 AND market=$3 AND side=$4
-      AND ts > now() - ($5 || ' hours')::interval
-      AND price > 0 AND size_usd IS NOT NULL AND size_usd > 0
-ORDER BY ts, level
+WITH snaps AS (
+    SELECT DISTINCT ts
+    FROM carry_book_l2
+    WHERE exchange=$1 AND symbol=$2 AND market=$3 AND side=$4
+          AND ts > now() - ($5 || ' hours')::interval
+), ranked AS (
+    SELECT ts, row_number() OVER (
+               PARTITION BY (ts AT TIME ZONE 'UTC')::date,
+                            extract(hour FROM ts AT TIME ZONE 'UTC')
+               ORDER BY ts DESC) AS rn
+    FROM snaps
+)
+SELECT b.ts, b.price, b.size_usd
+FROM ranked r
+JOIN carry_book_l2 b
+  ON b.ts = r.ts AND b.exchange=$1 AND b.symbol=$2
+     AND b.market=$3 AND b.side=$4
+WHERE r.rn <= $6
+      AND b.price > 0 AND b.size_usd IS NOT NULL AND b.size_usd > 0
+ORDER BY b.ts, b.level
 """
 
 
 class BookSource:
-    """Loads and caches per-leg curves grouped by hour-of-day."""
+    """Loads and caches per-leg curves grouped by hour-of-day.
+
+    The cache is an LRU with a HARD CAP. It exists so the 24-step binary search
+    in max_prudent_notional does not re-query the same four legs ~100 times per
+    name — a within-name optimisation. Keeping every name's curves for the whole
+    pass bought nothing and cost gigabytes.
+    """
 
     def __init__(self, pool, cfg) -> None:
         self._pool = pool
         self._cfg = cfg
-        self._cache: dict[tuple, tuple[float, dict]] = {}
+        self._cache: "OrderedDict[tuple, tuple[float, dict]]" = OrderedDict()
         self._cache_secs = 300.0
+        self._max_entries = int(getattr(cfg, "book_cache_entries", 16))
+
+    def reset_cache(self) -> None:
+        """Drop everything. Called between selection passes so peak RSS is set
+        by the cap, not by how many names the universe happens to hold."""
+        self._cache.clear()
+
+    def _remember(self, key, value) -> None:
+        import time as _t
+        self._cache[key] = (_t.monotonic(), value)
+        self._cache.move_to_end(key)
+        while len(self._cache) > self._max_entries:
+            self._cache.popitem(last=False)         # evict least-recently-used
 
     async def leg_curves(self, ex: str, sym: str, market: str, side: str
                          ) -> dict[int, list[Curve]]:
@@ -116,9 +161,12 @@ class BookSource:
         key = (ex, sym, market, side)
         hit = self._cache.get(key)
         if hit and _t.monotonic() - hit[0] < self._cache_secs:
+            self._cache.move_to_end(key)
             return hit[1]
-        rows = await self._pool.fetch(_LEG_SQL, ex, sym, market, side,
-                                      str(self._cfg.depth_lookback_hours))
+        rows = await self._pool.fetch(
+            _LEG_SQL, ex, sym, market, side,
+            str(self._cfg.depth_lookback_hours),
+            int(self._cfg.max_snaps_per_hour))
         books: dict = defaultdict(list)
         for r in rows:
             books[r["ts"]].append((r["price"], r["size_usd"]))
@@ -129,7 +177,9 @@ class BookSource:
             c = Curve(levels, side)
             if c.f:
                 by_hod[ts.astimezone(dt.timezone.utc).hour].append(c)
-        self._cache[key] = (_t.monotonic(), by_hod)
+        books.clear()                                # release before the next leg
+        del rows
+        self._remember(key, by_hod)
         return by_hod
 
     async def latest_curve(self, ex: str, sym: str, market: str, side: str
