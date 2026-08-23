@@ -1,0 +1,24 @@
+[Unit]
+Description=Bybit funding/basis collector — READ-ONLY public data, carry venue #2 evaluation
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vadym
+WorkingDirectory=/home/vadym/mexc-trade-bot/researcher
+EnvironmentFile=/home/vadym/mexc-trade-bot/researcher/.env
+Environment=PYTHONUNBUFFERED=1
+# Public market data only. No API keys are read and no order path exists in
+# this module; it writes bybit_funding_snapshots and nothing else.
+ExecStart=/home/vadym/mexc-trade-bot/researcher/.venv/bin/python -m app.bybit.main
+Restart=always
+RestartSec=10
+# Backstop only — the collector holds one ticker payload at a time (~1 MB).
+MemoryHigh=256M
+MemoryMax=512M
+StandardOutput=append:/home/vadym/mexc-trade-bot/researcher/bybit.log
+StandardError=append:/home/vadym/mexc-trade-bot/researcher/bybit.log
+
+[Install]
+WantedBy=multi-user.target
