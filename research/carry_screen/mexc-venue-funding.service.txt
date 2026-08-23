@@ -1,0 +1,24 @@
+[Unit]
+Description=Candidate-venue funding collector (OKX/Bitget/KuCoin/Bybit) — READ-ONLY public data
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vadym
+WorkingDirectory=/home/vadym/mexc-trade-bot/researcher
+EnvironmentFile=/home/vadym/mexc-trade-bot/researcher/.env
+Environment=PYTHONUNBUFFERED=1
+# Public market data only. No API keys are read and no order path exists in
+# this package; it writes venue_funding_snapshots and nothing else.
+ExecStart=/home/vadym/mexc-trade-bot/researcher/.venv/bin/python -m app.venues.main
+Restart=always
+RestartSec=10
+# Backstop only — holds a handful of ticker payloads at a time.
+MemoryHigh=384M
+MemoryMax=768M
+StandardOutput=append:/home/vadym/mexc-trade-bot/researcher/venues.log
+StandardError=append:/home/vadym/mexc-trade-bot/researcher/venues.log
+
+[Install]
+WantedBy=multi-user.target
