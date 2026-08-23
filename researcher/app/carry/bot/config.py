@@ -91,11 +91,20 @@ class CarryBotConfig:
     # (0.00 -> +0.99 -> -1.01 -> +1.27) that was a measurement artifact, not
     # drift. Same "noise drives action" class as the TUT churn, ~1000x cheaper,
     # but it pollutes the paper record. Two independent brakes:
-    #   1. a breach must PERSIST for N consecutive cycles before we trade
+    #   1. a breach must PERSIST for N consecutive DISTINCT marks before we
+    #      trade. Distinct, not merely consecutive cycles: the loop runs every
+    #      ~65s but mexc spot depth lands every ~8 min, so three cycles could
+    #      be three re-reads of ONE book, which confirms nothing. Only a new
+    #      mark timestamp advances the counter.
     #   2. we correct to the deadband EDGE, not to zero, so each correction
     #      trades less
     rebalance_confirm_cycles: int = _i("CARRY_REBALANCE_CONFIRM_CYCLES", 3)
     rebalance_deadband_pct: float = _f("CARRY_REBALANCE_DEADBAND_PCT", 0.3)
+    # Two books count as ONE observation only if they were taken within this
+    # many seconds of each other. Perp depth lands every ~2 min, so the perp
+    # book nearest a spot book is normally <1 min away; beyond 90s the pair is
+    # not a simultaneous mark and neutrality is left UNEVALUATED.
+    mark_pair_max_skew_sec: float = _f("CARRY_MARK_PAIR_SKEW_SEC", 90.0)
     max_drawdown_pct: float = _f("CARRY_MAX_DRAWDOWN_PCT", 5.0)        # R9
     max_data_staleness_min: float = _f("CARRY_MAX_STALENESS_MIN", 15.0)  # R9/f
     # Beyond limit x this, a venue's data is dead and holding an unmonitorable
@@ -187,5 +196,6 @@ class CarryBotConfig:
                 f"payback<={self.max_payback_days:.1f}d H{self.hold_days} "
                 f"| neutrality {self.rebalance_delta_pct:.2f}% x"
                 f"{self.rebalance_confirm_cycles} cycles -> band "
-                f"{self.rebalance_deadband_pct:.2f}% "
+                f"{self.rebalance_deadband_pct:.2f}% (distinct marks, skew<="
+                f"{self.mark_pair_max_skew_sec:.0f}s) "
                 f"| spot marks {self.spot_mark_sources}")

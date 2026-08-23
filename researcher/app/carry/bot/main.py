@@ -30,7 +30,7 @@ from pathlib import Path
 import asyncpg
 from dotenv import load_dotenv
 
-from .book import BookSource, live_mid
+from .book import BookSource, paired_mids
 from .config import CarryBotConfig
 from .executor import build_executor
 from .intervals import IntervalResolver
@@ -61,9 +61,12 @@ class CarryBot:
         self.neutral = NeutralityManager(cfg)
         self.exec = build_executor(self.books, cfg)
         self.halted = False
-        # group_id -> consecutive cycles the neutrality threshold has been
-        # breached. Reset the moment delta comes back inside the threshold.
-        self._neutrality_breaches: dict[str, int] = {}
+        # group_id -> (consecutive DISTINCT marks in breach, last mark key).
+        # Reset the moment delta comes back inside the threshold. The mark key
+        # is carried so a re-read of the SAME book cannot advance the counter:
+        # the loop ticks every ~65s but mexc spot depth lands every ~8 min, so
+        # three cycles are often three views of one observation.
+        self._neutrality_breaches: dict[str, tuple[int, str]] = {}
 
     async def setup(self) -> None:
         await self.store.ensure_schema()
@@ -162,7 +165,11 @@ class CarryBot:
                         FROM funding_basis_snapshots
                        WHERE exchange=$1 AND symbol=$2 AND spot_price IS NOT NULL
                          AND ts > now() - interval '2 days'
-                       ORDER BY ts DESC LIMIT 1) AS spot_age_min""",
+                       ORDER BY ts DESC LIMIT 1) AS spot_age_min,
+                     (SELECT ts FROM funding_basis_snapshots
+                       WHERE exchange=$1 AND symbol=$2 AND spot_price IS NOT NULL
+                         AND ts > now() - interval '2 days'
+                       ORDER BY ts DESC LIMIT 1) AS spot_ts""",
                 ex, sym)
             # SPOT MARK SOURCE IS PINNED PER VENUE and never switches
             # mid-position. The age-based fallback this replaces flipped mexc
@@ -173,19 +180,34 @@ class CarryBot:
             spot_src = self.cfg.spot_mark_sources.get(ex, "snapshot")
             perp_mark_neutral = float(quote["perp_mark"] or 0.0) if quote else 0.0
             if spot_src == "live-book":
-                # BOTH legs from the SAME book at the SAME time. Mixing a live
-                # spot mid with a 5-min-stale snapshot perp mark turns the
-                # coin's own movement into fake delta.
-                spot_mark = await live_mid(self.books, ex, sym, "spot") or 0.0
-                perp_live = await live_mid(self.books, ex, sym, "perp") or 0.0
-                spot_age = 0.0 if (spot_mark and perp_live) else 1e9
-                if perp_live:
-                    perp_mark_neutral = perp_live
+                # BOTH legs from books taken at the SAME instant, spot setting
+                # the clock. Taking each leg from its own NEWEST book is not
+                # good enough and was the second half of the phantom drift:
+                # perp depth lands every ~2 min, mexc spot every ~8, so a fresh
+                # perp against an 8-min-old spot turns the coin's own movement
+                # into delta. See book.paired_mids.
+                pair = await paired_mids(self.pool, ex, sym,
+                                         self.cfg.mark_pair_max_skew_sec)
+                if pair:
+                    spot_mark = pair.spot
+                    perp_mark_neutral = pair.perp
+                    spot_age = pair.age_min
+                    mark_key = f"{pair.ts.isoformat()}"
+                    mark_note = (f"{spot_src}, paired @{pair.ts:%H:%M:%S}Z "
+                                 f"skew {pair.skew_sec:.0f}s "
+                                 f"age {pair.age_min:.1f}min")
+                else:
+                    spot_mark, spot_age = 0.0, 1e9
+                    mark_key, mark_note = "", spot_src
             else:
                 # The snapshot marks both legs on one row, so they are already
                 # simultaneous — nothing to reconcile.
                 spot_age = float(quote["spot_age_min"] or 1e9) if quote else 1e9
                 spot_mark = float(quote["spot_price"] or 0.0) if quote else 0.0
+                spot_ts = quote["spot_ts"] if quote else None
+                mark_key = spot_ts.isoformat() if spot_ts else ""
+                mark_note = (f"{spot_src} @{spot_ts:%H:%M:%S}Z "
+                             f"age {spot_age:.1f}min" if spot_ts else spot_src)
             spot_fresh = bool(spot_mark) and spot_age <= self.cfg.max_data_staleness_min
 
             if venue == "derisk":
@@ -212,36 +234,50 @@ class CarryBot:
                         float(g["perp_entry"] or 0.0), spot_mark,
                         perp_mark_neutral,
                         perp_notional=float(g["perp_notional"] or g["notional_usd"])))
-                    verdicts[-1].detail += f" [spot mark: {spot_src}]"
+                    verdicts[-1].detail += f" [spot mark: {mark_note}]"
                     verdicts[-1].data["spot_source"] = spot_src
+                    verdicts[-1].data["mark_key"] = mark_key
 
                     # ---- SUSTAINED-BREACH GATE -------------------------
-                    # A single cycle over the line is noise; three in a row is
-                    # drift. The counter lives in memory on purpose: it is a
-                    # short-horizon debounce, and a restart costing us three
-                    # extra cycles of patience is the safe direction to err.
+                    # A single observation over the line is noise; three is
+                    # drift. DISTINCT observations: re-reading the same book on
+                    # the next 65s tick is not new evidence, so the counter
+                    # advances only when the mark timestamp changes. It lives
+                    # in memory on purpose — a short-horizon debounce, and a
+                    # restart costing three extra confirmations is the safe
+                    # direction to err.
                     v = verdicts[-1]
                     gid = g["group_id"]
                     if v.fired:
-                        n = self._neutrality_breaches.get(gid, 0) + 1
-                        self._neutrality_breaches[gid] = n
+                        n, seen = self._neutrality_breaches.get(gid, (0, ""))
+                        fresh = mark_key != seen
+                        if fresh:
+                            n += 1
+                        self._neutrality_breaches[gid] = (n, mark_key)
                         need = self.cfg.rebalance_confirm_cycles
                         if n < need:
                             v.fired, v.action = False, "none"
-                            v.detail += (f" — breach {n}/{need}, holding "
-                                         f"(not yet sustained)")
+                            v.detail += (
+                                f" — breach {n}/{need} distinct marks, holding"
+                                f" (not yet sustained"
+                                f"{'' if fresh else '; same mark re-read'})")
                     else:
                         self._neutrality_breaches.pop(gid, None)
                 else:
                     # The PINNED source is unavailable. We do NOT quietly fall
                     # back to the other one — that substitution is the bug this
                     # release removes. Say so and leave the rule unevaluated.
+                    if spot_age >= 1e8:
+                        why = ("no simultaneous spot+perp book pair within "
+                               f"{self.cfg.mark_pair_max_skew_sec:.0f}s")
+                    else:
+                        why = (f"pair age {spot_age:.0f}min, limit "
+                               f"{self.cfg.max_data_staleness_min:.0f}min")
                     verdicts.append(Verdict(
                         "neutrality", False, "none",
-                        f"pinned spot source '{spot_src}' unavailable "
-                        f"(age {spot_age:.0f}min, limit "
-                        f"{self.cfg.max_data_staleness_min:.0f}min) — NOT "
-                        f"evaluated; refusing to substitute the other source",
+                        f"pinned spot source '{spot_src}' unusable ({why}) — "
+                        f"NOT evaluated; refusing to substitute an unpaired "
+                        f"or cross-source mark",
                         {"spot_age_min": spot_age, "spot_source": spot_src}))
             # log EVERY rule, fired or not — quiet must be visibly tested
             for v in verdicts:
@@ -326,7 +362,7 @@ class CarryBot:
         # Correct to the DEADBAND EDGE on the same side, not to exact zero:
         # a 1.2% breach becomes a 0.9pp correction instead of 1.2pp, so every
         # rebalance trades less. Re-trigger protection comes from the
-        # consecutive-cycle gate, not from this target.
+        # distinct-mark confirmation gate, not from this target.
         before_pct = float(verdict.data.get("delta_pct", 0.0))
         band = self.cfg.rebalance_deadband_pct
         target_pct = band if before_pct > 0 else -band
@@ -359,7 +395,8 @@ class CarryBot:
             f"{after.data.get('delta_pct', 0.0):+.2f}% "
             f"(band +/-{band:.2f}%, threshold "
             f"{self.cfg.rebalance_delta_pct:.2f}%, confirmed over "
-            f"{self.cfg.rebalance_confirm_cycles} cycles) [spot: {spot_src}]",
+            f"{self.cfg.rebalance_confirm_cycles} distinct marks) "
+            f"[spot: {spot_src}]",
             ex, sym,
             {"before_pct": before, "after_pct": after.data.get("delta_pct"),
              "old_notional": cur_perp, "new_notional": target,

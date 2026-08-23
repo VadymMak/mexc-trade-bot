@@ -199,24 +199,87 @@ class BookSource:
         return c if c.f else None
 
 
-async def live_mid(books: "BookSource", ex: str, sym: str,
-                   market: str) -> float | None:
-    """MID of a live book leg — NOT the bid touch.
+class PairedMarks:
+    """Both legs of one name marked from the SAME instant.
 
-    Two separate biases this removes:
-      * the 3b/2 fallback compared a snapshot MID against a live-book BID,
-        baking a systematic half-spread step into every source switch;
-      * NEUTRALITY NEEDS BOTH LEGS MARKED SIMULTANEOUSLY. Marking spot from the
-        live book while the perp came from a 5-min-cadence REST snapshot made a
-        fast alt's own price movement look like delta drift: mexc/BTW moved
-        -3.6% in 15 minutes, so a 1-2 minute mark-time gap alone produced the
-        1-2% "drift" that kept tripping the rebalance rule.
+    ``skew_sec`` is how far apart the two books actually are, ``age_min`` how
+    old the pair is. Neutrality is a DIFFERENCE between two legs, so a
+    consistent pair a few minutes old is far better evidence than two fresh
+    marks taken minutes apart.
     """
-    bid = await books.latest_curve(ex, sym, market, "bid")
-    ask = await books.latest_curve(ex, sym, market, "ask")
-    if bid is None or ask is None or bid.touch <= 0 or ask.touch <= 0:
+
+    __slots__ = ("spot", "perp", "ts", "skew_sec", "age_min")
+
+    def __init__(self, spot, perp, ts, skew_sec, age_min):
+        self.spot, self.perp, self.ts = spot, perp, ts
+        self.skew_sec, self.age_min = skew_sec, age_min
+
+
+# Newest SPOT book, and the PERP book nearest to it in time. Spot is the sparse
+# leg (mexc spot depth averages a 7.9 min gap against perp's 2.0 min), so it
+# sets the clock and perp is matched to it — never the reverse.
+_PAIR_SQL = """
+WITH s_ts AS (
+    SELECT max(ts) AS ts FROM carry_book_l2
+     WHERE exchange=$1 AND symbol=$2 AND market='spot'
+       AND ts > now() - interval '6 hours'
+), p_ts AS (
+    SELECT ts FROM carry_book_l2
+     WHERE exchange=$1 AND symbol=$2 AND market='perp'
+       AND ts > now() - interval '6 hours'
+       AND (SELECT ts FROM s_ts) IS NOT NULL
+     ORDER BY abs(extract(epoch FROM ts - (SELECT ts FROM s_ts))) ASC
+     LIMIT 1
+)
+SELECT market, ts,
+       max(price) FILTER (WHERE side='bid') AS bid,
+       min(price) FILTER (WHERE side='ask') AS ask,
+       extract(epoch FROM (now() - ts))/60.0 AS age_min
+  FROM carry_book_l2
+ WHERE exchange=$1 AND symbol=$2 AND size_usd > 0 AND price > 0
+   AND ((market='spot' AND ts = (SELECT ts FROM s_ts))
+     OR (market='perp' AND ts = (SELECT ts FROM p_ts)))
+ GROUP BY market, ts
+"""
+
+
+async def paired_mids(pool, ex: str, sym: str,
+                      max_skew_sec: float) -> "PairedMarks | None":
+    """Spot and perp MIDs from books taken at the same instant, or None.
+
+    THIS IS THE FIX FOR THE SECOND HALF OF THE PHANTOM-DRIFT BUG. Pinning the
+    source per venue (3b/3-A) stopped the mark from flipping between feeds, but
+    each leg was still taken from its own newest book — and the two collectors
+    do not tick together: perp lands every ~2 min, mexc spot every ~8 min and
+    sometimes 32. Marking a spot leg 8 minutes stale against a fresh perp turns
+    the coin's OWN movement into delta. mexc/BTW fell 5% in 19 min, which read
+    as +4.1% delta, a rebalance, and then -3.2% the moment a fresh spot book
+    landed — a sawtooth with the source already pinned.
+
+    A mid, not a bid: comparing one leg's mid against the other's touch bakes in
+    a systematic half-spread step.
+
+    Returns None when either leg is missing or the two books are further apart
+    than `max_skew_sec`. The caller must then leave neutrality UNEVALUATED —
+    never substitute an unpaired mark, which is the bug this removes.
+    """
+    rows = await pool.fetch(_PAIR_SQL, ex, sym)
+    legs = {r["market"]: r for r in rows}
+    s, p = legs.get("spot"), legs.get("perp")
+    if not s or not p:
         return None
-    return (bid.touch + ask.touch) / 2.0
+    if not (s["bid"] and s["ask"] and p["bid"] and p["ask"]):
+        return None
+    skew = abs((s["ts"] - p["ts"]).total_seconds())
+    if skew > max_skew_sec:
+        return None
+    return PairedMarks(
+        spot=(float(s["bid"]) + float(s["ask"])) / 2.0,
+        perp=(float(p["bid"]) + float(p["ask"])) / 2.0,
+        ts=s["ts"],
+        skew_sec=skew,
+        age_min=max(float(s["age_min"]), float(p["age_min"])),
+    )
 
 
 def worst_hour_capacity(by_hod: dict[int, list[Curve]], t_bps: float,
