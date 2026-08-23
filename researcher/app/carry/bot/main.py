@@ -30,7 +30,7 @@ from pathlib import Path
 import asyncpg
 from dotenv import load_dotenv
 
-from .book import BookSource
+from .book import BookSource, live_mid
 from .config import CarryBotConfig
 from .executor import build_executor
 from .intervals import IntervalResolver
@@ -61,6 +61,9 @@ class CarryBot:
         self.neutral = NeutralityManager(cfg)
         self.exec = build_executor(self.books, cfg)
         self.halted = False
+        # group_id -> consecutive cycles the neutrality threshold has been
+        # breached. Reset the moment delta comes back inside the threshold.
+        self._neutrality_breaches: dict[str, int] = {}
 
     async def setup(self) -> None:
         await self.store.ensure_schema()
@@ -161,18 +164,29 @@ class CarryBot:
                          AND ts > now() - interval '2 days'
                        ORDER BY ts DESC LIMIT 1) AS spot_age_min""",
                 ex, sym)
-            spot_age = float(quote["spot_age_min"] or 1e9) if quote else 1e9
-            spot_mark = float(quote["spot_price"] or 0.0) if quote else 0.0
-            spot_src = "snapshot"
-            if spot_age > self.cfg.max_data_staleness_min:
-                # The REST snapshot's spot mark is stale (MEXC spot 403), but
-                # the depth collector's websocket book is not — it is a
-                # different service on a different transport. Use the live
-                # touch rather than leaving neutrality unevaluated for hours.
-                curve = await self.books.latest_curve(ex, sym, "spot", "bid")
-                if curve is not None and curve.touch > 0:
-                    spot_mark, spot_age, spot_src = curve.touch, 0.0, "live-book"
-            spot_fresh = spot_age <= self.cfg.max_data_staleness_min
+            # SPOT MARK SOURCE IS PINNED PER VENUE and never switches
+            # mid-position. The age-based fallback this replaces flipped mexc
+            # between the REST snapshot and the live book as spot_age crossed
+            # 15 min; the two disagree ~0.8% on average (2.1% on BTW), so the
+            # flip alone manufactured a >1% "drift" and the rebalance handler
+            # paid real money to correct an artifact.
+            spot_src = self.cfg.spot_mark_sources.get(ex, "snapshot")
+            perp_mark_neutral = float(quote["perp_mark"] or 0.0) if quote else 0.0
+            if spot_src == "live-book":
+                # BOTH legs from the SAME book at the SAME time. Mixing a live
+                # spot mid with a 5-min-stale snapshot perp mark turns the
+                # coin's own movement into fake delta.
+                spot_mark = await live_mid(self.books, ex, sym, "spot") or 0.0
+                perp_live = await live_mid(self.books, ex, sym, "perp") or 0.0
+                spot_age = 0.0 if (spot_mark and perp_live) else 1e9
+                if perp_live:
+                    perp_mark_neutral = perp_live
+            else:
+                # The snapshot marks both legs on one row, so they are already
+                # simultaneous — nothing to reconcile.
+                spot_age = float(quote["spot_age_min"] or 1e9) if quote else 1e9
+                spot_mark = float(quote["spot_price"] or 0.0) if quote else 0.0
+            spot_fresh = bool(spot_mark) and spot_age <= self.cfg.max_data_staleness_min
 
             if venue == "derisk":
                 await self.store.event(
@@ -196,17 +210,39 @@ class CarryBot:
                         float(g["spot_notional"] or g["notional_usd"]),
                         float(g["spot_entry"] or 0.0),
                         float(g["perp_entry"] or 0.0), spot_mark,
-                        float(quote["perp_mark"] or 0.0),
+                        perp_mark_neutral,
                         perp_notional=float(g["perp_notional"] or g["notional_usd"])))
-                    if spot_src != "snapshot":
-                        verdicts[-1].detail += f" [spot mark from {spot_src}]"
+                    verdicts[-1].detail += f" [spot mark: {spot_src}]"
+                    verdicts[-1].data["spot_source"] = spot_src
+
+                    # ---- SUSTAINED-BREACH GATE -------------------------
+                    # A single cycle over the line is noise; three in a row is
+                    # drift. The counter lives in memory on purpose: it is a
+                    # short-horizon debounce, and a restart costing us three
+                    # extra cycles of patience is the safe direction to err.
+                    v = verdicts[-1]
+                    gid = g["group_id"]
+                    if v.fired:
+                        n = self._neutrality_breaches.get(gid, 0) + 1
+                        self._neutrality_breaches[gid] = n
+                        need = self.cfg.rebalance_confirm_cycles
+                        if n < need:
+                            v.fired, v.action = False, "none"
+                            v.detail += (f" — breach {n}/{need}, holding "
+                                         f"(not yet sustained)")
+                    else:
+                        self._neutrality_breaches.pop(gid, None)
                 else:
+                    # The PINNED source is unavailable. We do NOT quietly fall
+                    # back to the other one — that substitution is the bug this
+                    # release removes. Say so and leave the rule unevaluated.
                     verdicts.append(Verdict(
                         "neutrality", False, "none",
-                        f"spot mark {spot_age:.0f}min old (limit "
+                        f"pinned spot source '{spot_src}' unavailable "
+                        f"(age {spot_age:.0f}min, limit "
                         f"{self.cfg.max_data_staleness_min:.0f}min) — NOT "
-                        f"evaluated rather than measured against a stale mark",
-                        {"spot_age_min": spot_age}))
+                        f"evaluated; refusing to substitute the other source",
+                        {"spot_age_min": spot_age, "spot_source": spot_src}))
             # log EVERY rule, fired or not — quiet must be visibly tested
             for v in verdicts:
                 await self.store.event(
@@ -231,7 +267,9 @@ class CarryBot:
                         acted = True
                     elif v.action == "rebalance":
                         await self._do_rebalance(g, quote, verdict=v,
-                                                 spot_mark=spot_mark)
+                                                 spot_mark=spot_mark,
+                                                 spot_src=spot_src,
+                                                 perp_mark=perp_mark_neutral)
                         acted = True
 
             exits = [v for v in verdicts if v.fired and v.action == "exit"]
@@ -263,7 +301,9 @@ class CarryBot:
     # Each logs FIRED -> action -> RESULT with the metric before and after, so a
     # quiet rule reads as REMEDIATED rather than merely detected.
 
-    async def _do_rebalance(self, g, quote, verdict, spot_mark: float = 0.0) -> None:
+    async def _do_rebalance(self, g, quote, verdict, spot_mark: float = 0.0,
+                            spot_src: str = "snapshot",
+                            perp_mark: float = 0.0) -> None:
         """Neutrality: resize the perp leg until the two legs' mark values match."""
         ex, sym = g["exchange"], g["symbol"]
         if not quote:
@@ -272,7 +312,7 @@ class CarryBot:
                                    ex, sym)
             return
         spot_now = float(spot_mark or quote["spot_price"] or 0.0)
-        perp_now = float(quote["perp_mark"] or 0.0)
+        perp_now = float(perp_mark or quote["perp_mark"] or 0.0)
         spot_entry = float(g["spot_entry"] or 0.0)
         perp_entry = float(g["perp_entry"] or 0.0)
         cur_perp = float(g["perp_notional"] or g["notional_usd"])
@@ -283,8 +323,16 @@ class CarryBot:
                                    ex, sym)
             return
 
+        # Correct to the DEADBAND EDGE on the same side, not to exact zero:
+        # a 1.2% breach becomes a 0.9pp correction instead of 1.2pp, so every
+        # rebalance trades less. Re-trigger protection comes from the
+        # consecutive-cycle gate, not from this target.
+        before_pct = float(verdict.data.get("delta_pct", 0.0))
+        band = self.cfg.rebalance_deadband_pct
+        target_pct = band if before_pct > 0 else -band
         target = self.risk.neutral_perp_notional(
-            spot_notional, spot_entry, perp_entry, spot_now, perp_now)
+            spot_notional, spot_entry, perp_entry, spot_now, perp_now,
+            target_delta_pct=target_pct)
         delta_notional = target - cur_perp
         cap = self.cfg.max_rebalance_fraction * cur_perp
         if abs(delta_notional) > cap:                 # never resize violently
@@ -298,19 +346,25 @@ class CarryBot:
             ex, sym, "perp", traded_usd, direction)
         await self.store.adjust_perp_notional(g["group_id"], target, cost)
 
-        before = float(verdict.data.get("delta_pct", 0.0))
+        before = before_pct
         after = self.neutral.check(spot_notional, spot_entry, perp_entry,
                                    spot_now, perp_now, perp_notional=target)
+        # The breach is answered; start counting afresh.
+        self._neutrality_breaches.pop(g["group_id"], None)
         await self.store.event(
             "risk", "remediate",
             f"neutrality FIRED->rebalance->DONE: perp notional "
             f"${cur_perp:,.2f} -> ${target:,.2f} ({direction} ${traded_usd:,.2f}, "
             f"cost ${cost:.4f}; {note}) | delta {before:+.2f}% -> "
             f"{after.data.get('delta_pct', 0.0):+.2f}% "
-            f"(threshold {self.cfg.rebalance_delta_pct:.2f}%)",
+            f"(band +/-{band:.2f}%, threshold "
+            f"{self.cfg.rebalance_delta_pct:.2f}%, confirmed over "
+            f"{self.cfg.rebalance_confirm_cycles} cycles) [spot: {spot_src}]",
             ex, sym,
             {"before_pct": before, "after_pct": after.data.get("delta_pct"),
-             "old_notional": cur_perp, "new_notional": target, "cost_usd": cost})
+             "old_notional": cur_perp, "new_notional": target,
+             "cost_usd": cost, "spot_source": spot_src,
+             "target_pct": target_pct})
 
     async def _do_topup(self, g, quote, verdict) -> None:
         """R2/R3: post more margin, i.e. deleverage, until the buffer is back."""

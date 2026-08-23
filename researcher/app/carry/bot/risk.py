@@ -225,16 +225,22 @@ class RiskManager:
     @staticmethod
     def neutral_perp_notional(notional_spot: float, spot_entry: float,
                               perp_entry: float, spot_now: float,
-                              perp_now: float) -> float:
+                              perp_now: float, target_delta_pct: float = 0.0
+                              ) -> float:
         """Perp notional (stated at ENTRY price, the unit this ledger stores)
-        whose current mark value matches the spot leg's current mark value.
+        that leaves the position at `target_delta_pct` of spot notional.
 
-        delta = spot_qty*spot_now - perp_qty*perp_now, so neutrality wants
-        perp_qty = spot_qty*spot_now/perp_now, and the ledger holds
-        notional = qty * entry_price.
+        delta = spot_qty*spot_now - perp_qty*perp_now, so:
+            perp_qty = (spot_qty*spot_now - delta_target) / perp_now
+
+        target_delta_pct = 0 restores exact neutrality. Correcting only to the
+        DEADBAND EDGE instead trades less: a 1.2% breach becomes a 0.9pp
+        correction rather than 1.2pp. The anti-re-trigger work is done by the
+        consecutive-cycle confirmation, not by this target.
         """
         if not (spot_entry and perp_now):
             return 0.0
         spot_qty = notional_spot / spot_entry
-        target_perp_qty = spot_qty * spot_now / perp_now
+        delta_target = target_delta_pct / 100.0 * notional_spot
+        target_perp_qty = (spot_qty * spot_now - delta_target) / perp_now
         return target_perp_qty * perp_entry

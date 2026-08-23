@@ -23,6 +23,16 @@ def _i(name: str, default: int) -> int:
     return int(os.getenv(name, str(default)))
 
 
+def _sources() -> dict:
+    """Per-venue spot-mark source. 'live-book' | 'snapshot'."""
+    out = {"mexc": "live-book", "gate": "snapshot"}
+    raw = os.getenv("CARRY_SPOT_MARK_SOURCES", "")
+    for part in (p for p in raw.split(",") if ":" in p):
+        ex, src = part.split(":", 1)
+        out[ex.strip()] = src.strip()
+    return out
+
+
 @dataclass(frozen=True)
 class CarryBotConfig:
     # ---- mode -------------------------------------------------------------
@@ -76,6 +86,16 @@ class CarryBotConfig:
     min_hold_apr: float = _f("CARRY_MIN_HOLD_APR", 8.0)                # R4
     depth_collapse_ratio: float = _f("CARRY_DEPTH_COLLAPSE", 0.50)     # R5
     rebalance_delta_pct: float = _f("CARRY_REBALANCE_DELTA_PCT", 1.0)  # (c)
+    # ---- neutrality hysteresis (2026-08-23, Phase 3b/3) -------------------
+    # mexc/BTW rebalanced 5x in 43 min on a SAWTOOTH delta
+    # (0.00 -> +0.99 -> -1.01 -> +1.27) that was a measurement artifact, not
+    # drift. Same "noise drives action" class as the TUT churn, ~1000x cheaper,
+    # but it pollutes the paper record. Two independent brakes:
+    #   1. a breach must PERSIST for N consecutive cycles before we trade
+    #   2. we correct to the deadband EDGE, not to zero, so each correction
+    #      trades less
+    rebalance_confirm_cycles: int = _i("CARRY_REBALANCE_CONFIRM_CYCLES", 3)
+    rebalance_deadband_pct: float = _f("CARRY_REBALANCE_DEADBAND_PCT", 0.3)
     max_drawdown_pct: float = _f("CARRY_MAX_DRAWDOWN_PCT", 5.0)        # R9
     max_data_staleness_min: float = _f("CARRY_MAX_STALENESS_MIN", 15.0)  # R9/f
     # Beyond limit x this, a venue's data is dead and holding an unmonitorable
@@ -91,6 +111,16 @@ class CarryBotConfig:
     max_rebalance_fraction: float = _f("CARRY_MAX_REBALANCE_FRACTION", 0.25)
     kill_switch_file: str = os.getenv(
         "CARRY_KILL_SWITCH", "/home/vadym/mexc-trade-bot/CARRY_BOT_KILL")  # R8
+
+    # ---- spot mark source, PINNED PER VENUE (2026-08-23) ------------------
+    # NEVER switch source mid-position. The age-based fallback added in 3b/2
+    # flipped mexc between the REST snapshot and the live book as spot_age
+    # crossed 15 min; the two disagree ~0.8% on average and 2.1% on BTW, so the
+    # flip alone manufactured a >1% "drift" that tripped the rebalance rule.
+    #   mexc  -> live-book: its spot REST is Akamai-403 flaky (29 min stale)
+    #   gate  -> snapshot:  fresh (~4 min) and reliable
+    # Override with CARRY_SPOT_MARK_SOURCES="mexc:live-book,gate:snapshot".
+    spot_mark_sources: dict = field(default_factory=lambda: _sources())
 
     # ---- fees (bps per leg) ----------------------------------------------
     maker_bps: dict = field(default_factory=lambda: {"mexc": 1.0, "gate": 2.0})
@@ -154,4 +184,8 @@ class CarryBotConfig:
                 f"mexc_cap={self.mexc_venue_cap:.0%} slip_cap={self.max_rt_slip_bps:.0f}bps "
                 f"min_apr={self.min_net_apr:.1f}% | exit<{self.min_hold_apr:.0f}% "
                 f"reenter>{self.reentry_apr:.0f}% cooldown={self.reentry_cooldown_hours:.0f}h "
-                f"payback<={self.max_payback_days:.1f}d H{self.hold_days}")
+                f"payback<={self.max_payback_days:.1f}d H{self.hold_days} "
+                f"| neutrality {self.rebalance_delta_pct:.2f}% x"
+                f"{self.rebalance_confirm_cycles} cycles -> band "
+                f"{self.rebalance_deadband_pct:.2f}% "
+                f"| spot marks {self.spot_mark_sources}")

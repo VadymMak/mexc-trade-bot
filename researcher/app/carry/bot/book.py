@@ -199,6 +199,26 @@ class BookSource:
         return c if c.f else None
 
 
+async def live_mid(books: "BookSource", ex: str, sym: str,
+                   market: str) -> float | None:
+    """MID of a live book leg — NOT the bid touch.
+
+    Two separate biases this removes:
+      * the 3b/2 fallback compared a snapshot MID against a live-book BID,
+        baking a systematic half-spread step into every source switch;
+      * NEUTRALITY NEEDS BOTH LEGS MARKED SIMULTANEOUSLY. Marking spot from the
+        live book while the perp came from a 5-min-cadence REST snapshot made a
+        fast alt's own price movement look like delta drift: mexc/BTW moved
+        -3.6% in 15 minutes, so a 1-2 minute mark-time gap alone produced the
+        1-2% "drift" that kept tripping the rebalance rule.
+    """
+    bid = await books.latest_curve(ex, sym, market, "bid")
+    ask = await books.latest_curve(ex, sym, market, "ask")
+    if bid is None or ask is None or bid.touch <= 0 or ask.touch <= 0:
+        return None
+    return (bid.touch + ask.touch) / 2.0
+
+
 def worst_hour_capacity(by_hod: dict[int, list[Curve]], t_bps: float,
                         cfg) -> tuple[float, int | None, str]:
     """Thinnest hour-of-day capacity.
