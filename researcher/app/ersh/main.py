@@ -22,7 +22,8 @@ from dotenv import load_dotenv
 from .gate_tape import GateTapeCollector
 from .mexc_tape import MexcTapeCollector
 from .store import TapeStore
-from .symbols import GATE_SYMBOLS, MEXC_SYMBOLS
+from .symbols import (GATE_SYMBOLS, MEXC_SYMBOLS,
+                       CARRY_TAPE_GATE, CARRY_TAPE_MEXC)
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -60,10 +61,20 @@ async def run() -> None:
     store = TapeStore(dsn)
     await store.connect()
 
-    mexc = MexcTapeCollector(store, MEXC_SYMBOLS)
-    gate = GateTapeCollector(store, GATE_SYMBOLS)
+    # ERSH_SYMBOL_SET selects which universe this process collects.
+    # Default "ersh" is the original behaviour, unchanged — a second unit runs
+    # with "carry" so the two streams never share a process or a restart.
+    _set = os.getenv("ERSH_SYMBOL_SET", "ersh").lower()
+    if _set == "carry":
+        mexc_syms, gate_syms = CARRY_TAPE_MEXC, CARRY_TAPE_GATE
+    else:
+        mexc_syms, gate_syms = MEXC_SYMBOLS, GATE_SYMBOLS
+    logger.info("[ersh] symbol set = %s", _set)
 
-    logger.info("[ersh] candidates: mexc=%d gate=%d", len(MEXC_SYMBOLS), len(GATE_SYMBOLS))
+    mexc = MexcTapeCollector(store, mexc_syms)
+    gate = GateTapeCollector(store, gate_syms)
+
+    logger.info("[ersh] candidates: mexc=%d gate=%d", len(mexc_syms), len(gate_syms))
     await mexc.start()
     await gate.start()
 

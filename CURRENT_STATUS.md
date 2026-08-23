@@ -69,3 +69,95 @@ Arb archive (frozen): `ml_trade_outcomes` 1,888 · `paper_positions` 1,900 · `s
   both belong to a dead strategy.
 - Lessons: Brain skill `trading-edge-lessons`. (Note: `LESSONS_LEARNED.md` is referenced by older
   notes but was never actually created in this repo — the skill is the only copy.)
+
+## COLLECTOR CHANGE LOG (read this before any time-series analysis)
+
+### 2026-08-19T12:59:25Z — `mexc-carry-collector` restarted (single change, single restart)
+
+`researcher/app/carry/main.py`. Any analysis spanning this timestamp sees a
+semantics change mid-series. **The ~1 cycle gap at this timestamp is a restart,
+NOT a delisting wave** — the lifecycle classifier must exclude it.
+
+**Fixed:** `funding_interval_hours` is now MEASURED per symbol (Gate
+`funding_interval` / MEXC `collectCycle`, bulk endpoints, refreshed every 6h)
+instead of hardcoded to 8. `mins_to_funding` now comes from the venue's own
+`next_settle_time` instead of an assumed 00/08/16 UTC grid.
+`funding_annualized_pct` uses the real interval. A symbol whose interval cannot
+be resolved gets NULL in all three — never a default.
+
+**Inputs stored beside outputs** (this is what prevents a repeat): `next_settle_time`
+and `interval_source` are persisted on the row, so every derived value is now
+reproducible from the row itself rather than from a constant living in code.
+
+**Added (all NULLABLE, no DEFAULT => metadata-only ALTER, no table rewrite):**
+`next_settle_time`, `interval_source`, `perp_volume24_base`, `perp_volume24_usd`,
+`perp_open_interest`, `spot_volume24_base`, `spot_volume24_usd`, `perp_bid_size`,
+`perp_ask_size`, `spot_bid_size`, `spot_ask_size`, `contract_multiplier`.
+Historical rows keep NULL, which correctly reads as "not collected then".
+
+**History was NOT rewritten.** View `v_carry_corrected` corrects at read time and
+INNER JOINs `carry_funding_intervals`, so uncorrectable symbols drop out rather
+than silently annualising at 8h. The collector now back-fills that cache for the
+whole universe (129 -> 2,067 rows).
+
+**Unchanged and verified unchanged:** universe logic, cycle cadence (300s), symbol
+normalisation. Post-restart row rate is 1,197/cycle (mexc 672 + gate 525),
+identical to the pre-restart baseline. The lifecycle series (presence_ratio
+exactly 1.000 for every symbol) is intact.
+
+**Caveats:** `funding_interval_hours` remains INTEGER, so a sub-hour interval
+would round (none observed; all venues report 1/4/8/24). MEXC perp exposes no L1
+sizes and Gate spot exposes no L1 sizes, so `perp_*_size` is Gate-only (43.9%)
+and `spot_*_size` is MEXC-only (56.1%) — venue limitation, not a bug.
+
+### 2026-08-19T13:28:12Z — `mexc-carry-depth` restarted (prompt-56 §5, depth)
+
+`researcher/app/carry/depth_symbols.py`: CARRY_BASKET **129 → 153**. Added the 24
+corrected-carry survivors that were not already covered (21 of the 45 already were).
+Same 120s / 50-level config as the existing basket — homogeneous rows, so an analysis
+can filter `level<=5` and get identical semantics across all 45 survivors. No change to
+decode logic, cadence, universe logic or normalisation. Measured cost: +2.03M rows/day,
++278 MB/day.
+
+### 2026-08-19T13:30:08Z — `mexc-carry-tape` STARTED (prompt-56 §5, tape) — TIME-BOXED
+
+**NEW UNIT** `/etc/systemd/system/mexc-carry-tape.service`. Collects `tape_prints` +
+`book_ticker` for 42 carry survivors so the authenticity screen can be run on them.
+
+**STOP DATE 2026-08-22T13:30Z**, enforced by `RuntimeMaxSec=3d` in the unit — it stops
+itself. The screen needs ~1-3 days of prints, not a permanent stream.
+
+Runs as a SEPARATE PROCESS from `mexc-ersh-tape` via `ERSH_SYMBOL_SET=carry`
+(`app/ersh/main.py`, default `ersh` = unchanged behaviour). **`mexc-ersh-tape` was NOT
+restarted and NOT touched** — verified still up since 2026-08-13, NRestarts=0. Its 5-name
+ёрш L2 stream and 30-name tape series are intact.
+
+3 survivors (mexc BLUAI, mexc LAB, gate ONE) are EXCLUDED from the carry tape set because
+the ёрш unit already collects them — double-collection would duplicate every print in
+`tape_prints` and corrupt observed volume for exactly those names. 45 survivors − 3 = 42.
+
+Measured cost: +0.96M rows/day, +162 MB/day, for 3 days only.
+
+**Combined §5 cost: +440 MB/day during the tape window, +278 MB/day after. Current DB
+growth ~1.9 GB/day → ~2.34 GB/day peak. 754 GB free.**
+
+### STANDING WATCH — new-listing test (added 2026-08-19, prompt-57a)
+
+**Do not re-conclude that the listing-obligation hypothesis was refuted.** A previous
+session recorded it as refuted on the basis that FRONG's tape "starts 10 days after it
+listed". That was an artifact: all 30 ёрш symbols' first prints fall inside a 273.5-second
+window on 2026-08-13, i.e. when the collector started. **The hypothesis is UNTESTED.**
+
+It can never be tested on FRONG or on anything listed before 2026-08-19 — tape began
+2026-08-13, reported-volume persistence began 2026-08-19T12:59:25Z, and there is NO backfill.
+
+It IS testable prospectively: any perp listing after 2026-08-19T12:59:25Z arrives with full
+volume coverage from its first cycle. Standing query (read-only, no service):
+
+    psql "$DSN" -f research/queries/new_listing_watch.sql
+
+It reports, per new listing: whether reported volume is pinned in the $95k-$110k MEXC floor
+band, the max/min hourly-volume ratio (a constant-rate emitter is ~1; organic flow ran ~2.9),
+and whether both hold in the symbol's FIRST 24 hours or only later. Zero rows as of
+2026-08-19T18:50Z; MEXC listed ~19 perps in the previous 23 days, so expect a first hit
+within days.

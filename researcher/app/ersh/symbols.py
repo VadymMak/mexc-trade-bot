@@ -66,3 +66,69 @@ EQUITY_SUSPECT = {"CRDO_USDT", "KIOXIA_USDT", "AAOI_USDT"}
 
 MEXC_SYMBOLS = list(MEXC_CANDIDATES)
 GATE_SYMBOLS = list(GATE_CANDIDATES)
+
+
+# ── PROMPT-56 §5: carry-survivor tape set, added 2026-08-19 ──────────────────
+# The 45 corrected-carry survivors. Collected by a SEPARATE unit
+# (mexc-carry-tape, ERSH_SYMBOL_SET=carry) so the ёрш series above is never
+# interrupted. TIME-BOXED: the authenticity screen needs ~1-3 days of prints,
+# not a permanent stream. STOP DATE: 2026-08-22.
+# reversal_gate FAIL names are present for MEASUREMENT ONLY.
+_ALREADY_IN_ERSH_MEXC = {"BLUAI_USDT", "LAB_USDT"}      # collected by mexc-ersh-tape
+_ALREADY_IN_ERSH_GATE = {"ONE_USDT"}                    # collected by mexc-ersh-tape
+
+_CARRY_TAPE_MEXC_ALL: list[str] = [
+    "BTW_USDT",           # net 135.8%  reversal_gate=PASS
+    "BLUAI_USDT",         # net 71.0%  reversal_gate=PASS
+    "LYN_USDT",           # net 65.2%  reversal_gate=PASS
+    "ZEST_USDT",          # net 59.0%  reversal_gate=PASS
+    "PLAY_USDT",          # net 56.4%  reversal_gate=PASS
+    "H_USDT",             # net 56.0%  reversal_gate=PASS
+    "HANA_USDT",          # net 55.8%  reversal_gate=PASS
+    "POWER_USDT",         # net 51.7%  reversal_gate=PASS
+    "BULLA_USDT",         # net 50.8%  reversal_gate=PASS
+    "US_USDT",            # net 49.5%  reversal_gate=PASS
+    "APR_USDT",           # net 45.9%  reversal_gate=PASS
+    "PRL_USDT",           # net 45.5%  reversal_gate=PASS
+    "LAB_USDT",           # net 45.0%  reversal_gate=PASS
+    "BTR_USDT",           # net 43.0%  reversal_gate=PASS
+    "TRUTH_USDT",         # net 42.5%  reversal_gate=PASS
+    "CLANKER_USDT",       # net 40.1%  reversal_gate=PASS
+    "XPIN_USDT",          # net 39.5%  reversal_gate=PASS
+    "RIVER_USDT",         # net 36.8%  reversal_gate=PASS
+    "TAC_USDT",           # net 36.8%  reversal_gate=PASS
+    "O_USDT",             # net 36.2%  reversal_gate=PASS
+    "TA_USDT",            # net 35.2%  reversal_gate=PASS
+    "ACU_USDT",           # net 32.6%  reversal_gate=PASS
+    "EVAA_USDT",          # net 32.4%  reversal_gate=PASS
+    "M_USDT",             # net 32.3%  reversal_gate=PASS
+    "VELVET_USDT",        # net 30.2%  reversal_gate=PASS
+    "GUA_USDT",           # net 63.3%  reversal_gate=FAIL
+    "IDOL_USDT",          # net 39.5%  reversal_gate=FAIL
+    "AKE_USDT",           # net 31.5%  reversal_gate=FAIL
+]
+_CARRY_TAPE_GATE_ALL: list[str] = [
+    "AI_USDT",            # net 71.5%  reversal_gate=PASS
+    "WET_USDT",           # net 67.3%  reversal_gate=PASS
+    "HANA_USDT",          # net 62.6%  reversal_gate=PASS
+    "IDOL_USDT",          # net 59.4%  reversal_gate=PASS
+    "TRUST_USDT",         # net 56.7%  reversal_gate=PASS
+    "PTB_USDT",           # net 49.5%  reversal_gate=PASS
+    "AIO_USDT",           # net 45.1%  reversal_gate=PASS
+    "BTR_USDT",           # net 42.2%  reversal_gate=PASS
+    "IN_USDT",            # net 36.8%  reversal_gate=PASS
+    "TAKE_USDT",          # net 34.2%  reversal_gate=PASS
+    "INX_USDT",           # net 33.9%  reversal_gate=PASS
+    "STBL_USDT",          # net 31.6%  reversal_gate=PASS
+    "ELSA_USDT",          # net 30.8%  reversal_gate=PASS
+    "龙虾_USDT",            # net 127.5%  reversal_gate=FAIL
+    "TUT_USDT",           # net 55.8%  reversal_gate=FAIL
+    "POWER_USDT",         # net 55.1%  reversal_gate=FAIL
+    "ONE_USDT",           # net 41.9%  reversal_gate=FAIL
+]
+
+# Double-collection into tape_prints would duplicate every print for the
+# overlapping names and silently corrupt their observed volume. Excluded here;
+# their tape already exists from the ёрш unit.
+CARRY_TAPE_MEXC: list[str] = [s for s in _CARRY_TAPE_MEXC_ALL if s not in _ALREADY_IN_ERSH_MEXC]
+CARRY_TAPE_GATE: list[str] = [s for s in _CARRY_TAPE_GATE_ALL if s not in _ALREADY_IN_ERSH_GATE]

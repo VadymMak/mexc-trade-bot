@@ -169,6 +169,38 @@ CARRY_BASKET: list[tuple[str, str]] = [
     ("mexc", "DOGE_USDC"),           # 8h  net30cap   2.8%
     ("mexc", "BTC_USDT"),            # 8h  net30cap   2.6%  # Phase-2 starter basket
     ("gate", "STX_USDT"),            # 8h  net30cap   1.6%
+
+    # ── PROMPT-56 §5 ADDITION, 2026-08-19 ───────────────────────────────────
+    # The 24 corrected-carry survivors not already in the 129-name basket above.
+    # Same 120s / 50-level config as the rest — homogeneous rows mean an analysis
+    # can filter `level<=5` and get identical semantics across all 45 survivors.
+    # reversal_gate FAIL names are included for MEASUREMENT ONLY and must never be
+    # selected from (see carry_survivor_validation_20260819.md A5).
+    ("mexc", "BTW_USDT"),             # 4h  net 135.8%
+    ("gate", "龙虾_USDT"),              # 4h  net 127.5%  # reversal_gate FAIL — measurement only
+    ("gate", "AI_USDT"),              # 4h  net 71.5%
+    ("mexc", "BLUAI_USDT"),           # 4h  net 71.0%
+    ("mexc", "LYN_USDT"),             # 4h  net 65.2%
+    ("mexc", "GUA_USDT"),             # 4h  net 63.3%  # reversal_gate FAIL — measurement only
+    ("mexc", "ZEST_USDT"),            # 4h  net 59.0%
+    ("gate", "TRUST_USDT"),           # 8h  net 56.7%
+    ("gate", "TUT_USDT"),             # 4h  net 55.8%  # reversal_gate FAIL — measurement only
+    ("mexc", "HANA_USDT"),            # 4h  net 55.8%
+    ("gate", "POWER_USDT"),           # 8h  net 55.1%  # reversal_gate FAIL — measurement only
+    ("mexc", "POWER_USDT"),           # 4h  net 51.7%
+    ("mexc", "US_USDT"),              # 4h  net 49.5%
+    ("mexc", "LAB_USDT"),             # 4h  net 45.0%
+    ("mexc", "BTR_USDT"),             # 4h  net 43.0%
+    ("mexc", "TRUTH_USDT"),           # 4h  net 42.5%
+    ("gate", "ONE_USDT"),             # 8h  net 41.9%  # reversal_gate FAIL — measurement only
+    ("mexc", "CLANKER_USDT"),         # 4h  net 40.1%
+    ("mexc", "XPIN_USDT"),            # 4h  net 39.5%
+    ("mexc", "TAC_USDT"),             # 4h  net 36.8%
+    ("mexc", "O_USDT"),               # 4h  net 36.2%
+    ("mexc", "EVAA_USDT"),            # 4h  net 32.4%
+    ("mexc", "M_USDT"),               # 4h  net 32.3%
+    ("mexc", "AKE_USDT"),             # 4h  net 31.5%  # reversal_gate FAIL — measurement only
+
 ]
 
 GATE_SYMBOLS: list[str] = [s for ex, s in CARRY_BASKET if ex == "gate"]
