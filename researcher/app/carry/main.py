@@ -46,6 +46,22 @@ log = logging.getLogger("carry")
 CYCLE_SECONDS = int(os.getenv("CARRY_CYCLE_SECONDS", "300"))
 HTTP_TIMEOUT = aiohttp.ClientTimeout(total=30)
 
+# ── Watchdog (added 2026-08-23) ────────────────────────────────────────────
+# A collector that is `active` but writing nothing is the failure mode that
+# cost us ~40h of funding history: 489 cycles in 4 days died on a single MEXC
+# 403 and the loop just slept and retried forever. Nothing may wedge silently.
+#   soft stall -> tear down and rebuild the HTTP session (fresh connector+DNS)
+#   hard stall -> exit non-zero so systemd Restart=always gives a clean process
+STALL_SOFT_SECS = float(os.getenv("CARRY_STALL_SOFT_SECS", str(3 * CYCLE_SECONDS)))
+STALL_HARD_SECS = float(os.getenv("CARRY_STALL_HARD_SECS", str(6 * CYCLE_SECONDS)))
+FETCH_RETRIES = int(os.getenv("CARRY_FETCH_RETRIES", "3"))
+FETCH_BACKOFF_SECS = (1.0, 4.0, 10.0)
+
+# The MEXC spot 24h-volume call is a SECOND heavy request to the Akamai-fronted
+# host that rate-limit-403s us. 24h rolling volume barely moves, so poll it
+# every Nth cycle instead of every cycle — less pressure on the blocked host.
+VOLUME_EVERY_N = int(os.getenv("CARRY_VOLUME_EVERY_N", "4"))
+
 # Funding intervals drift (~2.1% of symbols change interval per 23 days), so the
 # map is REFRESHED on a TTL rather than cached once.
 INTERVAL_REFRESH_HOURS = float(os.getenv("CARRY_INTERVAL_REFRESH_HOURS", "6"))
@@ -187,31 +203,78 @@ class IntervalMap:
 
 
 # ── Fetch ────────────────────────────────────────────────────────────────────
-async def _get_json(session: aiohttp.ClientSession, url: str) -> Any:
-    async with session.get(url, timeout=HTTP_TIMEOUT) as r:
-        r.raise_for_status()
-        return await r.json()
+class FetchError(Exception):
+    """One bulk endpoint failed every retry. Carries the URL so the caller can
+    say WHICH feed is down rather than logging an anonymous traceback."""
+
+    def __init__(self, url: str, cause: BaseException) -> None:
+        super().__init__(f"{url}: {cause!r}")
+        self.url, self.cause = url, cause
+
+
+async def _get_json(session: aiohttp.ClientSession, url: str,
+                    retries: int | None = None) -> Any:
+    """Fetch one bulk endpoint, retrying transient failures with backoff.
+
+    Raises FetchError on give-up — never returns a sentinel, because an empty
+    dict is indistinguishable from "the venue listed nothing" downstream and
+    that is exactly how you silently write a hole into the history.
+    """
+    attempts = FETCH_RETRIES if retries is None else retries
+    last: BaseException | None = None
+    for i in range(attempts):
+        try:
+            async with session.get(url, timeout=HTTP_TIMEOUT) as r:
+                r.raise_for_status()
+                return await r.json()
+        except Exception as exc:                      # noqa: BLE001 — re-raised below
+            last = exc
+            if i + 1 < attempts:
+                await asyncio.sleep(FETCH_BACKOFF_SECS[min(i, len(FETCH_BACKOFF_SECS) - 1)])
+    raise FetchError(url, last) from last
 
 
 async def fetch_all(session: aiohttp.ClientSession) -> tuple:
-    return await asyncio.gather(
-        _get_json(session, MEXC_PERP_URL),
-        _get_json(session, MEXC_SPOT_URL),
-        _get_json(session, GATE_PERP_URL),
-        _get_json(session, GATE_SPOT_URL),
-    )
+    """Fetch the four bulk feeds INDEPENDENTLY.
+
+    THE BUG THIS REPLACES: a bare asyncio.gather let one endpoint's exception
+    propagate, so a single `403 Forbidden` on the MEXC spot bookTicker threw
+    away the ENTIRE cycle — including the ~700 Gate rows that had fetched
+    perfectly. 489 cycles (~40h of funding history) were lost that way between
+    2026-08-19 and 2026-08-23.
+
+    Now a dead feed only removes ITS OWN venue's rows. Returns
+    (mexc_perp, mexc_spot, gate_perp, gate_spot, failures); a failed feed is
+    None and every failure is named in `failures`.
+    """
+    urls = (MEXC_PERP_URL, MEXC_SPOT_URL, GATE_PERP_URL, GATE_SPOT_URL)
+    res = await asyncio.gather(
+        *(_get_json(session, u) for u in urls), return_exceptions=True)
+    out, failures = [], []
+    for url, r in zip(urls, res):
+        if isinstance(r, BaseException):
+            out.append(None)
+            failures.append(FetchError(url, r) if not isinstance(r, FetchError) else r)
+        else:
+            out.append(r)
+    return (*out, failures)
 
 
-async def fetch_mexc_spot_volume(session: aiohttp.ClientSession) -> dict:
+async def fetch_mexc_spot_volume(session: aiohttp.ClientSession) -> dict | None:
     """MEXC spot bookTicker carries no volume, so pull it separately.
-    BEST EFFORT: a failure yields {} (volumes NULL) and never affects the
-    universe or fails the cycle."""
+
+    BEST EFFORT and explicitly so: this is a volume side-lookup, never part of
+    the universe (see build_rows), so it must not be able to fail a cycle.
+    Returns None on failure — the caller keeps the PREVIOUS cycle's volumes
+    rather than writing NULLs over good data.
+    """
     try:
-        d = await _get_json(session, MEXC_SPOT_24H_URL)
+        d = await _get_json(session, MEXC_SPOT_24H_URL, retries=2)
         return {x["symbol"]: x for x in d if x.get("symbol")}
-    except Exception as exc:
-        log.warning("[carry] mexc spot 24h volume fetch failed: %r (volumes NULL)", exc)
-        return {}
+    except FetchError as exc:
+        log.warning("[carry] mexc spot 24h volume unavailable: %s "
+                    "(keeping previous volumes)", exc)
+        return None
 
 
 # ── Build rows ───────────────────────────────────────────────────────────────
@@ -251,10 +314,13 @@ def build_rows(mexc_perp, mexc_spot, gate_perp, gate_spot,
     UNIVERSE LOGIC IS UNCHANGED. `mexc_spot_vol` is a volume-only side lookup and
     is NEVER consulted when deciding whether a symbol enters the universe.
     """
-    mp = {d["symbol"]: d for d in mexc_perp.get("data", [])}   # perp: BTC_USDT
-    ms = {d["symbol"]: d for d in mexc_spot}                    # spot: BTCUSDT (no sep)
-    gp = {d["contract"]: d for d in gate_perp}                  # perp: BTC_USDT
-    gs = {d["currency_pair"]: d for d in gate_spot}            # spot: BTC_USDT
+    # A None feed means "that endpoint failed this cycle" — it degrades to an
+    # empty map, so the venue contributes no rows and the OTHER venue is
+    # unaffected. It is never confused with "the venue listed nothing".
+    mp = {d["symbol"]: d for d in (mexc_perp or {}).get("data", [])}   # perp: BTC_USDT
+    ms = {d["symbol"]: d for d in (mexc_spot or [])}            # spot: BTCUSDT (no sep)
+    gp = {d["contract"]: d for d in (gate_perp or [])}          # perp: BTC_USDT
+    gs = {d["currency_pair"]: d for d in (gate_spot or [])}     # spot: BTC_USDT
     msv = mexc_spot_vol or {}
 
     iv_get = (lambda ex, sy: ivmap.interval.get((ex, sy))) if ivmap else (lambda ex, sy: None)
@@ -360,6 +426,23 @@ ALTER TABLE funding_basis_snapshots
     ADD COLUMN IF NOT EXISTS spot_ask_size       DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS contract_multiplier DOUBLE PRECISION;
 
+-- Collector heartbeat (added 2026-08-23). One row per cycle: what was written,
+-- what failed, how long since the last successful write. A stall is now a
+-- QUERYABLE FACT, not something you infer from a hole in the data.
+CREATE TABLE IF NOT EXISTS carry_collector_health (
+    id                    BIGSERIAL PRIMARY KEY,
+    ts                    TIMESTAMPTZ DEFAULT now(),
+    cycle                 BIGINT,
+    rows_written          INTEGER,
+    mexc_rows             INTEGER,
+    gate_rows             INTEGER,
+    failed_endpoints      TEXT,
+    secs_since_last_write DOUBLE PRECISION,
+    consecutive_failures  INTEGER,
+    action                TEXT          -- 'ok' | 'partial' | 'soft-stall' | 'hard-stall'
+);
+CREATE INDEX IF NOT EXISTS idx_cch_ts ON carry_collector_health (ts DESC);
+
 CREATE TABLE IF NOT EXISTS carry_funding_intervals (
     exchange       TEXT NOT NULL,
     symbol         TEXT NOT NULL,
@@ -403,6 +486,23 @@ async def ensure_schema(pool: asyncpg.Pool) -> None:
         await con.execute(CREATE_SQL)
 
 
+async def write_health(pool: asyncpg.Pool, **kw) -> None:
+    """Heartbeat. Best-effort: a health-write failure must never mask the real
+    error that produced it, so it warns and returns."""
+    try:
+        await pool.execute(
+            """INSERT INTO carry_collector_health
+                   (cycle, rows_written, mexc_rows, gate_rows, failed_endpoints,
+                    secs_since_last_write, consecutive_failures, action)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)""",
+            kw.get("cycle"), kw.get("rows_written"), kw.get("mexc_rows"),
+            kw.get("gate_rows"), kw.get("failed_endpoints"),
+            kw.get("secs_since_last_write"), kw.get("consecutive_failures"),
+            kw.get("action"))
+    except Exception as exc:                          # noqa: BLE001
+        log.warning("[carry] health write failed: %r", exc)
+
+
 async def insert_rows(pool: asyncpg.Pool, rows: list[tuple]) -> int:
     if not rows:
         return 0
@@ -412,6 +512,46 @@ async def insert_rows(pool: asyncpg.Pool, rows: list[tuple]) -> int:
 
 
 # ── Main loop ────────────────────────────────────────────────────────────────
+class Stalled(RuntimeError):
+    """Hard stall — nothing written for STALL_HARD_SECS. Raised so the process
+    EXITS and systemd restarts it clean, rather than looping on a dead session."""
+
+
+async def _cycle(session: aiohttp.ClientSession, pool: asyncpg.Pool,
+                 ivmap: IntervalMap, t0: float,
+                 vol_cache: dict) -> tuple[int, dict, list[FetchError]]:
+    """One collection cycle. Returns (rows_written, per-venue counts, failures).
+
+    Raises only on a genuinely unrecoverable error (DB down). Endpoint failures
+    are RETURNED, not raised, so a partial cycle still writes what it has.
+    """
+    if ivmap.due(t0):
+        got = await ivmap.refresh(session, t0)
+        if got:
+            await ivmap.persist(pool)
+            log.info("[carry] interval map refreshed: %d symbols", got)
+
+    mp, ms, gp, gs, failures = await fetch_all(session)
+
+    # Volume is polled every Nth cycle and cached; None means "call failed",
+    # which keeps the last good map instead of nulling volumes for a cycle.
+    if vol_cache["cycle"] % VOLUME_EVERY_N == 0:
+        fresh = await fetch_mexc_spot_volume(session)
+        if fresh is not None:
+            vol_cache["data"] = fresh
+    msv = vol_cache["data"]
+
+    rows, counts = build_rows(mp, ms, gp, gs, ivmap=ivmap, mexc_spot_vol=msv)
+    n = await insert_rows(pool, rows)
+    n_iv = sum(1 for r in rows if r[6] is not None)
+    n_vol = sum(1 for r in rows if r[20] is not None)
+    log.info("[carry] Inserted %d rows (mexc=%d, gate=%d) | interval=%d "
+             "perp_vol=%d spot_vol_mexc=%d%s",
+             n, counts["mexc"], counts["gate"], n_iv, n_vol, len(msv),
+             ("  DEGRADED: " + ", ".join(f.url for f in failures)) if failures else "")
+    return n, counts, failures
+
+
 async def run() -> None:
     if not DSN:
         raise RuntimeError("NEON_DATABASE_URL not set (check researcher/.env)")
@@ -423,35 +563,91 @@ async def run() -> None:
     await ensure_schema(pool)
     ivmap = IntervalMap()
     log.info("[carry] connected; table ready; dynamic universe; cycle=%ds; "
-             "interval refresh=%.1fh", CYCLE_SECONDS, INTERVAL_REFRESH_HOURS)
+             "interval refresh=%.1fh; watchdog soft=%.0fs hard=%.0fs",
+             CYCLE_SECONDS, INTERVAL_REFRESH_HOURS, STALL_SOFT_SECS, STALL_HARD_SECS)
 
-    async with aiohttp.ClientSession() as session:
+    loop = asyncio.get_event_loop()
+    session = aiohttp.ClientSession()
+    last_write = loop.time()          # monotonic time of the last SUCCESSFUL insert
+    consecutive_failures = 0
+    vol_cache: dict = {"cycle": 0, "data": {}}
+    cycle = 0
+
+    try:
         while True:
-            t0 = asyncio.get_event_loop().time()
-            try:
-                if ivmap.due(t0):
-                    got = await ivmap.refresh(session, t0)
-                    if got:
-                        await ivmap.persist(pool)
-                        log.info("[carry] interval map refreshed: %d symbols", got)
+            cycle += 1
+            vol_cache["cycle"] = cycle
+            t0 = loop.time()
+            n, counts, failures = 0, {"mexc": 0, "gate": 0}, []
+            action = "ok"
 
-                mp, ms, gp, gs = await fetch_all(session)
-                msv = await fetch_mexc_spot_volume(session)
-                rows, counts = build_rows(mp, ms, gp, gs, ivmap=ivmap, mexc_spot_vol=msv)
-                n = await insert_rows(pool, rows)
-                n_iv = sum(1 for r in rows if r[6] is not None)
-                n_vol = sum(1 for r in rows if r[20] is not None)
-                log.info("[carry] Inserted %d rows (mexc=%d, gate=%d) | interval=%d "
-                         "perp_vol=%d spot_vol_mexc=%d",
-                         n, counts["mexc"], counts["gate"], n_iv, n_vol, len(msv))
-            except Exception as e:
-                log.exception("[carry] cycle error: %s", e)
-            elapsed = asyncio.get_event_loop().time() - t0
+            try:
+                n, counts, failures = await _cycle(session, pool, ivmap, t0, vol_cache)
+                if n:
+                    last_write = loop.time()
+                    consecutive_failures = 0
+                    action = "partial" if failures else "ok"
+                else:
+                    consecutive_failures += 1
+                    action = "partial"
+                    log.error("[carry] cycle %d wrote 0 rows (failed: %s)", cycle,
+                              ", ".join(f.url for f in failures) or "none")
+            except Exception as exc:                  # noqa: BLE001 — loud, counted, escalated
+                consecutive_failures += 1
+                action = "error"
+                # Loud and specific: the old bare handler logged an anonymous
+                # traceback per cycle and nothing ever escalated.
+                log.exception("[carry] cycle %d FAILED (%d in a row): %r",
+                              cycle, consecutive_failures, exc)
+
+            # ── watchdog ────────────────────────────────────────────────────
+            stalled_for = loop.time() - last_write
+            if stalled_for > STALL_HARD_SECS:
+                action = "hard-stall"
+                await write_health(
+                    pool, cycle=cycle, rows_written=n, mexc_rows=counts["mexc"],
+                    gate_rows=counts["gate"],
+                    failed_endpoints=", ".join(f.url for f in failures) or None,
+                    secs_since_last_write=stalled_for,
+                    consecutive_failures=consecutive_failures, action=action)
+                log.error("[carry] HARD STALL: no successful write for %.0fs "
+                          "(limit %.0fs, %d consecutive failures) — EXITING for "
+                          "a clean systemd restart", stalled_for, STALL_HARD_SECS,
+                          consecutive_failures)
+                raise Stalled(f"no write for {stalled_for:.0f}s")
+
+            if stalled_for > STALL_SOFT_SECS:
+                action = "soft-stall"
+                log.error("[carry] SOFT STALL: no successful write for %.0fs "
+                          "(limit %.0fs) — rebuilding HTTP session "
+                          "(fresh connector + DNS)", stalled_for, STALL_SOFT_SECS)
+                try:
+                    await session.close()
+                except Exception as exc:              # noqa: BLE001
+                    log.warning("[carry] session close failed: %r", exc)
+                session = aiohttp.ClientSession()
+
+            await write_health(
+                pool, cycle=cycle, rows_written=n, mexc_rows=counts["mexc"],
+                gate_rows=counts["gate"],
+                failed_endpoints=", ".join(f.url for f in failures) or None,
+                secs_since_last_write=stalled_for,
+                consecutive_failures=consecutive_failures, action=action)
+
+            elapsed = loop.time() - t0
             await asyncio.sleep(max(1.0, CYCLE_SECONDS - elapsed))
+    finally:
+        await session.close()
+        await pool.close()
 
 
 if __name__ == "__main__":
+    import sys
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
         log.info("[carry] stopped by user")
+    except Stalled as exc:
+        # Non-zero exit: systemd Restart=always gives us a clean process.
+        log.error("[carry] exiting on watchdog: %s", exc)
+        sys.exit(1)

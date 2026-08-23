@@ -40,8 +40,28 @@ class CarryBotConfig:
     min_positive_frac: float = _f("CARRY_MIN_POS_FRAC", 0.80)
     max_rt_spread_bps: float = _f("CARRY_MAX_RT_SPREAD_BPS", 60.0)
     max_basis_bps: float = _f("CARRY_MAX_BASIS_BPS", 150.0)
-    min_net_apr: float = _f("CARRY_MIN_NET_APR", 8.0)     # net-on-capital, H30
-    hold_days: int = _i("CARRY_HOLD_DAYS", 30)            # amortisation horizon
+    min_net_apr: float = _f("CARRY_MIN_NET_APR", 8.0)     # net-on-capital
+    # Amortisation horizon. WAS 30 — a horizon we had never actually achieved,
+    # which flattered every candidate's net APR. The observed median hold over
+    # the first paper run was 44 MINUTES. 14d is still optimistic but it is at
+    # least inside the range the surviving positions have demonstrated.
+    hold_days: int = _i("CARRY_HOLD_DAYS", 14)
+
+    # ---- re-entry hysteresis (2026-08-23) — fixes the TUT churn loop -------
+    # R4 exits on the TRAILING-7 APR; the selector used to re-admit on the
+    # 14-DAY MEAN. Two different metrics, so a name could fail the exit test
+    # and pass the entry test in the same hour: TUT round-tripped 23 times in
+    # 48h, burning $8.26 of cost to collect $0.11 of funding. The gates now
+    # read the SAME trailing metric, separated by a hysteresis band.
+    reentry_cooldown_hours: float = _f("CARRY_REENTRY_COOLDOWN_H", 48.0)
+    reentry_apr_mult: float = _f("CARRY_REENTRY_APR_MULT", 2.0)
+    reentry_memory_days: float = _f("CARRY_REENTRY_MEMORY_DAYS", 7.0)
+    max_cooldown_stacks: int = _i("CARRY_MAX_COOLDOWN_STACKS", 3)
+
+    # ---- cost gate --------------------------------------------------------
+    # A position must repay its own round trip fast enough to be worth opening.
+    cost_gate_mult: float = _f("CARRY_COST_GATE_MULT", 3.0)
+    min_hold_days: float = _f("CARRY_MIN_HOLD_DAYS", 14.0)
 
     # ---- sizing / caps ----------------------------------------------------
     max_rt_slip_bps: float = _f("CARRY_MAX_RT_SLIP_BPS", 50.0)   # R6
@@ -89,6 +109,22 @@ class CarryBotConfig:
         return self.capital_eur * self.eurusd
 
     @property
+    def reentry_apr(self) -> float:
+        """Re-entry bar on the trailing-7 APR, STRICTLY ABOVE the R4 exit floor.
+
+        The gap between min_hold_apr and this is the hysteresis band: inside it
+        a name is neither held nor re-opened, which is exactly the state that
+        stops the flip-flop.
+        """
+        return self.min_hold_apr * self.reentry_apr_mult
+
+    @property
+    def max_payback_days(self) -> float:
+        """Round-trip cost must be repaid within this many days of funding, or
+        the position is not worth opening at all."""
+        return self.min_hold_days / self.cost_gate_mult
+
+    @property
     def capital_multiple(self) -> float:
         """Capital consumed per unit of spot notional: C = S + S/L."""
         return 1.0 + 1.0 / self.leverage
@@ -97,4 +133,6 @@ class CarryBotConfig:
         return (f"mode={self.mode} (live_armed={self.is_live}) "
                 f"capital=EUR{self.capital_eur:,.0f} L={self.leverage:.1f}x "
                 f"mexc_cap={self.mexc_venue_cap:.0%} slip_cap={self.max_rt_slip_bps:.0f}bps "
-                f"min_apr={self.min_net_apr:.1f}%")
+                f"min_apr={self.min_net_apr:.1f}% | exit<{self.min_hold_apr:.0f}% "
+                f"reenter>{self.reentry_apr:.0f}% cooldown={self.reentry_cooldown_hours:.0f}h "
+                f"payback<={self.max_payback_days:.1f}d H{self.hold_days}")

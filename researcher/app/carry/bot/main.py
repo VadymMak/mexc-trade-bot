@@ -56,7 +56,7 @@ class CarryBot:
         self.store = BotStore(pool, run_id)
         self.books = BookSource(pool, cfg)
         self.intervals = IntervalResolver(pool)
-        self.selector = Selector(pool, cfg, self.intervals, self.books)
+        self.selector = Selector(pool, cfg, self.intervals, self.books, self.store)
         self.risk = RiskManager(cfg, self.books, self.store)
         self.neutral = NeutralityManager(cfg)
         self.exec = build_executor(self.books, cfg)
@@ -130,6 +130,20 @@ class CarryBot:
                     "risk", "close",
                     f"closed on {reason} — exit cost ${cost:,.2f} ({note})",
                     ex, sym, {"exit_cost_usd": cost})
+                # Exile it. Without this the selector re-admitted the name on
+                # the next pass (~65 min) and R4 exited it again ~62s later:
+                # 23 TUT round-trips in 48h for $8.26 of cost and $0.11 of
+                # funding. The exit and the re-entry gate now agree.
+                hours, exits_n = await self.store.block_reentry(
+                    ex, sym, self.cfg.reentry_cooldown_hours, reason,
+                    self.cfg.max_cooldown_stacks)
+                await self.store.event(
+                    "risk", "close",
+                    f"re-entry BLOCKED for {hours:.0f}h (exit #{exits_n}); "
+                    f"after that it must hold trailing-7 AND trailing-3 "
+                    f">= {self.cfg.reentry_apr:.0f}% on capital with no negative "
+                    f"epochs (exit floor is {self.cfg.min_hold_apr:.0f}%)",
+                    ex, sym, {"cooldown_hours": hours, "exits": exits_n})
 
     # ---- 3. accrue --------------------------------------------------------
     async def accrue(self) -> int:
@@ -220,6 +234,7 @@ class CarryBot:
                 dt.datetime.now(dt.timezone.utc), iv)
             note = (f"gross {cand.gross_apr:.1f}% iv {iv:.0f}h "
                     f"net {cand.net_apr:.1f}% slip {cand.slip_bps:.1f}bps "
+                    f"trail7 {cand.apr7_cap:.1f}% payback {cand.payback_days:.1f}d "
                     f"depth_basis {cand.depth_basis}")
             for leg, side, price in (("spot", "long", res.spot_price),
                                      ("perp", "short", res.perp_price)):

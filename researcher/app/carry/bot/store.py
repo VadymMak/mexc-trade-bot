@@ -58,6 +58,21 @@ CREATE TABLE IF NOT EXISTS paper_carry_events (
     data      JSONB
 );
 CREATE INDEX IF NOT EXISTS idx_pce_ts ON paper_carry_events (ts DESC);
+
+-- Re-entry cooldown (2026-08-23). A name exited on a funding flip is exiled
+-- here, so the ban SURVIVES A RESTART — an in-memory set would have been
+-- cleared by the very restart a bad cycle tends to cause. `exits` counts
+-- repeat offenders: each re-offence lengthens the next exile.
+CREATE TABLE IF NOT EXISTS carry_reentry_blocks (
+    exchange   TEXT NOT NULL,
+    symbol     TEXT NOT NULL,
+    blocked_ts TIMESTAMPTZ DEFAULT now(),
+    until_ts   TIMESTAMPTZ NOT NULL,
+    reason     TEXT,
+    exits      INTEGER DEFAULT 1,
+    PRIMARY KEY (exchange, symbol)
+);
+CREATE INDEX IF NOT EXISTS idx_crb_until ON carry_reentry_blocks (until_ts);
 """
 
 
@@ -155,6 +170,46 @@ class BotStore:
                    notes = coalesce(notes,'') || ' | closed: ' || $3
                WHERE group_id=$1 AND status='open'""",
             group_id, exit_cost_usd / 2.0, reason)
+
+    # ---- re-entry cooldown -------------------------------------------------
+    async def block_reentry(self, ex: str, sym: str, base_hours: float,
+                            reason: str, max_stacks: int) -> tuple[float, int]:
+        """Exile a name from selection. Repeat offenders serve longer:
+        base x min(exits, max_stacks). Returns (hours_served, exits)."""
+        row = await self._pool.fetchrow(
+            """INSERT INTO carry_reentry_blocks
+                   (exchange, symbol, blocked_ts, until_ts, reason, exits)
+               VALUES ($1,$2, now(), now() + ($3 || ' hours')::interval, $4, 1)
+               ON CONFLICT (exchange, symbol) DO UPDATE SET
+                   blocked_ts = now(),
+                   exits      = carry_reentry_blocks.exits + 1,
+                   reason     = EXCLUDED.reason,
+                   until_ts   = now() + (
+                       $3::double precision
+                       * LEAST(carry_reentry_blocks.exits + 1, $5::int)
+                       || ' hours')::interval
+               RETURNING exits,
+                         extract(epoch FROM (until_ts - now()))/3600.0 AS hours""",
+            ex, sym, str(base_hours), reason, max_stacks)
+        return float(row["hours"]), int(row["exits"])
+
+    async def reentry_blocks(self) -> dict:
+        """Active blocks only. Expired rows are KEPT so `exits` still remembers
+        the name's history the next time it misbehaves."""
+        rows = await self._pool.fetch(
+            """SELECT exchange, symbol, until_ts, reason, exits,
+                      extract(epoch FROM (until_ts - now()))/3600.0 AS hours_left
+               FROM carry_reentry_blocks WHERE until_ts > now()""")
+        return {(r["exchange"], r["symbol"]): dict(r) for r in rows}
+
+    async def recently_exited(self, days: float) -> set:
+        """Names flip-exited inside the hysteresis memory. These face the HIGH
+        re-entry bar even after their hard cooldown has expired."""
+        rows = await self._pool.fetch(
+            """SELECT DISTINCT exchange, symbol FROM carry_reentry_blocks
+               WHERE blocked_ts > now() - ($1 || ' days')::interval""",
+            str(days))
+        return {(r["exchange"], r["symbol"]) for r in rows}
 
     # ---- reporting --------------------------------------------------------
     async def summary(self) -> dict:

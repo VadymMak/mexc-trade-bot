@@ -43,6 +43,21 @@ WHERE exchange=$1 AND symbol=$2 AND ts > now() - ($3 || ' days')::interval
       AND spot_bid > 0 AND spot_ask > spot_bid
 """
 
+# THE SAME trailing window RiskManager.funding_flip exits on. Entry and exit
+# MUST read one metric: when entry used the 14-day mean and exit used the
+# trailing-7, a name could fail the exit test and pass the entry test in the
+# same hour. That is the whole TUT churn bug (23 round-trips in 48h).
+_TRAILING_SQL = """
+WITH ep AS (
+  SELECT DISTINCT ON ((floor(extract(epoch FROM ts)/$3))::bigint)
+         (floor(extract(epoch FROM ts)/$3))::bigint AS e, funding_rate
+  FROM funding_basis_snapshots
+  WHERE exchange=$1 AND symbol=$2 AND funding_rate IS NOT NULL
+        AND ts > now() - interval '3 days'
+  ORDER BY e, ts DESC)
+SELECT funding_rate FROM ep ORDER BY e DESC LIMIT 7
+"""
+
 # Only consider names we actually have depth for — no book, no honest entry.
 _UNIVERSE_SQL = """
 SELECT DISTINCT exchange, symbol FROM carry_book_l2
@@ -54,13 +69,18 @@ ORDER BY 1, 2
 class Candidate:
     __slots__ = ("ex", "sym", "iv", "gross_apr", "mean_r", "pos_pct", "n_epochs",
                  "perp_spr", "spot_spr", "basis_mean", "basis_sd", "max_notional",
-                 "slip_bps", "net_apr", "depth_usd", "depth_basis", "reject")
+                 "slip_bps", "net_apr", "depth_usd", "depth_basis", "reject",
+                 "apr7_cap", "apr3_cap", "neg_recent", "payback_days", "bar_apr")
 
     def __init__(self, ex, sym):
         self.ex, self.sym = ex, sym
         self.reject = None
         self.net_apr = float("nan")
         self.max_notional = 0.0
+        self.apr7_cap = self.apr3_cap = float("nan")
+        self.payback_days = float("nan")
+        self.bar_apr = float("nan")
+        self.neg_recent = 0
 
     @property
     def key(self):
@@ -72,11 +92,15 @@ class Candidate:
 
 
 class Selector:
-    def __init__(self, pool, cfg, intervals, books: BookSource) -> None:
+    def __init__(self, pool, cfg, intervals, books: BookSource, store) -> None:
         self._pool = pool
         self._cfg = cfg
         self._iv = intervals
         self._books = books
+        self._store = store
+        # Refreshed once per select() so every candidate sees one consistent view.
+        self._blocks: dict = {}
+        self._recent_exits: set = set()
 
     async def universe(self) -> list[tuple[str, str]]:
         rows = await self._pool.fetch(_UNIVERSE_SQL,
@@ -90,9 +114,39 @@ class Selector:
         rt = fee + slip_bps
         return (gross - rt * (365.0 / hold_days) / 100.0) / self._cfg.capital_multiple
 
+    async def _trailing(self, ex: str, sym: str, iv: float) -> tuple:
+        """(apr7_on_capital, apr3_on_capital, negative_epoch_count).
+
+        Deliberately the same computation as RiskManager.funding_flip so the
+        two gates cannot disagree about what a name is currently earning.
+        """
+        rows = await self._pool.fetch(_TRAILING_SQL, ex, sym, int(iv * 3600))
+        rates = [float(r["funding_rate"]) for r in rows]
+        if not rates:
+            return float("nan"), float("nan"), 0
+        ann = (24.0 / iv) * 365.0 * 100.0 / self._cfg.capital_multiple
+        apr7 = (sum(rates) / len(rates)) * ann
+        head = rates[:3]
+        apr3 = (sum(head) / len(head)) * ann
+        return apr7, apr3, sum(1 for r in rates if r < 0)
+
+    def _payback_days(self, ex: str, gross_apr: float, slip_bps: float) -> float:
+        """Days of funding needed to repay the round trip. inf if it never does."""
+        if gross_apr <= 0:
+            return float("inf")
+        rt_bps = 4 * self._cfg.maker_bps[ex] + slip_bps
+        return (rt_bps / 10000.0) / (gross_apr / 100.0 / 365.0)
+
     async def evaluate(self, ex: str, sym: str) -> Candidate:
         c = Candidate(ex, sym)
         cfg = self._cfg
+
+        # --- G0: hard cooldown. A name we just flip-exited is exiled, full
+        #     stop — no APR is good enough to re-open it inside the window.
+        blk = self._blocks.get((ex, sym))
+        if blk:
+            c.reject = f"cooldown={blk['hours_left']:.0f}h"
+            return c
 
         # --- corrected funding interval (never the stored column) ----------
         iv = await self._iv.get(ex, sym)
@@ -117,6 +171,29 @@ class Selector:
         if c.gross_apr <= 0:
             c.reject = "gross<=0"
             return c
+
+        # --- G1: TRAILING gate — the reconciliation with R4 ------------------
+        # Every name must clear the exit floor on the SAME trailing-7 metric R4
+        # exits on, so a name that would immediately fail the exit test can
+        # never pass entry. A name inside the hysteresis memory faces the
+        # HIGHER re-entry bar, and must clear it on trailing-3 as well: one fat
+        # epoch must not be enough to buy its way back in.
+        c.apr7_cap, c.apr3_cap, c.neg_recent = await self._trailing(ex, sym, iv)
+        recent = (ex, sym) in self._recent_exits
+        c.bar_apr = cfg.reentry_apr if recent else cfg.min_hold_apr
+        if not (c.apr7_cap == c.apr7_cap):            # NaN => no trailing data
+            c.reject = "trail=no-epochs"
+            return c
+        if c.apr7_cap < c.bar_apr:
+            c.reject = f"trail7={c.apr7_cap:.1f}%<{c.bar_apr:.1f}%"
+            return c
+        if recent:
+            if c.apr3_cap < c.bar_apr:
+                c.reject = f"trail3={c.apr3_cap:.1f}%<{c.bar_apr:.1f}%"
+                return c
+            if c.neg_recent:
+                c.reject = f"neg-epochs={c.neg_recent}"
+                return c
 
         q = await self._pool.fetchrow(_QUOTE_SQL, ex, sym, str(cfg.lookback_days))
         if not q or not q["n"]:
@@ -145,6 +222,17 @@ class Selector:
         c.depth_usd, _, c.depth_basis = worst_hour_capacity(
             by_hod, cfg.max_rt_slip_bps, cfg)
 
+        # --- G2: COST GATE — must earn back its own round trip ---------------
+        # Not "is the APR nice", but "does the expected funding over the
+        # minimum hold comfortably exceed what it costs to get in and out".
+        # TUT paid $8.26 in round trips to collect $0.11; a position that
+        # cannot repay its entry has no business being opened.
+        c.payback_days = self._payback_days(ex, c.gross_apr, slip)
+        if c.payback_days > cfg.max_payback_days:
+            c.reject = (f"payback={c.payback_days:.1f}d>"
+                        f"{cfg.max_payback_days:.1f}d")
+            return c
+
         c.net_apr = self._net_apr(ex, c.gross_apr, slip, cfg.hold_days)
         if c.net_apr < cfg.min_net_apr:
             c.reject = f"net={c.net_apr:.1f}%<{cfg.min_net_apr:.1f}%"
@@ -153,6 +241,15 @@ class Selector:
 
     async def select(self) -> tuple[list[Candidate], list[Candidate]]:
         """Returns (chosen, all_evaluated)."""
+        # One consistent snapshot of the exile list for the whole pass.
+        self._blocks = await self._store.reentry_blocks()
+        self._recent_exits = await self._store.recently_exited(
+            self._cfg.reentry_memory_days)
+        if self._blocks:
+            logger.info("[carry/bot][select] %d name(s) in re-entry cooldown: %s",
+                        len(self._blocks),
+                        ", ".join(f"{ex}/{sym} {b['hours_left']:.0f}h"
+                                  for (ex, sym), b in sorted(self._blocks.items())))
         cands = []
         for ex, sym in await self.universe():
             try:
