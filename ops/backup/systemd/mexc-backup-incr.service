@@ -1,0 +1,22 @@
+[Unit]
+Description=mexc-trade-bot — nightly incremental PostgreSQL backup
+Documentation=file:/home/vadym/mexc-trade-bot/ops/backup/README.md
+After=postgresql.service network-online.target
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/vadym/mexc-trade-bot/ops/backup/backup-incremental.sh
+# Backs up the day that just closed; yields to the collectors on contention.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=3600
+# The credentials file and /var/backups are root-only by design.
+User=root
+ProtectHome=no
+PrivateTmp=yes
+NoNewPrivileges=no
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,22 @@
+[Unit]
+Description=mexc-trade-bot — weekly full PostgreSQL backup (rebase point)
+Documentation=file:/home/vadym/mexc-trade-bot/ops/backup/README.md
+After=postgresql.service network-online.target
+Wants=postgresql.service
+# Never run a full and an incremental at the same time.
+Conflicts=mexc-backup-incr.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/vadym/mexc-trade-bot/ops/backup/backup-full.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=7200
+User=root
+ProtectHome=no
+PrivateTmp=yes
+NoNewPrivileges=no
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=mexc-trade-bot — weekly full backup (Sun 03:30 UTC)
+Documentation=file:/home/vadym/mexc-trade-bot/ops/backup/README.md
+
+[Timer]
+# Sunday 03:30 UTC: measured 135 s of dump, well clear of the 00:20 incremental
+# and of the funding settlement hours the collectors care about.
+OnCalendar=Sun *-*-* 03:30:00 UTC
+RandomizedDelaySec=600
+Persistent=true
+AccuracySec=1min
+Unit=mexc-backup-full.service
+
+[Install]
+WantedBy=timers.target

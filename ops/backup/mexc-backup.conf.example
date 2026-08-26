@@ -1,0 +1,24 @@
+# Copy to /etc/mexc-backup.conf. Sourced by ops/backup/lib.sh.
+# Everything here overrides the defaults in lib.sh.
+
+# --- tier 1: the Mac over Tailscale -----------------------------------------
+# Flip both to 1 once Remote Login is on and the key is in the Mac's
+# ~/.ssh/authorized_keys. SHIP_REQUIRED=1 makes a failed ship a hard error,
+# which is what you want once it is known to work.
+SHIP_ENABLED=0
+SHIP_REQUIRED=0
+MAC_HOST=100.73.144.101
+MAC_USER=vadym
+MAC_PATH=mexc-backups
+SSH_KEY=/root/.ssh/id_ed25519_mexcbackup
+
+# --- tier 2: offsite (the only tier that survives the house) ----------------
+# apt install rclone && rclone config
+OFFSITE_ENABLED=0
+OFFSITE_REMOTE=""
+
+# --- retention ---------------------------------------------------------------
+LOCAL_KEEP_INCR_DAYS=3
+LOCAL_KEEP_FULLS=1
+REMOTE_KEEP_FULLS=4
+MIN_FREE_GB=50

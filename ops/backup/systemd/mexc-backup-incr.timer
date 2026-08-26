@@ -1,0 +1,17 @@
+[Unit]
+Description=mexc-trade-bot — nightly incremental backup (00:20 UTC)
+Documentation=file:/home/vadym/mexc-trade-bot/ops/backup/README.md
+
+[Timer]
+# 20 minutes after the UTC day closes, so the window [00:00Z, 00:00Z+1d) is
+# safely closed and any straggling writes have landed.
+OnCalendar=*-*-* 00:20:00 UTC
+RandomizedDelaySec=300
+# The machine has lost power twice in two days. A backup that silently skips
+# the night the host was down is worse than useless.
+Persistent=true
+AccuracySec=1min
+Unit=mexc-backup-incr.service
+
+[Install]
+WantedBy=timers.target
