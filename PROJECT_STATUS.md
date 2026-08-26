@@ -1,6 +1,7 @@
 # 🎯 KEEPER MEMORY AI - PROJECT STATUS
 
-> Source of truth = CURRENT_STATUS.md (this file is historical).
+> Historical as of 2026-08-26 — superseded by BLUEPRINT.md.
+> (Previously pointed at CURRENT_STATUS.md, which is now historical too.)
 
 > **Last Updated:** August 13, 2026  
 > **Project Start:** November 6, 2025  

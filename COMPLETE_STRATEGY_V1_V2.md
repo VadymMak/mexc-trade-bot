@@ -1,4 +1,6 @@
 # 🎯 ПОЛНАЯ СТРАТЕГИЯ ТОРГОВОГО БОТА
+
+> Historical as of 2026-08-26 — superseded by BLUEPRINT.md.
 ## Keeper Memory AI: От Концепции до Автономии
 
 **Версия:** 1.0 → 2.0 Эволюция  

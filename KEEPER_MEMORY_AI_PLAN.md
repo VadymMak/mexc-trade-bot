@@ -1,5 +1,7 @@
 # Keeper Memory AI - Complete Implementation Plan
 
+> Historical as of 2026-08-26 — superseded by BLUEPRINT.md.
+
 **Version:** 3.0 (UPDATED with MM Detection & Adaptive Sizing)  
 **Date:** November 12, 2025  
 **Status:** Phase 1 - COMPLETE (Target exceeded!)  

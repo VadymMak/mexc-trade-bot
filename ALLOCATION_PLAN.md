@@ -1,5 +1,7 @@
 # 🚀 Smart Position Allocation - Implementation Plan v6.0 (HIGH FREQUENCY)
 
+> Historical as of 2026-08-26 — superseded by BLUEPRINT.md.
+
 **Project:** MEXC Trading Bot - High Frequency Microscalp Revival  
 **Version:** 6.0 (HIGH FREQUENCY CORRECTED)  
 **Date:** November 14, 2025  

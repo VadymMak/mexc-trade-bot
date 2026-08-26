@@ -1,3 +1,5 @@
+# Read BLUEPRINT.md first. It is the plan; everything else is appendix.
+
 # MANDATORY: Use Brain MCP for EVERY request
 
 ⚠️ RULE: You MUST call brain build_context_for_query BEFORE responding to ANY message.

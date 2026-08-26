@@ -1,5 +1,7 @@
 # Server & Project Status Report — mexc-trade-bot
 
+> Historical as of 2026-08-26 — superseded by BLUEPRINT.md.
+
 > Generated: **2026-08-13** · Host: `trading-server` · Verified live, not from docs
 
 Handoff document for another agent/session. Everything below was checked against

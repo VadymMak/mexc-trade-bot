@@ -1,4 +1,6 @@
 # 🗺️ Iteration 4 — Plan
+
+> Historical as of 2026-08-26 — superseded by BLUEPRINT.md.
 **Created:** 2026-04-11  
 **Status:** 🟡 In Progress  
 **Goal:** Validate fixes → tune strategy → expand exchanges → prepare for live trading

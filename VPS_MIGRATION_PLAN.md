@@ -1,4 +1,6 @@
 # VPS Migration Plan — mexc-trade-bot
+
+> Historical as of 2026-08-26 — superseded by BLUEPRINT.md.
 # Цель: переехать с Railway ($12/мес) на Hetzner VPS ($4/мес)
 # Paper trader НЕ трогаем — работает на Railway пока не подтвердим VPS
 

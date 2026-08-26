@@ -1,4 +1,6 @@
 # 🎯 KEEPER MEMORY AI v3.0 - ARCHITECTURE DEFENSE
+
+> Historical as of 2026-08-26 — superseded by BLUEPRINT.md.
 **Защита нашей архитектуры против альтернативных подходов**
 
 **Date:** November 13, 2025  

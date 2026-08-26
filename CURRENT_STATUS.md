@@ -1,5 +1,7 @@
 # CURRENT STATUS — 2026-08-14 (authoritative; supersedes older overviews)
 
+> Historical as of 2026-08-26 — superseded by BLUEPRINT.md.
+
 Supersedes the economics and strategy claims in `PROJECT_STATUS.md` and
 `SERVER_STATUS_REPORT.md`. Where they disagree with this file, this file is right.
 
