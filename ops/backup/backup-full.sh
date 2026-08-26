@@ -14,6 +14,7 @@ KEEP_LOCAL=0
 [[ "${1:-}" == "--keep-local" ]] && KEEP_LOCAL=1
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+dsn_init                 # sets PGPASSWORD in THIS shell, not a subshell
 DSN_V="$(dsn)"
 OUT="$BACKUP_ROOT/full/trading_bot-${STAMP}.dump"
 MANIFEST="$BACKUP_ROOT/manifests/full-${STAMP}.json"
@@ -28,12 +29,22 @@ check_unclassified || { warn "run will exit non-zero because of unclassified tab
 # Row counts are taken BEFORE the dump. pg_dump runs in a repeatable-read
 # snapshot, so the archive holds at least these rows for append-only tables;
 # the manifest records both so a restore comparison is interpretable.
-log "counting rows (pre-dump floor)"
+# An exact count(*) on carry_book_l2 is a 148M-row scan that costs more than
+# the dump it is annotating, so tables above COUNT_EXACT_MAX are recorded from
+# pg_class.reltuples instead and flagged as estimates. The manifest says which
+# is which, so a restore comparison is never misread as exact when it is not.
+COUNT_EXACT_MAX="${COUNT_EXACT_MAX:-10000000}"
+log "counting rows (exact below ${COUNT_EXACT_MAX}, reltuples estimate above)"
 COUNTS="$(mktemp)"; trap 'rm -f "$COUNTS"' EXIT
 for t in "${INCR_TABLES[@]}" "${SNAP_TABLES[@]}" "${REBUILDABLE_TABLES[@]}"; do
   table_exists "$t" || { warn "configured table $t missing"; RC=1; continue; }
-  printf '%s\t%s\n' "$t" \
-    "$(psql "$DSN_V" -X -At -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM $t")" >> "$COUNTS"
+  est=$(psql "$DSN_V" -X -At -c "SELECT GREATEST(reltuples,0)::bigint FROM pg_class WHERE oid='public.$t'::regclass")
+  if (( est > COUNT_EXACT_MAX )); then
+    printf '%s\t%s\test\n' "$t" "$est" >> "$COUNTS"
+  else
+    printf '%s\t%s\texact\n' "$t" \
+      "$(psql "$DSN_V" -X -At -v ON_ERROR_STOP=1 -c "SELECT count(*) FROM $t")" >> "$COUNTS"
+  fi
 done
 
 T0=$(date -u +%s)
@@ -61,15 +72,15 @@ log "full dump ok: $BYTES bytes in $((T1-T0))s sha=${SHA:0:12}"
 STAMP="$STAMP" FILE="$(basename "$OUT")" BYTES="$BYTES" SHA="$SHA" SECS="$((T1-T0))" \
 CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" HOSTN="$(hostname)" \
 PGV="$(psql "$DSN_V" -X -At -c 'SHOW server_version')" \
-GITSHA="$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+GITSHA="$(repo_git_sha)" \
 TOCN="$(grep -c 'TABLE DATA' "$TOC")" \
 python3 - "$MANIFEST" "$COUNTS" <<'PY'
 import json, os, sys
 manifest, counts_path = sys.argv[1], sys.argv[2]
 tables = []
 for line in open(counts_path):
-    name, n = line.rstrip("\n").split("\t")
-    tables.append({"table": name, "rows_at_dump_start": int(n)})
+    name, n, how = line.rstrip("\n").split("\t")
+    tables.append({"table": name, "rows_at_dump_start": int(n), "count_basis": how})
 doc = {
     "kind": "full", "stamp": os.environ["STAMP"], "file": os.environ["FILE"],
     "created_at": os.environ["CREATED"], "host": os.environ["HOSTN"],

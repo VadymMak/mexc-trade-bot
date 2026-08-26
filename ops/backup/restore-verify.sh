@@ -20,6 +20,7 @@ DAY="${1:-$(date -u -d 'yesterday' +%Y-%m-%d)}"
 TABLE="${2:-venue_funding_snapshots}"
 SCRATCH="${SCRATCH_DB:-mexc_restore_test}"
 
+dsn_init                 # sets PGPASSWORD in THIS shell, not a subshell
 DSN_V="$(dsn)"
 SRCDIR="$BACKUP_ROOT/incr/$DAY"
 ART="$SRCDIR/${TABLE}.incr.zst"

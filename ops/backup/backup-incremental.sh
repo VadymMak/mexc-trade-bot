@@ -22,6 +22,7 @@ WE="$(date -u -d "$DAY + 1 day" +%Y-%m-%d) 00:00:00+00"
 (( $(date -u -d "$WE" +%s) <= $(date -u +%s) )) \
   || die "window ends $WE, which is in the future — refusing to back up an open day"
 
+dsn_init                 # sets PGPASSWORD in THIS shell, not a subshell
 DSN_V="$(dsn)"
 OUTDIR="$BACKUP_ROOT/incr/$DAY"
 MANIFEST="$BACKUP_ROOT/manifests/incr-$DAY.json"
@@ -134,7 +135,7 @@ for t in "${SNAP_TABLES[@]}"; do dump_one "$t" snap "" || RC=1; done
 DAY="$DAY" WS="$WS" WE="$WE" \
 CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" HOSTN="$(hostname)" \
 PGV="$(psql "$DSN_V" -X -At -c 'SHOW server_version')" \
-GITSHA="$(git -C "$(dirname "$(readlink -f "$0")")" rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+GITSHA="$(repo_git_sha)" \
 TOTB="$(du -sb "$OUTDIR" | cut -f1)" \
 python3 - "$MANIFEST" "$ENTRIES" "$WORK/failed" <<'PY'
 import json, os, sys

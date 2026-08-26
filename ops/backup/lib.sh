@@ -113,12 +113,28 @@ log()  { printf '%s [%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${LOGTAG:-backu
 warn() { printf '%s [%s] WARN: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${LOGTAG:-backup}" "$*" >&2; }
 die()  { printf '%s [%s] FATAL: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${LOGTAG:-backup}" "$*" >&2; exit 1; }
 
-dsn() {
+# The DSN must never reach a command line. /proc/<pid>/cmdline is world-readable,
+# so `pg_dump "postgresql://user:pass@..."` shows the database password to any
+# local user running ps — and this now runs every night. Parse the URL once, put
+# the password in PGPASSWORD (/proc/<pid>/environ is 0400 to the owner), and hand
+# callers a password-free URI.
+# MUST be called in the script's own shell, never inside a $( ) substitution —
+# an export inside a subshell is discarded, which silently leaves psql
+# prompting for a password and the run hanging until its timeout.
+dsn_init() {
+  [[ -n "${_DSN_URI:-}" ]] && return 0
   [[ -r "$CRED_FILE" ]] || die "cannot read $CRED_FILE (run as root)"
-  local d; d=$(sed -n 's/^DATABASE_URL=//p' "$CRED_FILE")
-  [[ -n "$d" ]] || die "no DATABASE_URL in $CRED_FILE"
-  printf '%s' "$d"
+  local raw; raw=$(sed -n 's/^DATABASE_URL=//p' "$CRED_FILE")
+  [[ -n "$raw" ]] || die "no DATABASE_URL in $CRED_FILE"
+  if [[ "$raw" =~ ^([a-z+]+)://([^:/@]+):([^@]*)@(.+)$ ]]; then
+    export PGPASSWORD="${BASH_REMATCH[3]}"
+    _DSN_URI="${BASH_REMATCH[1]}://${BASH_REMATCH[2]}@${BASH_REMATCH[4]}"
+  else
+    _DSN_URI="$raw"   # no inline password to strip
+  fi
 }
+
+dsn() { dsn_init; printf '%s' "$_DSN_URI"; }
 
 # Never let a backup be the thing that fills the disk it is protecting.
 check_disk() {
@@ -162,6 +178,14 @@ table_exists() {
   local t=$1 n
   n=$(psql "$(dsn)" -At -c "SELECT to_regclass('public.$t') IS NOT NULL")
   [[ "$n" == "t" ]]
+}
+
+# The units run as root against a repo owned by vadym, which git refuses to
+# read as "dubious ownership" — without this the manifest's provenance field
+# silently degrades to "unknown", which is exactly when you most want it.
+repo_git_sha() {
+  local d; d="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+  git -c safe.directory='*' -C "$d" rev-parse --short HEAD 2>/dev/null || echo unknown
 }
 
 # Write $2 to $1 atomically: temp name, fsync, rename. A truncated file must
