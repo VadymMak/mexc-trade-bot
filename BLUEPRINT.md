@@ -67,9 +67,13 @@ for each answer**, decided before the data arrives.
 - **Capacity × premium < cost of operating →** park regardless of G1. **This is the gate to any real capital.**
 
 ### G3 — Is any of #2 / #3 / #4 both orthogonal and payable?
-- **Status:** all three collecting since 2026-08-24. **First look done — and it reorders the candidates.**
-  - **#2 dated basis is the only one that does not rest at a default.** Median 2.7–4.5% annualised, tight across
-    five independent venues — the tightness across venues *is* the evidence it is a real price.
+- **Status:** all three collecting since 2026-08-24. **#2's first settlement has now been observed end to end,
+  and it does not survive contact with cost.** See §3. The 2.7–4.5% annualised mark was real as a *price* and
+  worthless as a *trade*: annualising 3–8 bps over a 4-day horizon makes a percentage that the round trip eats
+  several times over. **Priority reverts to "none of the three has cleared the yardstick".**
+  - **#2 dated basis is the only one that does not rest at a default** — but its median quoted basis is
+    **7.6 bps** against a median held-to-settlement cost of **17.6 bps**, and **0 of 25 instruments clear cost at
+    a 3 bps/crossing fee**.
   - **#3 lending rests at defaults, same signature as funding** — kucoin and okx supply rates have **one distinct
     value in 611 observations**. Only 6 of 14 series are the supply side you can actually earn.
   - **#4 LP median is 0.19%, below the risk-free anchor**, with a 9× mean/median ratio; only 14.55% of
@@ -262,6 +266,47 @@ Edit a line if a new result contradicts it; never add a second.
   no price P&L of any kind is booked. The paper carry P&L is funding minus modelled costs and nothing else.
 - **Durability:** `data_checksums=on`, `fsync=on`, `full_page_writes=on`; **0 checksum failures for the cluster's
   whole life.** Corruption is not the risk; the single copy is.
+- **Candidate #2's first observed settlement (2026-08-28 08:00Z, 27 instruments): the basis is real and the
+  trade is not.** This is the first *receipt* for #2 — everything before it was a mark. Held to settlement, the
+  trade earns the quoted basis; the quoted basis is tiny and the round trip is not. At the widest horizon the
+  collector covers (**4.0 d** — see below), median |basis| **7.6 bps** and median signed basis **+3.2 bps**,
+  against a median **held-to-settlement** cost of **17.6 bps** (full spot spread + half the future spread, since
+  the future settles rather than being traded out) or **33.1 bps** on the full round trip. **Net is negative at
+  every horizon tested** (median −14.4 bps at 4 d, −7.4 to −11.6 bps at 24 h/12 h/6 h/1 h). **7 of 25 instruments
+  clear cost before fees; 5 at 1 bps/crossing, 2 at 2 bps, and 0 at 3 bps.** The 2.7–4.5% annualised figure was
+  not wrong, it was the wrong quantity: **annualising 3–8 bps over four days manufactures a percentage that the
+  spread eats several times over.**
+- **Every #2 survivor is BTC or ETH, and the median survivor clears the risk-free anchor by ~1 pp before fees.**
+  The 7 that cleared cost at 4 d were bybit/BTC (+3.77 pp over 2.25%), okx/BTC this_week (+4.39), gate/BTC
+  (+1.58), okx/BTC this_month (+0.94), okx/ETH this_week (+0.90) — and two that did *not* clear the anchor,
+  okx/ETH this_month (−0.43) and bybit/ETH (−1.49). **Median premium +0.94 pp, on nets of 0.8–7.3 bps** — smaller
+  than any realistic fee schedule. No alt survived on any venue.
+- **This is n=1 in time, not n=2 — the 2026-08-31 "second settlement" does not exist for executable purposes.**
+  The settlement calendar shows 08-28 and then **nothing broad until 09-04 08:00Z**; 08-29/30/31 and every day
+  between carry **only `deribit:day`, 2 instruments**, which by the venue's own quoting (index vs mark, and
+  `roundtrip_spread_bps` NULL on 100% of rows) is not executable. **The repeat that two settlements were supposed
+  to buy is not yet available.** It arrives at 09-04 08:00Z (24 instruments). Everything above therefore describes
+  one simultaneous event with the venues correlated inside it — **not 25 independent expiries, and not a
+  distribution.**
+- **Deribit is excluded from every #2 net figure, by construction and not by choice.** `spot_px_source=index`,
+  `future_px_source=mid`, `venue_basis_field=estimated_delivery_price`, and `roundtrip_spread_bps` NULL on
+  100% of its rows. Its 08-28 and 08-31 observations are recorded as unexecutable marks only: 08-31 BTC/ETH `day`
+  showed realised÷marked of 1.06/1.03 at 4 d, which is a well-behaved convergence and still not a tradeable number.
+- **The `annualized_pct` NULL below dte 0.5 d is NOT a hole in this analysis — the raw columns cover it.** In the
+  final 12 hours `annualized_pct` is 100% NULL (guard `MIN_DAYS_FOR_ANNUAL`), but `basis_bps`, `future_price` and
+  `spot_price` are **0% NULL**, and observations run to **2.3 minutes before expiry**. The realised figures above
+  are complete, not lower bounds. **Scoped fix, deliberately not made in this session:** the guard should return
+  the annualised figure with a `dte`-floor rather than NULL, or the column should be dropped in favour of
+  computing it at read time from `basis_bps` and `days_to_expiry`.
+- **DECLINE TO MEASURE — the #2-vs-#1 orthogonality test cannot be run in this window, because the funding side
+  has no signal.** Over 2026-08-24 → 08-28 the 15 shared coins' mean funding sits between −1.4e-05 and 6.6e-05,
+  with **14 of 15 inside [2e-05, 7e-05]** — at or beside the universal `5e-05` rest value. The cross-sectional
+  Spearman comes out at **−0.279 (Pearson −0.151, n=15)**, but that is correlation against a near-constant and is
+  **not evidence of orthogonality**. Whether #2 diversifies #1 is untestable until funding leaves its default —
+  which is the same regime dependence that binds G1.
+- **The measured round-trip costs differ from the figures carried forward, and the futures leg still dominates.**
+  On the 08-28 cohort: **okx 5.21 bps** (not 23.31), bybit 23.02, gate 19.04. The futures leg is **93–99%** of the
+  round trip (bybit 21.34/23.02, gate 18.37/19.04, okx 5.18/5.21), confirming the earlier 92–97% finding.
 - **Arbitrage is dead, proven** — mark-price sim 95% win / +22 bps vs honest executable 0.3% win / **−214 bps**
   over 875 trades. Taker crossing cost was the entire loss.
 - **8 of 30 ёрш candidates carried manufactured tape, and the selection rule found them by construction** — it
@@ -327,7 +372,7 @@ exactly that.
 | what | state | readable when |
 |---|---|---|
 | paper carry bot, **generation 18** (2026-09-04 06:06:13Z) | running, paper-mode intact; **first generation that books the basis leg** | continuously; G1 needs a second regime, not more days |
-| #2 dated basis (`mexc-basis`) | 5 venues, 136 instruments, 40 expiries | **narrow now**; broad multi-venue convergence **2026-08-28**; 4–6 cycles ≈ **2026-10-02**; first quarterly **2026-09-25** |
+| #2 dated basis (`mexc-basis`) | 5 venues, 136 instruments, 40 expiries; **08-28 settlement observed end to end (n=1)** | **next broad settlement 2026-09-04 08:00Z** (24 instruments: bybit, gate WEEKLY, okx) — the first available repeat; then **09-11**, first quarterly **09-25** |
 | #3 lending (`mexc-lending`) | 5 sources, 14 series, 2 assets | Aave mean to ±0.05pp ≈ **2026-09-12**; **CEX series are constants — no date** |
 | #4 stable LP (`mexc-lp`) | 13 chains, ~203 pools (116 clean) | first full Mon–Sun **2026-08-31**; 30-day mean ≈ **2026-09-23** |
 | database backup | **implemented, verified restorable, running nightly — still on the same disk** | — |
