@@ -3,7 +3,7 @@
 **This file is the plan. Everything else is appendix.** Edited in place, never appended to; history lives in git.
 If something here is stale, fix it here — do not write a new status document.
 
-Last updated: 2026-08-26 · Supersedes `CURRENT_STATUS.md`
+Last updated: 2026-09-04 · Supersedes `CURRENT_STATUS.md`
 
 ---
 
@@ -35,8 +35,17 @@ A question without a pre-committed consequence is a hobby. Each gate states what
 for each answer**, decided before the data arrives.
 
 ### G1 — Does the carry (perp funding) yield hold across regimes?
-- **Status:** open. ~130 epochs, one week, one regime. 11.4% net APR in the resting regime; 33–36% during a
-  funding wave.
+- **Status:** open, and **still one regime.** Measured over 8.9 continuous days (2026-08-26 06:30Z → 2026-09-04
+  03:40Z, generations 11–16, no gap in the bot's own receipts): **16.4% net APR** on the €1,000 fund after marking
+  the open book to the median observed exit cost — above the 10% line. But the window did **not** supply a second
+  regime: median funding across 1,190–1,203 names sat at exactly the `5e-05` default on every one of the 10 days,
+  55–64% of names at or below it, no trend; BTC 78.6k → 80.9k (+3.0%, range 77.2–80.9k). This is 9 more days of
+  the resting regime, so the gate's actual question is untouched.
+  Two things make the 16.4% fragile rather than reassuring: **57.5% of the income came from 3 names held
+  continuously for the whole window** (BTW, LYN, H) and 72.9% from the 4 still open — the rotating names
+  contributed 21.9%; and **the opportunity set thinned monotonically inside the window** — names passing all gates
+  9.8 → 4.7/day, top-ranked modelled APR 76% → 38%, with `payback` rejections rising 29 → 51 as `trail7`
+  rejections fell 104 → 80.
 - **Answered by:** accumulating settlements across generations for several more weeks. Gaps excluded; no unbroken
   window needed. **No repair shortens this.**
 - **≥ ~10% net APR persists →** proceed to G2. **Collapses to the resting state →** carry is a deposit with
@@ -69,6 +78,14 @@ for each answer**, decided before the data arrives.
   other** — the CEX framework never had to model this.
 - **Answered by:** a per-name weight cap (measure yield given up at 6.7% / 10% / 12.5%), then re-count the
   passing set **after** the mean→median fix, which is predicted to shrink it.
+- **Cap measured 2026-09-04, step 1 of 3 done, under the CURRENT (mean) estimator.** The cap never binds by
+  forcing money down the ranking — it binds by leaving capital idle, because the passing set is too small.
+  Mean deployable capital and net APR (idle held at the 2.25% risk-free anchor, APR-on-deployed 19.45%):
+  **6.7% cap → 14.9 names needed, 50.5% deployable, 10.9% net (−5.9pp) · 10% → 10.0 names, 75.0%, 15.2% (−1.6pp) ·
+  12.5% → 8.0 names, 87.0%, 17.2% (not binding) · uncapped today 84.3% deployed, 16.8%.** At the 6.7% line the
+  strategy is a **10.9% paper number against a 2.25% anchor**, before tax, off-ramp, and any basis P&L.
+  The book has never once been able to fill a 6.7% cap: **0% of 212 selection cycles had ≥15 passing names.**
+  Live weights today are 21.4 / 16.0 / 13.7 / 4.8 / 3.8% — largest name 3.2× the 6.7% line.
 - **Passing set below ~15 →** cannot be diversified enough to run, whatever the yield.
 
 ### G5 — What happens to live positions when the host dies?
@@ -100,14 +117,38 @@ Edit a line if a new result contradicts it; never add a second.
 - **Aave's high rate is the price of being locked in** — USDC sat at 12.54% for 23.1% of observations, and at
   those moments utilisation was **0.99975** (supply $2.031bn ≈ borrows $2.031bn). When utilisation fell to 92.4%
   the rate went to 3.71%. **The high rate and the inability to exit are the same variable.**
-- **Carry engine cost ÷ income: 239% → 27%** after the Phase-3b fixes; rebalances 491/day → 3 in 21.5h; 0 errors.
+- **Carry engine cost ÷ income is 87.9% on COMPLETE round trips, not 27%.** The 27% was measured over 21.5 h on
+  positions whose exit cost had not yet been booked; it was a partial-lifecycle number. On the 14 round trips that
+  opened *and* closed after the Phase-3b fixes: income $5.69, cost $5.00, net **+$0.69**. The engine fixes are real
+  (rebalances 491/day → 3; 0 errors) — the cost ratio was not.
+- **Carry has a break-even holding period of ~3.5 days**, and it is sharp. Round trips post-fix, by hold length:
+  **<2 d → cost 1665% of income (0/2 profitable) · 2–3.5 d → 133% (0/3) · 3.5–6 d → 47% (6/6) · >6 d → 43% (3/3)**.
+  Nothing held under 3.5 days has ever made money. **The R4 funding-flip exit and the entry payback gate are in
+  conflict:** entry requires the round trip to repay within `max_payback_days`, and R4 then exits at 2.6–3.3 days,
+  before it does. Every loss in the window came from that pair, not from the funding rate.
 
 **Risk**
 - **Instrument death** ~12.3%/yr batch-adjusted (MEXC 24.3% vs Gate 11.3%); LGD mean 7.56% / median 3.64% /
   **p95 66.5%**, the tail resting on one observation (VANRY).
 - **Death warning fails where it matters** — already-wide names give no advance signal (0.91× vs control).
-- **The modelled funding rate is 2× optimistic** — mean of a right-skewed series; **realised ≈ 50% of modelled**
-  (n=13, CI 0.34–0.83); median-14d is ~unbiased (0.93).
+- **The modelled funding rate is optimistic by ~15%, not by 2×.** Re-measured on 394 settlement receipts across
+  13 names over 8.9 days: **realised ÷ modelled median 0.85**, dollar-weighted 0.835, quartiles 0.55 / 0.85 / 1.06.
+  The earlier 0.50 (n=13 positions, CI 0.34–0.83) was the same statistic on a quarter of the data and is
+  superseded. **The bias does not drift with holding period** — pooled by day-since-open the ratio is flat and
+  noisy (0.65, 0.75, 0.64, 1.11, 0.93, 0.63, 0.83, 0.98, 1.63), so the defect is a fixed estimator bias and the
+  mean→median fix in `_modelled_rate` is still the right correction, worth ~15% rather than ~50%.
+  Per-name ratio is confounded by the exit rule, not by decay: the low ratios are all short holds
+  (IDOL 0.20 at 3 epochs, BTR 0.47 at 9) because R4 exits a name *when* its funding collapses. This is consistent
+  with, not a reversal of, the earlier rejection of post-selection decay.
+- **The R7 MEXC venue cap is not enforced on the standing book — only on the marginal allocation.** In
+  `selector.allocate()` the `mexc` counter resets to 0 each pass and `budget_mexc` is charged only against *new*
+  room, so positions already open never consume it. Measured drift over 9 days: MEXC share of deployed capital
+  **51.0% → 64.8 → 74.4 → 89.9 → 93.6%**, against a 40% cap. It matters because MEXC carries 24.3%/yr instrument
+  death vs Gate's 11.3%: the book concentrates into the venue with double the death rate, silently.
+- **`paper_pnl_usd` is an identity, so "it reconciles to the cent" proves nothing.** Residual of
+  `pnl − (realised − entry − exit − remediation)` is **exactly 0.00000000 across all 92 legs** — because that is
+  how it is computed. `close_price` is **NULL on every closed leg**: no spot/perp basis change is marked at exit,
+  no price P&L of any kind is booked. The paper carry P&L is funding minus modelled costs and nothing else.
 - **Durability:** `data_checksums=on`, `fsync=on`, `full_page_writes=on`; **0 checksum failures for the cluster's
   whole life.** Corruption is not the risk; the single copy is.
 - **Arbitrage is dead, proven** — mark-price sim 95% win / +22 bps vs honest executable 0.3% win / **−214 bps**
@@ -174,7 +215,7 @@ exactly that.
 
 | what | state | readable when |
 |---|---|---|
-| paper carry bot, **generation 11** (2026-08-26 06:29:55.328555Z, git 7719286) | running, paper-mode intact | continuously; G1 needs weeks |
+| paper carry bot, **generation 16** (2026-09-01 06:33:33.804106Z) | running, paper-mode intact | continuously; G1 needs a second regime, not more days |
 | #2 dated basis (`mexc-basis`) | 5 venues, 136 instruments, 40 expiries | **narrow now**; broad multi-venue convergence **2026-08-28**; 4–6 cycles ≈ **2026-10-02**; first quarterly **2026-09-25** |
 | #3 lending (`mexc-lending`) | 5 sources, 14 series, 2 assets | Aave mean to ±0.05pp ≈ **2026-09-12**; **CEX series are constants — no date** |
 | #4 stable LP (`mexc-lp`) | 13 chains, ~203 pools (116 clean) | first full Mon–Sun **2026-08-31**; 30-day mean ≈ **2026-09-23** |
@@ -186,9 +227,27 @@ only — no Docker, no nginx, no Railway.** Local PostgreSQL `trading_bot`, role
 **Live inventory:** 11 active units — backend, frontend, carry-collector, carry-depth, carry-paper,
 venue-funding, ersh-tape, ersh-l2, basis, lending, lp — plus 3 timers (2 backup, 1 diskwatch).
 `mexc-researcher` and `mexc-carry-tape` inactive and disabled, both by design.
-Row counts **as of 2026-08-26 18:40Z** (they only grow; the stamp is what makes them readable):
-`funding_basis_snapshots` 9,768,030 · `carry_book_l2` ~148.7M · `ersh_book_l2` 24,952,570 ·
-`tape_prints` 7,655,391 · `basis_snapshots` 97,668 · `lp_snapshots` 24,321 · `lending_snapshots` 7,722.
+Row counts **as of 2026-09-04 03:40Z** (they only grow; the stamp is what makes them readable):
+`funding_basis_snapshots` +3,135,054 since 2026-08-26 · `paper_carry_events` 559,839 lifetime.
+
+**Generations 11–16, and why there are six of them.** `apt-daily-upgrade` runs unattended each morning ~06:10–06:35
+UTC and its needrestart step **restarts every service on the box, PostgreSQL included** — so the bot loses its
+database, exits 1, and systemd restarts it. That is the whole explanation for gens 11→12 (2026-08-27 06:12) and
+12→13/14/15/16 (2026-09-01 06:29–06:33), and for `NRestarts=1` understating six generation boundaries. No reboot
+since 2026-08-26 06:27:48Z. **This is a G5 fact, not a curiosity: an automated job stops a running strategy weekly,
+at a time nobody is watching, and the machine has no UPS.** Longest clean generation is **gen 12, 5 d 00:17**.
+
+**Carry data coverage 2026-08-26 → 2026-09-04 (8.9 d).** `paper_carry_events`: **no gap over 15 min** after the
+08-26 outage — the bot's own receipts are continuous, so the window needs no sub-windowing.
+`funding_basis_snapshots` has two: the known 08-26 power loss (05:52→06:30, 38 min) and a **new one,
+2026-09-02 21:59→22:24 (25 min) — a WiFi/DNS outage, not a host or service failure** (`wlp3s0`, cloudflared could
+not resolve or reach its edge). **The server is on WiFi**; that is the second-largest single point of failure
+after the breaker.
+
+**Carry book today:** 5 names, $857 spot notional, $645 of $1,080 capital deployed (59.7%, down from 100% on
+08-26 as exited names could not be replaced). 9 closes in the window, **8 of them R4-funding-flip**, 1 R5-depth
+collapse; 6 opens. **Zero instrument deaths** — against an expectation of **0.05** at the measured 12.3%/yr base
+rate over 17 names × 9 days, so this observation carries no information about the death rate in either direction.
 
 **Blocking, two minutes of work:** the backup ships nowhere. On the Mac — Remote Login ON,
 `mkdir -p ~/mexc-backups`, append the `mexc-backup@trading-server` ed25519 key to `~/.ssh/authorized_keys`, then
