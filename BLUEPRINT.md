@@ -326,14 +326,17 @@ exactly that.
 
 | what | state | readable when |
 |---|---|---|
-| paper carry bot, **generation 17** (2026-09-04 05:53:14Z) | running, paper-mode intact; **first generation that books the basis leg** | continuously; G1 needs a second regime, not more days |
+| paper carry bot, **generation 18** (2026-09-04 06:06:13Z) | running, paper-mode intact; **first generation that books the basis leg** | continuously; G1 needs a second regime, not more days |
 | #2 dated basis (`mexc-basis`) | 5 venues, 136 instruments, 40 expiries | **narrow now**; broad multi-venue convergence **2026-08-28**; 4–6 cycles ≈ **2026-10-02**; first quarterly **2026-09-25** |
 | #3 lending (`mexc-lending`) | 5 sources, 14 series, 2 assets | Aave mean to ±0.05pp ≈ **2026-09-12**; **CEX series are constants — no date** |
 | #4 stable LP (`mexc-lp`) | 13 chains, ~203 pools (116 clean) | first full Mon–Sun **2026-08-31**; 30-day mean ≈ **2026-09-23** |
 | database backup | **implemented, verified restorable, running nightly — still on the same disk** | — |
 
 **A DELIBERATE BREAK IN THE RECEIPT SERIES, 2026-09-04.** The bot was stopped at **05:50:33Z** and restarted at
-**05:53:14Z** (generation 17) so the basis-leg migration and backfill did not run under a live writer. A
+**05:53:14Z** so the basis-leg migration and backfill did not run under a live writer; a second restart at
+**06:06:13Z** (generation 18) reconciled the running process with the committed tree, since one cosmetic change
+landed after the first. **The running unit's `WorkingDirectory` is `/home/vadym/mexc-trade-bot/researcher` — this
+tree, the only clone on the box — so what was committed is what is executing.** A
 pre-migration full dump was taken first — **8.01 GB in 289 s**, `/var/backups/mexc/full/trading_bot-20260904T054056Z.dump`,
 sha `ea99bf2351…`, TOC-verified, and **local-only**, since the Mac's Remote Login is still off. The 8.9-day window
 ends here. **The next analysis must not treat the series as continuous across this point**: before it,
