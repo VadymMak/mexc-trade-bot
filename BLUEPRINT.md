@@ -74,10 +74,12 @@ for each answer**, decided before the data arrives.
   - **#2 dated basis is the only one that does not rest at a default** — but its median quoted basis is
     **7.6 bps** against a median held-to-settlement cost of **17.6 bps**, and **0 of 25 instruments clear cost at
     a 3 bps/crossing fee**.
-  - **#3 lending rests at defaults, same signature as funding** — kucoin and okx supply rates have **one distinct
-    value in 611 observations**. Only 6 of 14 series are the supply side you can actually earn.
-  - **#4 LP median is 0.19%, below the risk-free anchor**, with a 9× mean/median ratio; only 14.55% of
-    observations clear 2.25%.
+  - **#3 lending: all six earnable series sit in a 3.35–3.65% band, and the comparison to a 2.25% EURO rate is a
+    currency mismatch.** Four of the six are constants. The one live rate (Aave) pays its tail only when the exit
+    is shut. See §3.
+  - **#4 LP: median raw fee yield is 0.055 bps/day**, against a gas break-even that needs **$122k–$2.4M** of
+    position depending on chain — and the adverse leg is **not measurable** from this collector at all. Per the
+    rule #2 taught us, the gross does not clear the cost, so nothing here gets annualised. See §3.
 - **Answered by:** the §4 yardstick, per the readable-on dates in §5.
 - **None clears the yardstick →** the answer to the project is "no yield here", reached on evidence.
 - **Priority follows the evidence: #2 first.**
@@ -266,6 +268,75 @@ Edit a line if a new result contradicts it; never add a second.
   no price P&L of any kind is booked. The paper carry P&L is funding minus modelled costs and nothing else.
 - **Durability:** `data_checksums=on`, `fsync=on`, `full_page_writes=on`; **0 checksum failures for the cluster's
   whole life.** Corruption is not the risk; the single copy is.
+- **#2 CONFIRMED on the repeat. The 2026-09-04 08:00Z settlement (22 executable instruments) reproduces the
+  08-28 result in sign, magnitude and composition.** Median net is negative at **every** horizon (−5.3 to
+  −11.1 bps vs −7.4 to −14.4 on 08-28); 6 of 22 clear cost at 4 d (7 of 25 before); and **every survivor is again
+  BTC or ETH** — bybit/BTC +5.8, bybit/ETH +4.2, okx/BTC +3.9, okx/ETH +3.2, gate/ETH +1.3, gate/BTC +1.3 bps.
+  No alt survived on either date. Costs were lower this cycle (median held-to-settlement 7.5 bps at 4 d vs 17.6),
+  and the sign still did not turn. **Two events is still one regime, but the effect was never marginal and it
+  replicated exactly. #2 is answered negative.**
+- **#3: only 6 of 14 lending series are earnable at all, and 4 of those 6 are constants.** Borrow rates are what
+  you pay, not what you earn. The supply side is: `aave-v3` USDC/USDT, `kucoin` USDC/USDT, `okx` USDC/USDT. Of
+  those, **kucoin has ONE distinct value in 3,201 observations per asset** (3.65% flat, 100% at the mode), okx has
+  **2 and 14** distinct values (3.50%, 70.6%/70.9% at the mode). Only Aave moves. **All six cluster in a
+  3.35–3.65% band**, and all are `term=flexible` — no lock-up, no notice period.
+- **#3's headline premium is a CURRENCY MISMATCH, and it is the same error #2 taught us in a new costume.**
+  Naively, 3.35–3.65% against the 2.25% euro anchor reads as **+1.10 to +1.40 pp**. But these are **USD**
+  rates and the yardstick is a **euro** rate. Hedged back to euro, covered interest parity makes the hedge cost
+  approximately (USD risk-free − EUR risk-free), so the premium that actually accrues is **the stablecoin rate's
+  spread over the USD risk-free rate**, not over the euro one. Unhedged, you are taking an EUR/USD position that
+  moves 1% in days against a 1.1 pp annual premium. **The USD risk-free rate is the one external number this
+  determination needs and it is not in the database.** If it sits at or above ~3.4%, every series here has a zero
+  or negative premium and the entire yield is compensation for Aave contract risk or CEX custodial risk.
+- **#3: Aave's apparent 5.19% is the utilisation kink, and the high rate and the closed exit are THE SAME
+  EVENT.** Time-weighted mean 5.187% against a median of 3.351% — the gap is **20.4% of observations sitting in a
+  recurring 01:00–05:00Z nightly window** at 99.6% utilisation paying ~12%. In that window **free liquidity
+  collapses from $188M to $0.89M, a 210× drop**, against $2.12bn borrowed. So the tail is not an opportunity that
+  rotates between names; it is the same pool, every night, paying an illiquidity premium precisely when a
+  supplier cannot withdraw. **The median, not the mean, is the honest estimate of what is safely earnable here** —
+  which is the opposite of the carry case, and for a stated reason: there the mean was wrong because the series
+  was skewed, here it is wrong because the tail is unreachable.
+- **#3 risks, named and not priced.** `aave-v3` USDC/USDT on **Ethereum mainnet** is **contract** exposure —
+  smart-contract, oracle and governance risk on Aave v3 — plus two mainnet transactions per round trip.
+  `kucoin` (lending-market) and `okx` (flexible-savings) are **custodial** counterparty exposure. Our
+  instrument-death work measured CEX perp delistings and **does not transfer to either**. Position cost is
+  unmeasured by this collector: gas is not recorded, nor are stablecoin withdrawal fees or the EUR on/off-ramp.
+- **#4: the cost is stated first, and the median pool never reaches it.** Raw fee yield across the 129-pool clean
+  set (`same_peg`, not yield-bearing, not wrapper, not TVL-implausible), 58,908 observations: **p10 0.000,
+  median 0.055, p90 0.904, p99 5.583 bps/day; TVL-weighted 0.230**. Minimum position for gas to fall below 10% of
+  *thirty days* of fees, at the median pool: **$122k at $2 gas, $304k at $5, $913k at $15, $2.43M at $40** — and
+  **83 of the 129 clean pools are on Ethereum**, the most expensive chain in the set. **The gross does not clear
+  the cost, so per the rule #2 taught us nothing here is annualised.**
+- **#4's fee yield is one side of a ledger, and the other side is NOT MEASURABLE from this collector.**
+  `lp_snapshots` stores APY, TVL and volume — **no pool price, no reserves, no reference price** — so divergence
+  loss cannot be computed, and neither can pool staleness against a reference. Our own maker work priced the
+  analogous leg on 661,177 real passive fills: **20.87 bps captured at fill, −1.29 bps kept 60 s later.** An LP is
+  a passive maker that *cannot cancel*, filled by whoever arrives, including the arbitrageur whose whole purpose
+  is to trade against a stale pool price. **A fee yield reported without that leg is exactly the half-a-trade
+  error that made carry look like 16.4%.**
+- **#4: the yield that exists is concentrated in the pools where the unmeasured risks live.** **75 of 132** clean
+  pools are concentrated-liquidity, and they carry **3.2× the yield of the full-range pools (0.097 vs 0.030
+  bps/day)** — but out-of-range means holding 100% of one leg, and **in-range time is unmeasurable without pool
+  prices**. Only **14 pools are the blue-chip USDC–USDT pair**; the rest pair long-tail issuers — ALUSD, FRXUSD,
+  APXUSD, PYUSD, GHO, USDE, FXUSD, REUSD, STRUSD, TRUSD, BOLD, USDG, JUPUSD, HYUSD, MUSD, AUSD, USDF — on
+  curve-dex, uniswap-v3/v4, fluid-dex, orca-dex, thalaswap and vvs-standard. **The depeg option is written on
+  those issuers specifically.** It is small by construction until the pair stops being stable, then large, and it
+  arrives correlated with everything else — orthogonal in normal conditions, correlated in the tail. **Pricing it
+  needs a depeg history per issuer (frequency, depth, recovery time) that this collector does not gather.**
+- **#4 weekend shape is visible but barely sampled:** weekend median **0.043** vs weekday **0.057** bps/day
+  (turnover 0.0345 vs 0.0540) — directionally right for a volume-paid strategy, but the window holds **one
+  weekend**, so it is a hint, not a seasonal.
+- **Both #3 and #4 collectors are honest, and the daily restart does NOT touch them.** `lending_snapshots`:
+  5-min cadence, 34,166 rows over 11.1 d, three gaps >15 min — startup (20 min), the 08-26 power loss (37 min),
+  the 09-02 WiFi outage (25 min). `lp_snapshots`: 30-min cadence, 107,373 rows, exactly **one** missed cycle
+  (09-02 WiFi, 60 min). **The ~06:10–06:35Z `apt-daily-upgrade` restart punched no holes in either** — 98 rows in
+  that window every day except 08-26. Unlike the carry bot, these two reconnect instead of exiting.
+  **Inputs sit beside outputs in both**: lending stores `raw_rate` + `raw_basis` (4 kinds) + `conversion_factor` +
+  `rate_field` next to the derived `annual_pct` (0% NULL on both); LP stores `tvl_usd`, `volume_usd_1d`,
+  `turnover_1d` next to `apy_base`, **and runs its own reconciliation** — `apy_base_vs_volume` agrees on 104
+  pools, flags **38 as `base_understated`** and 25 as no-volume. **Applying the #2 lesson: LP's 3.1% NULL
+  `apy_base` is a REAL hole, not a derived-column artefact** — 0.0% of it is recoverable from volume and TVL,
+  because those are NULL on the same rows. Pool set is stable, 201–212/day, no drift.
 - **Candidate #2's first observed settlement (2026-08-28 08:00Z, 27 instruments): the basis is real and the
   trade is not.** This is the first *receipt* for #2 — everything before it was a mark. Held to settlement, the
   trade earns the quoted basis; the quoted basis is tiny and the round trip is not. At the widest horizon the
@@ -372,9 +443,9 @@ exactly that.
 | what | state | readable when |
 |---|---|---|
 | paper carry bot, **generation 18** (2026-09-04 06:06:13Z) | running, paper-mode intact; **first generation that books the basis leg** | continuously; G1 needs a second regime, not more days |
-| #2 dated basis (`mexc-basis`) | 5 venues, 136 instruments, 40 expiries; **08-28 settlement observed end to end (n=1)** | **next broad settlement 2026-09-04 08:00Z** (24 instruments: bybit, gate WEEKLY, okx) — the first available repeat; then **09-11**, first quarterly **09-25** |
-| #3 lending (`mexc-lending`) | 5 sources, 14 series, 2 assets | Aave mean to ±0.05pp ≈ **2026-09-12**; **CEX series are constants — no date** |
-| #4 stable LP (`mexc-lp`) | 13 chains, ~203 pools (116 clean) | first full Mon–Sun **2026-08-31**; 30-day mean ≈ **2026-09-23** |
+| #2 dated basis (`mexc-basis`) | 5 venues; **08-28 AND 09-04 settlements both observed end to end** | **answered negative, and the repeat confirmed it** — next settlements 09-11 and quarterly 09-25 would add regimes, not change the sign |
+| #3 lending (`mexc-lending`) | 5 sources, 14 series, **6 earnable**, 2 assets; 11.1 d, 5-min cadence | **rates already readable** (SE ≤0.15pp on all six); what is NOT readable is regime persistence, and the **USD risk-free comparator is not collected at all** |
+| #4 stable LP (`mexc-lp`) | 16 chains, 201–212 pools/day (**129 clean**); 11.1 d, 30-min cadence, 1 weekend | fee side readable now and **below its own gas break-even**; the **adverse leg has no readable date — the collector stores no pool price** |
 | database backup | **implemented, verified restorable, running nightly — still on the same disk** | — |
 
 **A DELIBERATE BREAK IN THE RECEIPT SERIES, 2026-09-04.** The bot was stopped at **05:50:33Z** and restarted at
