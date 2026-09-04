@@ -103,20 +103,32 @@ class PaperExecutor:
             f"{market} {direction} ${usd:,.0f} @ {price:.6g} ({slip:.1f}bps slip)"
 
     async def close_carry(self, ex: str, sym: str, notional_usd: float
-                          ) -> tuple[float, str]:
-        """Returns (exit_cost_usd, note). Exit sells spot, covers perp."""
+                          ) -> tuple[float, str, float | None, float | None]:
+        """Returns (exit_cost_usd, note, spot_fill, perp_fill).
+
+        Exit sells spot (hits the bid) and covers perp (lifts the ask). The two
+        fill prices are returned so `close_price` can finally be populated —
+        it was NULL on every closed leg until 2026-09-04. They are recorded as
+        INPUTS ONLY: the basis P&L is struck mid-to-mid, because these fills
+        carry the exit spread that `exit_cost_usd` already charges.
+        """
         spot_bid = await self._books.latest_curve(ex, sym, "spot", "bid")
         perp_ask = await self._books.latest_curve(ex, sym, "perp", "ask")
         maker = self._cfg.maker_bps[ex]
         s = spot_bid.slip_bps(notional_usd) if spot_bid else None
         p = perp_ask.slip_bps(notional_usd) if perp_ask else None
+        sf = spot_bid.vwap_price(notional_usd, "bid") if spot_bid else None
+        pf = perp_ask.vwap_price(notional_usd, "ask") if perp_ask else None
         if s is None or p is None:
             # Exit into a book too thin to absorb us: charge the taker cost of
             # sweeping what is there. This is the honest pessimistic case.
             taker = self._cfg.taker_bps[ex]
             cost = notional_usd * ((self._cfg.max_rt_slip_bps + 2 * taker) / 1e4)
-            return cost, "exit book too thin — charged sweep cost"
-        return notional_usd * ((s + p + 2 * maker) / 1e4), "modelled maker exit"
+            return (cost, "exit book too thin — charged sweep cost",
+                    (spot_bid.touch if spot_bid else None),
+                    (perp_ask.touch if perp_ask else None))
+        return (notional_usd * ((s + p + 2 * maker) / 1e4),
+                "modelled maker exit", sf, pf)
 
 
 class LiveExecutor:

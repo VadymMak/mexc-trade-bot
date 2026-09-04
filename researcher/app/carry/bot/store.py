@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 
+from . import basis
+
 logger = logging.getLogger(__name__)
 
 _SCHEMA = """
@@ -51,6 +53,33 @@ ALTER TABLE paper_carry_positions
     ADD COLUMN IF NOT EXISTS margin_added_usd  DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS remediation_cost_usd DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS remediations      INTEGER;
+
+-- The BASIS LEG (2026-09-04). Until now `close_price` was NULL on every closed
+-- leg and the carry's second P&L component was never booked at all. INPUTS
+-- BESIDE OUTPUTS: the two marks, their sample counts, their timestamps and
+-- their provenance all sit next to the dollar figure they produce, so a future
+-- session can audit the number without re-deriving it. That rule would have
+-- caught the funding-interval bug two weeks earlier.
+ALTER TABLE paper_carry_positions
+    ADD COLUMN IF NOT EXISTS entry_basis_bps      DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS exit_basis_bps       DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS entry_basis_ts       TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS exit_basis_ts        TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS entry_basis_n        INTEGER,
+    ADD COLUMN IF NOT EXISTS exit_basis_n         INTEGER,
+    ADD COLUMN IF NOT EXISTS basis_mark_source    TEXT,
+    ADD COLUMN IF NOT EXISTS basis_pnl_usd        DOUBLE PRECISION DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS funding_only_pnl_usd DOUBLE PRECISION;
+
+-- The OLD series, preserved across the redefinition. Every row written before
+-- 2026-09-04 had paper_pnl_usd == funding-minus-costs by construction, so
+-- seeding funding_only_pnl_usd from it is exact, not an estimate. From here on
+-- paper_pnl_usd = funding_only_pnl_usd + basis_pnl_usd and the two series are
+-- comparable ACROSS the break rather than one silently changing meaning inside
+-- the window.
+UPDATE paper_carry_positions
+   SET funding_only_pnl_usd = paper_pnl_usd
+ WHERE funding_only_pnl_usd IS NULL;
 
 CREATE TABLE IF NOT EXISTS paper_carry_events (
     id        BIGSERIAL PRIMARY KEY,
@@ -110,18 +139,29 @@ class BotStore:
                        notional_usd: float, entry_price: float, leverage: float,
                        entry_cost_usd: float, interval_hours: float,
                        last_epoch: int, entry_depth_usd: float,
-                       depth_basis: str, notes: str) -> int:
+                       depth_basis: str, notes: str,
+                       entry_basis=None) -> int:
+        """`entry_basis` is a basis.BasisMark, stored on BOTH legs so either row
+        is self-describing. An unmarked entry stores NULL, never 0 bps: a
+        missing mark and a flat basis must stay distinguishable."""
+        eb = entry_basis if (entry_basis is not None and entry_basis.ok) else None
         row = await self._pool.fetchrow(
             """INSERT INTO paper_carry_positions
                  (run_id, group_id, exchange, symbol, leg, side, notional_usd,
                   entry_price, leverage, status, entry_cost_usd, interval_hours,
                   last_epoch, entry_depth_usd, depth_basis, notes,
-                  paper_pnl_usd)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,$13,$14,$15,$16)
+                  paper_pnl_usd, funding_only_pnl_usd,
+                  entry_basis_bps, entry_basis_ts, entry_basis_n,
+                  basis_mark_source)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,$13,$14,$15,
+                       $16,$16,$17,$18,$19,$20)
                RETURNING id""",
             self.run_id, group_id, ex, sym, leg, side, notional_usd, entry_price,
             leverage, entry_cost_usd, interval_hours, last_epoch, entry_depth_usd,
-            depth_basis, notes, -entry_cost_usd)
+            depth_basis, notes, -entry_cost_usd,
+            (eb.bps if eb else None), (eb.last_ts if eb else None),
+            (eb.n if eb else None),
+            (eb.source if entry_basis is not None else None))
         return row["id"]
 
     async def open_positions(self) -> list:
@@ -148,6 +188,10 @@ class BotStore:
                       sum(entry_cost_usd)                       AS entry_cost,
                       max(entry_price) FILTER (WHERE leg='spot') AS spot_entry,
                       max(entry_price) FILTER (WHERE leg='perp') AS perp_entry,
+                      sum(funding_only_pnl_usd)                 AS funding_only_pnl,
+                      sum(basis_pnl_usd)                        AS basis_pnl,
+                      max(entry_basis_bps)                      AS entry_basis_bps,
+                      max(basis_mark_source)                    AS basis_mark_source,
                       max(leverage)                             AS leverage
                FROM paper_carry_positions
                WHERE status='open' AND run_id=$1
@@ -162,6 +206,7 @@ class BotStore:
                SET realised_funding_usd = realised_funding_usd + $2,
                    modelled_funding_usd = modelled_funding_usd + $3,
                    paper_pnl_usd        = paper_pnl_usd + $2,
+                   funding_only_pnl_usd = funding_only_pnl_usd + $2,
                    last_epoch           = $4
                WHERE group_id=$1 AND leg='perp' AND status='open'""",
             group_id, realised_usd, modelled_usd, epoch)
@@ -170,15 +215,70 @@ class BotStore:
                WHERE group_id=$1 AND status='open'""", group_id, epoch)
 
     async def close_group(self, group_id: str, exit_cost_usd: float,
-                          reason: str) -> None:
+                          reason: str, exit_basis=None,
+                          spot_close_price: float | None = None,
+                          perp_close_price: float | None = None) -> dict:
+        """Close both legs and BOOK THE BASIS LEG. Returns the booked terms.
+
+        MID-TO-MID, COSTS SEPARATE (see basis.py). The basis term is struck
+        from mid marks that contain no spread, and `exit_cost_usd` is charged
+        once, on its own line. Booking `close_price - entry_price` here instead
+        would have charged the round-trip spread twice — the fills are struck
+        at the ask and the bid — and welded that double-count into the series
+        permanently. `tests/test_basis_booking.py` fails if it reappears.
+
+        The basis P&L lands on the SPOT leg (funding lands on the perp leg), so
+        the two components stay separable per row. The exposure is the SPOT
+        notional: after a neutrality rebalance the legs differ on purpose, and
+        the unmatched residual is directional risk, not basis.
+
+        `close_price` is finally populated on both legs. It is the executable
+        exit price, recorded as an INPUT beside the marks — and deliberately
+        NOT what the P&L is struck from.
+        """
+        xb = exit_basis if (exit_basis is not None and exit_basis.ok) else None
+        ent = await self._pool.fetchrow(
+            """SELECT max(entry_basis_bps)                        AS entry_bps,
+                      max(notional_usd) FILTER (WHERE leg='spot') AS spot_notional
+               FROM paper_carry_positions
+               WHERE group_id=$1 AND status='open'""", group_id)
+        entry_bps = float(ent["entry_bps"]) if ent and ent["entry_bps"] is not None else None
+        notional = float(ent["spot_notional"] or 0.0) if ent else 0.0
+        exit_bps = xb.bps if xb else None
+        # The SAME pure function the test exercises. A basis term computed one
+        # way in the engine and another way in the test proves nothing.
+        pnl_basis = basis.basis_pnl_usd(notional, entry_bps, exit_bps)
+
         await self._pool.execute(
             """UPDATE paper_carry_positions
                SET status='closed', closed_ts=now(),
-                   exit_cost_usd=$2,
-                   paper_pnl_usd = paper_pnl_usd - $2,
+                   exit_cost_usd  = $2,
+                   close_price    = CASE WHEN leg='spot' THEN $5 ELSE $6 END,
+                   exit_basis_bps = $4,
+                   exit_basis_ts  = $7,
+                   exit_basis_n   = $8,
+                   basis_mark_source = coalesce(basis_mark_source,'?') || ' -> ' || $9,
+                   -- $10 MUST be cast. Without it Postgres infers the
+                   -- parameter's type from the `0` literal in the ELSE arm,
+                   -- makes it INTEGER, and silently truncates every basis
+                   -- figure under a dollar to zero. The backfill's two-way
+                   -- reconciliation caught exactly that on 2026-09-04.
+                   basis_pnl_usd  = CASE WHEN leg='spot'
+                                         THEN $10::double precision ELSE 0 END,
+                   funding_only_pnl_usd = funding_only_pnl_usd - $2,
+                   paper_pnl_usd  = paper_pnl_usd - $2
+                                    + CASE WHEN leg='spot'
+                                           THEN $10::double precision ELSE 0 END,
                    notes = coalesce(notes,'') || ' | closed: ' || $3
                WHERE group_id=$1 AND status='open'""",
-            group_id, exit_cost_usd / 2.0, reason)
+            group_id, exit_cost_usd / 2.0, reason, exit_bps,
+            spot_close_price, perp_close_price,
+            (xb.last_ts if xb else None), (xb.n if xb else None),
+            (xb.source if exit_basis is not None else "unmarked"),
+            pnl_basis)
+        return {"basis_pnl_usd": pnl_basis, "entry_basis_bps": entry_bps,
+                "exit_basis_bps": exit_bps, "notional_usd": notional,
+                "marked": entry_bps is not None and exit_bps is not None}
 
     # ---- remediation (2026-08-23) -----------------------------------------
     # Every handler below CHANGES THE POSITION. Until now a fired rule only
@@ -194,6 +294,7 @@ class BotStore:
             """UPDATE paper_carry_positions
                SET notional_usd         = $2,
                    paper_pnl_usd        = paper_pnl_usd - $3,
+                   funding_only_pnl_usd = funding_only_pnl_usd - $3,
                    remediation_cost_usd = coalesce(remediation_cost_usd,0) + $3,
                    remediations         = coalesce(remediations,0) + 1
                WHERE group_id=$1 AND leg='perp' AND status='open'""",
@@ -222,6 +323,7 @@ class BotStore:
             """UPDATE paper_carry_positions
                SET notional_usd         = notional_usd * $2,
                    paper_pnl_usd        = paper_pnl_usd - $3,
+                   funding_only_pnl_usd = funding_only_pnl_usd - $3,
                    remediation_cost_usd = coalesce(remediation_cost_usd,0) + $3,
                    remediations         = coalesce(remediations,0) + 1,
                    leverage             = CASE WHEN leg='perp' THEN $4
@@ -278,6 +380,12 @@ class BotStore:
                       coalesce(sum(realised_funding_usd),0) AS realised,
                       coalesce(sum(modelled_funding_usd),0) AS modelled,
                       coalesce(sum(paper_pnl_usd),0)        AS pnl,
+                      coalesce(sum(funding_only_pnl_usd),0)  AS funding_only_pnl,
+                      coalesce(sum(basis_pnl_usd),0)         AS basis_pnl,
+                      count(*) FILTER (WHERE status='closed' AND leg='spot'
+                                       AND exit_basis_bps IS NOT NULL
+                                       AND entry_basis_bps IS NOT NULL) AS basis_marked,
+                      count(*) FILTER (WHERE status='closed' AND leg='spot') AS closed_spot,
                       min(opened_ts)                        AS first_open
                FROM paper_carry_positions WHERE run_id=$1""", self.run_id)
         return dict(row) if row else {}

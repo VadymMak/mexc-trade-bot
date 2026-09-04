@@ -137,19 +137,32 @@ class RiskManager:
                 neg_run += 1
             else:
                 break
-        apr7 = (sum(rates) / len(rates)) * (24.0 / iv_hours) * 365.0 * 100.0
+        mean_r = sum(rates) / len(rates)
+        apr7 = mean_r * (24.0 / iv_hours) * 365.0 * 100.0
         apr7_cap = apr7 / self._cfg.capital_multiple
+        # INTERVAL-AWARE FLOOR (2026-09-04). Compare like with like: the floor
+        # is one PER-EPOCH rate carried to this name's own interval, not one
+        # flat annual constant applied to an interval-annualised rate. See
+        # Config.hold_apr_floor for what the old form did to 8h names.
+        floor = self._cfg.hold_apr_floor(iv_hours)
         flip = neg_run >= self._cfg.flip_exit_epochs
-        weak = apr7_cap < self._cfg.min_hold_apr
+        weak = apr7_cap < floor
         fired = flip or weak
         why = ("negative %d epochs in a row" % neg_run if flip
-               else "trailing-7 APR %.1f%% on capital < %.1f%%" % (apr7_cap, self._cfg.min_hold_apr)
+               else "trailing-7 APR %.1f%% on capital < %.1f%% (%.0fh floor)"
+                    % (apr7_cap, floor, iv_hours)
                if weak else "healthy")
         return Verdict("R4-funding-flip", fired, "exit" if fired else "none",
-                       f"{why} (trailing-7 {apr7_cap:.1f}% on capital, "
+                       f"{why} (trailing-7 {apr7_cap:.1f}% on capital vs "
+                       f"{floor:.1f}% floor at {iv_hours:.0f}h, "
                        f"{neg_run} negative epochs)",
+                       # INPUTS BESIDE OUTPUTS: the per-epoch rate and the
+                       # per-epoch floor are what the rule actually compares.
                        {"apr7_on_capital": apr7_cap, "neg_run": neg_run,
-                        "rates": rates})
+                        "rates": rates, "iv_hours": iv_hours,
+                        "apr_floor_on_capital": floor,
+                        "mean_rate_per_epoch": mean_r,
+                        "floor_rate_per_epoch": self._cfg.min_hold_rate_per_epoch})
 
     # ---- R5 depth collapse ------------------------------------------------
     async def depth_collapse(self, ex: str, sym: str, notional_usd: float,

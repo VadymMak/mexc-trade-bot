@@ -30,11 +30,24 @@ SELECT count(*) AS n, avg(funding_rate) AS mean_r, stddev_pop(funding_rate) AS s
 FROM ep
 """
 
+# `basis_now` is the CURRENT basis — the median over a short trailing window,
+# not the lookback mean. THE MEAN AVERAGES AWAY EXACTLY THE CONDITION THE GATE
+# EXISTS TO DETECT: gate/POWER_USDT passed a 150 bps gate on a 14-day mean
+# while its basis had been sitting at -900...-1250 bps for the preceding hour,
+# and that one $27 position produced $3.24 of the window's $3.49 unbooked basis
+# loss (the other 13 positions came to -$0.04 +/- $0.52, indistinguishable from
+# zero). A short median rather than a point read because intraday basis SD on
+# these names is 9-59 bps: one observation is not a measurement.
 _QUOTE_SQL = """
 SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY perp_spread_bps) AS perp_spr,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY spot_spread_bps) AS spot_spr,
        avg(basis_bps)    AS basis_mean,
        stddev_pop(basis_bps) AS basis_sd,
+       percentile_cont(0.5) WITHIN GROUP (
+           ORDER BY basis_bps) FILTER (
+           WHERE ts > now() - ($4 || ' hours')::interval) AS basis_now,
+       count(*) FILTER (
+           WHERE ts > now() - ($4 || ' hours')::interval) AS n_now,
        max(ts)           AS last_ts,
        count(*)          AS n
 FROM funding_basis_snapshots
@@ -68,13 +81,15 @@ ORDER BY 1, 2
 
 class Candidate:
     __slots__ = ("ex", "sym", "iv", "gross_apr", "mean_r", "pos_pct", "n_epochs",
-                 "perp_spr", "spot_spr", "basis_mean", "basis_sd", "max_notional",
+                 "perp_spr", "spot_spr", "basis_mean", "basis_sd", "basis_now",
+                 "max_notional",
                  "slip_bps", "net_apr", "depth_usd", "depth_basis", "reject",
                  "apr7_cap", "apr3_cap", "neg_recent", "payback_days", "bar_apr")
 
     def __init__(self, ex, sym):
         self.ex, self.sym = ex, sym
         self.reject = None
+        self.basis_now = float("nan")
         self.net_apr = float("nan")
         self.max_notional = 0.0
         self.apr7_cap = self.apr3_cap = float("nan")
@@ -180,7 +195,11 @@ class Selector:
         # epoch must not be enough to buy its way back in.
         c.apr7_cap, c.apr3_cap, c.neg_recent = await self._trailing(ex, sym, iv)
         recent = (ex, sym) in self._recent_exits
-        c.bar_apr = cfg.reentry_apr if recent else cfg.min_hold_apr
+        # The SAME interval-aware floor R4 exits on. A bare annual constant
+        # here would re-open the TUT churn from the other side: entry and exit
+        # testing different metrics is the whole of that bug.
+        c.bar_apr = (cfg.reentry_apr_floor(iv) if recent
+                     else cfg.hold_apr_floor(iv))
         if not (c.apr7_cap == c.apr7_cap):            # NaN => no trailing data
             c.reject = "trail=no-epochs"
             return c
@@ -195,7 +214,8 @@ class Selector:
                 c.reject = f"neg-epochs={c.neg_recent}"
                 return c
 
-        q = await self._pool.fetchrow(_QUOTE_SQL, ex, sym, str(cfg.lookback_days))
+        q = await self._pool.fetchrow(_QUOTE_SQL, ex, sym, str(cfg.lookback_days),
+                                      str(cfg.basis_now_window_h))
         if not q or not q["n"]:
             c.reject = "no-spot-quotes"          # spot leg must exist
             return c
@@ -203,11 +223,27 @@ class Selector:
         c.spot_spr = float(q["spot_spr"] or 0.0)
         c.basis_mean = float(q["basis_mean"] or 0.0)
         c.basis_sd = float(q["basis_sd"] or 0.0)
+        c.basis_now = (float(q["basis_now"]) if q["basis_now"] is not None
+                       else float("nan"))
         if c.perp_spr + c.spot_spr > cfg.max_rt_spread_bps:
             c.reject = f"spread={c.perp_spr + c.spot_spr:.0f}bps"
             return c
-        if abs(c.basis_mean) > cfg.max_basis_bps:
-            c.reject = f"basis={c.basis_mean:.0f}bps"
+        # THE BINDING TEST IS THE CURRENT BASIS. We enter at today's basis, not
+        # at the fortnight's average of it, so that is what the guard must read.
+        # A name whose basis has blown out and STAYED out is precisely the case
+        # a mean hides, and it is the case that cost us money.
+        if not (c.basis_now == c.basis_now):        # NaN => no recent quote
+            c.reject = "basis-now=no-quote"
+            return c
+        if abs(c.basis_now) > cfg.max_basis_bps:
+            c.reject = f"basis-now={c.basis_now:.0f}bps"
+            return c
+        # The lookback mean is KEPT, as a secondary and strictly looser test: a
+        # name whose basis has been wild for a fortnight is not made safe by one
+        # calm hour. It earns its place by catching the opposite failure to the
+        # one above, and it can only ever reject in addition, never admit.
+        if abs(c.basis_mean) > cfg.max_basis_bps * cfg.basis_mean_mult:
+            c.reject = f"basis-mean={c.basis_mean:.0f}bps"
             return c
 
         # --- worst-hour depth: R6, the size cap ---------------------------

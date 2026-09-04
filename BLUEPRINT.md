@@ -35,12 +35,16 @@ A question without a pre-committed consequence is a hobby. Each gate states what
 for each answer**, decided before the data arrives.
 
 ### G1 — Does the carry (perp funding) yield hold across regimes?
-- **Status:** open. **The 16.4% net APR is WITHDRAWN — it measured one of the position's two P&L legs.** A carry
-  position earns funding *and* the change in the spot–perp basis; only the first is booked. Marked mid-to-mid, the
-  unbooked basis term over the window is **−$3.53 ± $1.38** against a booked net of **+$4.30** — it erases 82% of
-  the reported P&L and takes 16.4% down to **3.0% APR, with a 1-SE range of −2.3% to +8.2%.** The honest statement
-  is that the carry P&L **is not currently distinguishable from zero**, and no APR should be quoted until the basis
-  leg is booked at exit. What the window *can* still support is a conditional, in §3.
+- **Status:** open. **The basis leg is now BOOKED (2026-09-04) — the instrument is fixed, the answer is not.**
+  A carry position earns funding *and* the change in the spot–perp basis; until this date only the first existed
+  in the record (`close_price` was NULL on every closed leg). Both are now booked, mid-to-mid with execution cost
+  kept as its own line, and the 46 historical positions are backfilled and flagged. **The 16.4% net APR stays
+  WITHDRAWN.** Booked over the whole run: funding-only **−$2.2711**, basis **+$0.7459**, total **−$1.5251**. Over
+  the 14-position post-churn-fix window: funding-only **+$2.0981**, realised basis **−$0.2993**, total
+  **+$1.7988** — and the open book carries **−$2.26 unrealised**, of which **−$2.42 is gate/POWER_USDT alone**
+  while the other four net **+$0.16**. Marked to market the window is **−$0.46**. The honest statement is
+  unchanged: the carry P&L **is not distinguishable from zero**, and the reason is now measured rather than
+  suspected. What the window *can* still support is a conditional, in §3.
   The window did **not** supply a second
   regime: median funding across 1,190–1,203 names sat at exactly the `5e-05` default on every one of the 10 days,
   55–64% of names at or below it, no trend; BTC 78.6k → 80.9k (+3.0%, range 77.2–80.9k). This is 9 more days of
@@ -168,6 +172,62 @@ Edit a line if a new result contradicts it; never add a second.
   $3.49 is one $27 position** — `gate/POWER_USDT`, whose basis series went to −900…−1250 bps and stayed there.
   **So the term is immaterial on 13 of 14 positions and catastrophic on one, and the one is a data failure rather
   than a market move.** No carry APR is quotable until the basis leg is marked at exit.
+- **FIXED 2026-09-04 — the basis leg is booked, mid-to-mid, with costs as a separate line.** Convention chosen:
+  the basis term runs from the mid basis at entry to the mid basis at exit, and `entry_cost_usd`/`exit_cost_usd`
+  stay as the explicit charge for crossing the spread. Fill-to-fill was rejected because it hides execution
+  quality inside the basis term *and* because the fills already contain the round trip that the cost columns
+  charge again. Each mark is a **trailing 2 h median of the mid basis**, the same estimator at entry and exit and
+  the same one used for the backfill — one point read is not a measurement when intraday basis SD is 9–59 bps.
+  `close_price` is now populated on exit (as an INPUT beside the marks, never as what the P&L is struck from);
+  historical rows keep it NULL because the fills cannot be reconstructed. `paper_pnl_usd` is redefined as
+  `funding_only_pnl_usd + basis_pnl_usd`, with the old funding-only series preserved in its own column so the two
+  are comparable **across** the break. **Backfill: 46 positions, 41 of 41 closed positions fully marked.**
+  Verification is a genuine two-way reconciliation — the total derived from receipts plus marks against the total
+  in the redefined column — agreeing at **−$1.525133 vs −$1.525133 (1.8e-15)**, and `tests/test_basis_booking.py`
+  demonstrates the double-count check *can* fail by running the wrong implementation beside the right one: the gap
+  is exactly one round trip.
+- **The reconciliation earned its keep on its first run: it caught a silent truncation to zero.** The backfill's
+  `CASE WHEN leg='spot' THEN $9 ELSE 0 END` let Postgres infer the parameter's type from the `0` literal, make it
+  INTEGER, and truncate every sub-dollar basis figure to zero — and the *same* pattern was in the live
+  `close_group`. The first apply reported `basis $+0.0000` against a computed `+$0.7459`. **An identity check
+  would have passed.** Both sites now cast `::double precision`.
+- **THE DEFECT CLASS, not three unrelated bugs: a summary statistic standing in for the condition being tested.**
+  Four instances now. `_modelled_rate`'s mean of a skewed series (realised = 0.50 of model); `max_basis_bps`
+  against a 14-day mean; the reported-volume band that selected manufactured tape by construction; and R4's flat
+  annual floor below. Every one takes a distribution, replaces it with its centre, and then tests the centre for a
+  property only the tail has. **The rule: a guard must be evaluated against the quantity it names, at the moment
+  it acts.**
+- **FIXED 2026-09-04 — `max_basis_bps` now binds on the CURRENT basis.** The binding test is the median mid basis
+  over a trailing 2 h window; the 14-day mean is kept as a strictly looser secondary test (2× the gate) because it
+  catches the opposite failure — chronically wild basis, one calm hour — and can only ever reject in addition,
+  never admit. **Measured on the position that caused this:** at `gate/POWER_USDT`'s open on 2026-09-02 11:52Z the
+  14-day mean was **−132.6 bps** and passed the 150 bps gate, while the contemporaneous 2 h basis was
+  **−984.7 bps**. **POWER would now be rejected**, 6.6× outside the gate.
+- **FIXED 2026-09-04 — R4's exit floor is interval-aware, and so is the selector's entry gate (the FOURTH site).**
+  The floor is now one **per-epoch rate** (`5.479e-05`) anchored at a 4 h reference and carried to each name's own
+  interval, instead of one flat annual constant applied to an interval-annualised rate. Under the old form the
+  universal `5e-05` venue default — a rest value carrying no information about the name — sat at **91% of the
+  floor for a 4 h name but 46% for an 8 h name**; it now sits at **91.3% at every interval**, so the exit means the
+  same thing regardless of settlement schedule. **Floors: 4 h → 8.0% on capital (12.0% gross), unchanged, the
+  anchor; 8 h → 4.0% on capital (6.0% gross), halved.** **Admitted set on the live universe: 4 h 195 of 800
+  (unchanged), 8 h 31 → 281 of 397 (+250), 1 h 1 of 7 (unchanged); 227 → 477 names overall.** Split by venue on the
+  8 h names, which is the point: **Gate 22 → 157, MEXC 9 → 124** — Gate gains more because its 8 h book is larger
+  (217 vs 180), which is precisely the demand-side half of the venue drift. The **fourth site** was
+  `selector.evaluate`'s G1 trailing gate, which tested the same bare constants; it now reads the same
+  interval-aware floor, because entry and exit testing different metrics *is* the TUT churn bug. Grep found no
+  fifth: `min_net_apr` is a selection threshold on annual yield, where an annual unit is correct.
+- **RETRACTED — the adverse-exit hypothesis, and it was wrong in sign.** The reasoning was that a funding collapse
+  compresses the basis and that this hurts the position. For long spot / short perp, **basis compression is a
+  gain** — the short perp is bought back cheaper relative to spot. The measurement reversed it (Spearman −0.512;
+  R4 exits averaged **+5.9 bps**). **R4's defect is that it is EARLY, not that it is ADVERSE, and the two do not
+  compound.** Recorded so a future session does not re-derive it. The sign is now pinned by a test.
+- **Every risk control priced against this window costs more than the edge it protects — and that sentence is
+  misleading on its own, so the two halves must travel together.** Per-name weight cap at 6.7%: **−5.9 pp**, buys a
+  p95 death not being a portfolio event. R7 venue cap at 40%: **~−8 pp**, buys 0.5 pp expected and ~4.6 pp at p95
+  LGD. R4 funding-collapse exit: **$6.16 of $6.85** in-window. **The counter-argument:** this window holds zero
+  deaths and 2.5% negative-carry epochs, so it contains **none of the events these controls exist for**. Insurance
+  always looks overpriced in a year with no fire. **Neither half is safe to quote alone** — which is exactly why
+  G1 is the binding gate and cannot be closed inside one regime.
 - **A basis P&L reconstructed from the bot's own recorded entry prices is invalid — it double-counts the entry
   cost.** `executor.py:47-54` fills spot at the **ask** VWAP and perp at the **bid** VWAP, so the recorded entry
   basis is depressed by the full round-trip spread, which `entry_cost_usd` then books *again*. Measured:
@@ -266,11 +326,22 @@ exactly that.
 
 | what | state | readable when |
 |---|---|---|
-| paper carry bot, **generation 16** (2026-09-01 06:33:33.804106Z) | running, paper-mode intact | continuously; G1 needs a second regime, not more days |
+| paper carry bot, **generation 17** (2026-09-04 05:53:14Z) | running, paper-mode intact; **first generation that books the basis leg** | continuously; G1 needs a second regime, not more days |
 | #2 dated basis (`mexc-basis`) | 5 venues, 136 instruments, 40 expiries | **narrow now**; broad multi-venue convergence **2026-08-28**; 4–6 cycles ≈ **2026-10-02**; first quarterly **2026-09-25** |
 | #3 lending (`mexc-lending`) | 5 sources, 14 series, 2 assets | Aave mean to ±0.05pp ≈ **2026-09-12**; **CEX series are constants — no date** |
 | #4 stable LP (`mexc-lp`) | 13 chains, ~203 pools (116 clean) | first full Mon–Sun **2026-08-31**; 30-day mean ≈ **2026-09-23** |
 | database backup | **implemented, verified restorable, running nightly — still on the same disk** | — |
+
+**A DELIBERATE BREAK IN THE RECEIPT SERIES, 2026-09-04.** The bot was stopped at **05:50:33Z** and restarted at
+**05:53:14Z** (generation 17) so the basis-leg migration and backfill did not run under a live writer. A
+pre-migration full dump was taken first — **8.01 GB in 289 s**, `/var/backups/mexc/full/trading_bot-20260904T054056Z.dump`,
+sha `ea99bf2351…`, TOC-verified, and **local-only**, since the Mac's Remote Login is still off. The 8.9-day window
+ends here. **The next analysis must not treat the series as continuous across this point**: before it,
+`paper_pnl_usd` means funding-minus-costs; after it, funding-minus-costs *plus* the basis leg. The old series
+survives as `funding_only_pnl_usd`, which is what makes the two comparable rather than silently redefined. All 5
+open positions survived the restart intact and were re-evaluated on the first risk pass, and their entry marks are
+backfilled from `funding_basis_snapshots` and flagged `backfill-median2h`. This is the first window that will
+carry a booked basis leg from the start.
 
 **Topology:** home Ubuntu server `trading-server`, reached over Tailscale (100.112.227.114), **systemd
 only — no Docker, no nginx, no Railway.** Local PostgreSQL `trading_bot`, role `mexc`.

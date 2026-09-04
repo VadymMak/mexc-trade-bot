@@ -49,7 +49,21 @@ class CarryBotConfig:
     min_epochs: int = _i("CARRY_MIN_EPOCHS", 12)
     min_positive_frac: float = _f("CARRY_MIN_POS_FRAC", 0.80)
     max_rt_spread_bps: float = _f("CARRY_MAX_RT_SPREAD_BPS", 60.0)
+    # The BINDING basis test is on the CURRENT basis (median over the trailing
+    # `basis_now_window_h`), not on the lookback mean. A mean averages away
+    # exactly the condition this gate exists to detect.
     max_basis_bps: float = _f("CARRY_MAX_BASIS_BPS", 150.0)
+    basis_now_window_h: float = _f("CARRY_BASIS_NOW_WINDOW_H", 2.0)
+    # The lookback mean is retained as a SECONDARY, strictly looser test — it
+    # catches the opposite failure (chronically wild basis, one calm hour) and
+    # can only ever reject in addition to the current-basis test, never admit.
+    basis_mean_mult: float = _f("CARRY_BASIS_MEAN_MULT", 2.0)
+    # Trailing window for the BOOKED basis marks at entry and at exit. One
+    # point read is not a measurement here: intraday basis SD is 9-59 bps
+    # against moves of interest of 20-40 bps. Trailing rather than centred
+    # because at entry a live bot has no forward half, and the entry and exit
+    # marks must be the SAME estimator.
+    basis_mark_window_h: float = _f("CARRY_BASIS_MARK_WINDOW_H", 2.0)
     min_net_apr: float = _f("CARRY_MIN_NET_APR", 8.0)     # net-on-capital
     # Amortisation horizon. WAS 30 — a horizon we had never actually achieved,
     # which flattered every candidate's net APR. The observed median hold over
@@ -84,6 +98,12 @@ class CarryBotConfig:
     margin_topup_move_pct: float = _f("CARRY_MARGIN_TOPUP_PCT", 20.0)  # R3
     flip_exit_epochs: int = _i("CARRY_FLIP_EXIT_EPOCHS", 2)            # R4
     min_hold_apr: float = _f("CARRY_MIN_HOLD_APR", 8.0)                # R4
+    # R4's floor is ANCHORED at this settlement interval and carried to every
+    # other interval as a PER-EPOCH rate. See `hold_apr_floor`. 4 h is the
+    # anchor because it is the majority of the live universe (800 of 1,204
+    # resolved names on 2026-09-04), so the 4 h floor — and the set of names it
+    # admits — is unchanged by this fix. Only the 8 h names move.
+    funding_floor_ref_interval_h: float = _f("CARRY_FUNDING_FLOOR_REF_IV_H", 4.0)
     depth_collapse_ratio: float = _f("CARRY_DEPTH_COLLAPSE", 0.50)     # R5
     rebalance_delta_pct: float = _f("CARRY_REBALANCE_DELTA_PCT", 1.0)  # (c)
     # ---- neutrality hysteresis (2026-08-23, Phase 3b/3) -------------------
@@ -167,13 +187,58 @@ class CarryBotConfig:
         return self.capital_eur * self.eurusd
 
     @property
-    def reentry_apr(self) -> float:
-        """Re-entry bar on the trailing-7 APR, STRICTLY ABOVE the R4 exit floor.
+    def min_hold_rate_per_epoch(self) -> float:
+        """R4's exit floor as a PER-EPOCH funding rate.
 
-        The gap between min_hold_apr and this is the hysteresis band: inside it
-        a name is neither held nor re-opened, which is exactly the state that
-        stops the flip-flop.
+        This is the unit the data actually lives in, and it is deliberately
+        INTERVAL-INDEPENDENT: R4 asks "has this name stopped paying?", which is
+        a per-settlement condition. Whether the resulting annual yield is
+        attractive is a different question, and it belongs to the selector
+        (`min_net_apr`) at entry, not to the exit rule.
         """
+        eps_per_year = 365.0 * 24.0 / self.funding_floor_ref_interval_h
+        return (self.min_hold_apr / 100.0) * self.capital_multiple / eps_per_year
+
+    def hold_apr_floor(self, iv_hours: float) -> float:
+        """R4's exit floor for a name settling every `iv_hours`, as APR ON
+        CAPITAL so it is directly comparable with `apr7_cap`.
+
+        THE BUG THIS FIXES. The floor used to be one flat annual number applied
+        to an interval-annualised rate, so the SAME per-epoch rate landed on
+        opposite sides of it depending only on the settlement interval. The
+        universal venue default of 5e-05 — a rest value carrying no information
+        about the name, and 84% sticky once pinned — sits at 91% of the floor
+        for a 4 h name but only 46% of it for an 8 h name. So an 8 h name that
+        merely reverted to the default was exited BY CONSTRUCTION, with nothing
+        in the exit about the name. It forced 5 of 14 round trips in the first
+        window, every one of them Gate, and quietly ratcheted the book toward
+        MEXC's 4 h names without R7 ever being consulted.
+
+        This is the same root cause as the T54 interval bug that understated
+        795 of 1,197 symbols by 2x. That one was fixed in the SELECTOR and not
+        in the exit rule; both now read the same interval-aware floor, which
+        also keeps the TUT hysteresis intact (entry and exit must never test
+        different metrics).
+
+            4 h names ->  8.0% on capital (12.0% gross)   [unchanged, the anchor]
+            8 h names ->  4.0% on capital ( 6.0% gross)   [was 8.0% / 12.0%]
+        """
+        if not iv_hours or iv_hours <= 0:
+            return self.min_hold_apr
+        eps_per_year = 365.0 * 24.0 / iv_hours
+        return (self.min_hold_rate_per_epoch * eps_per_year * 100.0
+                / self.capital_multiple)
+
+    def reentry_apr_floor(self, iv_hours: float) -> float:
+        """The re-entry bar, STRICTLY ABOVE the R4 exit floor at the SAME
+        interval. The gap is the hysteresis band: inside it a name is neither
+        held nor re-opened, which is what stops the flip-flop."""
+        return self.hold_apr_floor(iv_hours) * self.reentry_apr_mult
+
+    @property
+    def reentry_apr(self) -> float:
+        """Re-entry bar at the ANCHOR interval. Prefer `reentry_apr_floor(iv)`;
+        this remains only for logging where no interval is in hand."""
         return self.min_hold_apr * self.reentry_apr_mult
 
     @property
@@ -192,6 +257,8 @@ class CarryBotConfig:
                 f"capital=EUR{self.capital_eur:,.0f} L={self.leverage:.1f}x "
                 f"mexc_cap={self.mexc_venue_cap:.0%} slip_cap={self.max_rt_slip_bps:.0f}bps "
                 f"min_apr={self.min_net_apr:.1f}% | exit<{self.min_hold_apr:.0f}% "
+                f"@{self.funding_floor_ref_interval_h:.0f}h anchor "
+                f"(8h:{self.hold_apr_floor(8.0):.0f}%) "
                 f"reenter>{self.reentry_apr:.0f}% cooldown={self.reentry_cooldown_hours:.0f}h "
                 f"payback<={self.max_payback_days:.1f}d H{self.hold_days} "
                 f"| neutrality {self.rebalance_delta_pct:.2f}% x"

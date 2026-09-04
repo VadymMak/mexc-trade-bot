@@ -33,6 +33,7 @@ from dotenv import load_dotenv
 from .book import BookSource, paired_mids
 from .config import CarryBotConfig
 from .executor import build_executor
+from . import basis as basis_mod
 from .intervals import IntervalResolver
 from .risk import NeutralityManager, RiskManager, Verdict
 from .selector import Selector
@@ -219,8 +220,8 @@ class CarryBot:
                 continue
 
             verdicts = []
-            verdicts.append(await self.risk.funding_flip(
-                ex, sym, float(g["interval_hours"] or 8.0)))
+            iv_h = float(g["interval_hours"] or 8.0)
+            verdicts.append(await self.risk.funding_flip(ex, sym, iv_h))
             verdicts.append(await self.risk.depth_collapse(
                 ex, sym, float(g["notional_usd"]), float(g["entry_depth_usd"] or 0.0)))
             if quote:
@@ -310,14 +311,34 @@ class CarryBot:
 
             exits = [v for v in verdicts if v.fired and v.action == "exit"]
             if exits:
-                cost, note = await self.exec.close_carry(
+                cost, note, spot_fill, perp_fill = await self.exec.close_carry(
                     ex, sym, float(g["notional_usd"]))
                 reason = "; ".join(v.rule for v in exits)
-                await self.store.close_group(g["group_id"], cost, reason)
+                # BOOK THE BASIS LEG. Mid-to-mid, from the same trailing-median
+                # estimator used at entry, so their difference measures the
+                # market and not the estimator.
+                xb = await basis_mod.mark(
+                    self.pool, ex, sym,
+                    window_h=self.cfg.basis_mark_window_h, source="live")
+                booked = await self.store.close_group(
+                    g["group_id"], cost, reason, exit_basis=xb,
+                    spot_close_price=spot_fill, perp_close_price=perp_fill)
+                bp = booked["basis_pnl_usd"]
+                bmsg = (f"basis {booked['entry_basis_bps']:+.1f} -> "
+                        f"{booked['exit_basis_bps']:+.1f}bps = ${bp:+,.4f}"
+                        if booked["marked"] else
+                        f"basis UNMARKED ({xb.source}) — no basis P&L booked")
                 await self.store.event(
                     "risk", "close",
-                    f"closed on {reason} — exit cost ${cost:,.2f} ({note})",
-                    ex, sym, {"exit_cost_usd": cost})
+                    f"closed on {reason} — exit cost ${cost:,.2f} ({note}); "
+                    f"{bmsg}",
+                    ex, sym, {"exit_cost_usd": cost, "basis_pnl_usd": bp,
+                              "entry_basis_bps": booked["entry_basis_bps"],
+                              "exit_basis_bps": booked["exit_basis_bps"],
+                              "basis_marks": xb.n,
+                              "basis_mark_source": xb.source,
+                              "spot_close_price": spot_fill,
+                              "perp_close_price": perp_fill})
                 # Exile it. Without this the selector re-admitted the name on
                 # the next pass (~65 min) and R4 exited it again ~62s later:
                 # 23 TUT round-trips in 48h for $8.26 of cost and $0.11 of
@@ -329,9 +350,13 @@ class CarryBot:
                     "risk", "close",
                     f"re-entry BLOCKED for {hours:.0f}h (exit #{exits_n}); "
                     f"after that it must hold trailing-7 AND trailing-3 "
-                    f">= {self.cfg.reentry_apr:.0f}% on capital with no negative "
-                    f"epochs (exit floor is {self.cfg.min_hold_apr:.0f}%)",
-                    ex, sym, {"cooldown_hours": hours, "exits": exits_n})
+                    f">= {self.cfg.reentry_apr_floor(iv_h):.1f}% on capital with "
+                    f"no negative epochs (exit floor is "
+                    f"{self.cfg.hold_apr_floor(iv_h):.1f}% at {iv_h:.0f}h)",
+                    ex, sym, {"cooldown_hours": hours, "exits": exits_n,
+                              "iv_hours": iv_h,
+                              "exit_floor": self.cfg.hold_apr_floor(iv_h),
+                              "reentry_floor": self.cfg.reentry_apr_floor(iv_h)})
 
     # ---- 2b. REMEDIATION HANDLERS -----------------------------------------
     # Each logs FIRED -> action -> RESULT with the metric before and after, so a
@@ -576,6 +601,10 @@ class CarryBot:
             iv = cand.iv
             epoch = IntervalResolver.epoch_index(
                 dt.datetime.now(dt.timezone.utc), iv)
+            # The entry mark, from the SAME estimator the exit will use.
+            eb = await basis_mod.mark(
+                self.pool, cand.ex, cand.sym,
+                window_h=self.cfg.basis_mark_window_h, source="live")
             note = (f"gross {cand.gross_apr:.1f}% iv {iv:.0f}h "
                     f"net {cand.net_apr:.1f}% slip {cand.slip_bps:.1f}bps "
                     f"trail7 {cand.apr7_cap:.1f}% payback {cand.payback_days:.1f}d "
@@ -586,7 +615,7 @@ class CarryBot:
                     res.group_id, cand.ex, cand.sym, leg, side, notional, price,
                     self.cfg.leverage if leg == "perp" else 1.0,
                     res.entry_cost_usd / 2.0, iv, epoch, cand.depth_usd,
-                    cand.depth_basis, note)
+                    cand.depth_basis, note, entry_basis=eb)
             await self.store.event(
                 "info", "open",
                 f"PAPER open ${notional:,.0f}/leg (capital ${capital:,.0f}) "
@@ -597,6 +626,8 @@ class CarryBot:
                 {"notional_usd": notional, "capital_usd": capital,
                  "net_apr": cand.net_apr, "gross_apr": cand.gross_apr,
                  "entry_cost_usd": res.entry_cost_usd,
+                 "entry_basis_bps": eb.bps, "basis_marks": eb.n,
+                 "basis_mark_source": eb.source, "basis_now_bps": cand.basis_now,
                  "depth_usd": cand.depth_usd, "depth_basis": cand.depth_basis})
 
     # ---- 5. report --------------------------------------------------------
