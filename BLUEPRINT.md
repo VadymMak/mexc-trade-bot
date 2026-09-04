@@ -35,9 +35,13 @@ A question without a pre-committed consequence is a hobby. Each gate states what
 for each answer**, decided before the data arrives.
 
 ### G1 — Does the carry (perp funding) yield hold across regimes?
-- **Status:** open, and **still one regime.** Measured over 8.9 continuous days (2026-08-26 06:30Z → 2026-09-04
-  03:40Z, generations 11–16, no gap in the bot's own receipts): **16.4% net APR** on the €1,000 fund after marking
-  the open book to the median observed exit cost — above the 10% line. But the window did **not** supply a second
+- **Status:** open. **The 16.4% net APR is WITHDRAWN — it measured one of the position's two P&L legs.** A carry
+  position earns funding *and* the change in the spot–perp basis; only the first is booked. Marked mid-to-mid, the
+  unbooked basis term over the window is **−$3.53 ± $1.38** against a booked net of **+$4.30** — it erases 82% of
+  the reported P&L and takes 16.4% down to **3.0% APR, with a 1-SE range of −2.3% to +8.2%.** The honest statement
+  is that the carry P&L **is not currently distinguishable from zero**, and no APR should be quoted until the basis
+  leg is booked at exit. What the window *can* still support is a conditional, in §3.
+  The window did **not** supply a second
   regime: median funding across 1,190–1,203 names sat at exactly the `5e-05` default on every one of the 10 days,
   55–64% of names at or below it, no trend; BTC 78.6k → 80.9k (+3.0%, range 77.2–80.9k). This is 9 more days of
   the resting regime, so the gate's actual question is untouched.
@@ -86,6 +90,17 @@ for each answer**, decided before the data arrives.
   strategy is a **10.9% paper number against a 2.25% anchor**, before tax, off-ramp, and any basis P&L.
   The book has never once been able to fill a 6.7% cap: **0% of 212 selection cycles had ≥15 passing names.**
   Live weights today are 21.4 / 16.0 / 13.7 / 4.8 / 3.8% — largest name 3.2× the 6.7% line.
+- **What the R7 venue cap is worth, measured 2026-09-04.** MEXC yielded **34.9% gross APR** against Gate's
+  **24.0%** and carried 80% of income on 73% of the capital-days. Enforcing 40% correctly, with Gate capacity as
+  observed, caps MEXC at (0.4/0.6)× Gate deployment: total deployment falls to **37.5%** of the fund and gross
+  income from **$7.02 to ~$2.80 (−61%)** — roughly **16.8% → ~8.5% net APR**. Against that, the cap moves blended
+  death from **23.5% to 16.5%/yr**, worth **0.5 pp/yr** at mean LGD (7.56%), 0.25 pp at median, and **~4.6 pp** at
+  the p95 LGD of 66.5%. **So R7 as specified costs ~8 pp to buy ~0.5 pp of expected value: it is tail insurance,
+  not an expected-value trade,** and you must believe the p95 tail to want it at this price.
+  **Sequencing consequence — fix R4's interval-awareness BEFORE R7, not after.** Gate capacity is low here only
+  because R4 is force-exiting Gate's 8 h names whenever funding returns to default (§3). Enforce R7 first and you
+  pay the full 8 pp for a shortage that the R4 fix would have removed. Both fixes belong in their own sessions;
+  the order is not interchangeable.
 - **Passing set below ~15 →** cannot be diversified enough to run, whatever the yield.
 
 ### G5 — What happens to live positions when the host dies?
@@ -145,6 +160,42 @@ Edit a line if a new result contradicts it; never add a second.
   room, so positions already open never consume it. Measured drift over 9 days: MEXC share of deployed capital
   **51.0% → 64.8 → 74.4 → 89.9 → 93.6%**, against a 40% cap. It matters because MEXC carries 24.3%/yr instrument
   death vs Gate's 11.3%: the book concentrates into the venue with double the death rate, silently.
+- **Only one of the carry position's two P&L legs is booked, and the missing one is the same size as the
+  answer.** Long spot + short perp earns funding *and* the change in the spot–perp basis between entry and exit;
+  `close_price` is NULL on every leg, so the second is never booked. Reconstructed mid-to-mid over the window:
+  **−$3.53 ± $1.38 against a booked net of +$4.30** — 82% of the reported P&L. On *completed* round trips the term
+  is **−$0.04 ± $0.52** (indistinguishable from zero); the whole of it sits in the open book, and **$3.24 of the
+  $3.49 is one $27 position** — `gate/POWER_USDT`, whose basis series went to −900…−1250 bps and stayed there.
+  **So the term is immaterial on 13 of 14 positions and catastrophic on one, and the one is a data failure rather
+  than a market move.** No carry APR is quotable until the basis leg is marked at exit.
+- **A basis P&L reconstructed from the bot's own recorded entry prices is invalid — it double-counts the entry
+  cost.** `executor.py:47-54` fills spot at the **ask** VWAP and perp at the **bid** VWAP, so the recorded entry
+  basis is depressed by the full round-trip spread, which `entry_cost_usd` then books *again*. Measured:
+  the recorded entry basis is below the contemporaneous mid basis in **14 of 14** positions, median **−23.5 bps**.
+  Naive reconstruction gives −$6.05; mid-to-mid gives +$0.27 ± $0.65. **Use mid-to-mid marks, never entry_price.**
+- **Point-in-time basis marks cannot measure a basis P&L on these names.** Intraday basis SD is 9–59 bps per name
+  against moves of interest of 20–40 bps; every one of the 14 measured moves falls within ±1.9 SD of its own noise.
+  A single observation at entry and exit is not a measurement — a ±2 h median is the minimum usable mark.
+- **The exit rule is NOT adverse on the basis leg — the hypothesis was backwards.** Funding and basis are the same
+  variable (leverage demand), so a funding collapse *compresses* the basis, which is a **gain** for long-spot /
+  short-perp. Spearman(funding drop, basis move) = **−0.512** (Pearson −0.549, n=14, p≈0.06): larger funding drops
+  came with more favourable basis moves. R4 exits (n=13) averaged **+5.9 bps**; the single R5-depth exit was
+  −37.8 bps. **Suggestive and correctly signed, but n=14 against a ±1.9 SD noise floor — a hypothesis, not a
+  finding.** R4's defect is that it is early (below), not that it is adverse.
+- **Reverting to the venue funding default *automatically* trips the R4 exit floor on 8 h-interval names.** The
+  universal `5e-05` default annualises to **10.95% at a 4 h interval but only 5.48% at 8 h**, against an R4 floor of
+  **8%**. So an 8 h name that merely returns to the default — the base case, since the median *is* the default and
+  pinning is 84% sticky — is exited by construction, with no information in the exit. **5 of 14 round trips were
+  forced this way, all of them Gate.** This is the demand-side half of the venue drift: R4 evicts Gate names on
+  schedule while MEXC's 4 h names sit above the floor, so the book ratchets toward MEXC without R7 ever being
+  consulted. **R4's floor must be interval-aware.**
+- **Holding longer beat the exit rule at every horizon tested, with no interior optimum.** Same receipts, R4's
+  funding-collapse exit suppressed below a minimum hold, P&L on the 14 completed round trips:
+  **actual 0.69 · 3.5 d 1.39 · 4 d 1.60 · 5 d 2.49 · 6 d 3.80 · 7 d 3.44 · 8 d 3.78 · 10 d 5.13 · 12 d 6.44 ·
+  14 d 6.85.** Monotone to the configured 14-day target, and **negative-carry epochs stay at 2.5%** (10 of 404).
+  Exposure lengthens 1.09× at 3.5 d, 1.38× at 6 d, 2.14× at 10 d. **This is not an overfit — it is a null result on
+  the parameter:** the window contains almost no negative funding and zero deaths, so it holds no instance of the
+  risk R4 exists to manage. It says R4 as configured destroyed value here; it cannot say what the floor should be.
 - **`paper_pnl_usd` is an identity, so "it reconciles to the cent" proves nothing.** Residual of
   `pnl − (realised − entry − exit − remediation)` is **exactly 0.00000000 across all 92 legs** — because that is
   how it is computed. `close_price` is **NULL on every closed leg**: no spot/perp basis change is marked at exit,
@@ -243,6 +294,21 @@ at a time nobody is watching, and the machine has no UPS.** Longest clean genera
 2026-09-02 21:59→22:24 (25 min) — a WiFi/DNS outage, not a host or service failure** (`wlp3s0`, cloudflared could
 not resolve or reach its edge). **The server is on WiFi**; that is the second-largest single point of failure
 after the breaker.
+
+**The carry headline, written as the conditional it actually is.** The window supports no level, only this:
+*carry earns roughly 20–35% gross APR on deployed capital in the resting regime **if** a position is held past the
+~3.5-day break-even, **and if** the unbooked spot–perp basis term is small.* **The first condition is currently
+prevented by R4; the second is unknown and is the larger of the two.** Everything downstream — the 87.9% cost
+ratio, the weight-cap table, the R7 valuation — is denominated in funding-only P&L and inherits that second
+unknown. **Booking the basis leg at exit is the single highest-value fix in the project**, because until it exists
+no carry number means anything; it is also cheap, since `close_price` is already a column and the marks already
+exist in `funding_basis_snapshots`.
+
+**The `max_basis_bps` gate cannot see a regime break.** It tests `abs(basis_mean) > 150 bps` on a *lookback mean*,
+so `gate/POWER_USDT` was opened on 2026-09-02 while its basis had been sitting at **−900…−1250 bps for the hour
+before entry** — the 14-day mean was still inside the gate. Same defect class as the funding estimator: a mean over
+a lookback, applied to a series that had just broken. That single position is now 92% of the window's unbooked
+basis mark.
 
 **Carry book today:** 5 names, $857 spot notional, $645 of $1,080 capital deployed (59.7%, down from 100% on
 08-26 as exited names could not be replaced). 9 closes in the window, **8 of them R4-funding-flip**, 1 R5-depth
