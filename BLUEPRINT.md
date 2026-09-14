@@ -998,6 +998,78 @@ is NOT changed — but the number it was priced against has moved.
 against crowded shorts. In a bull market the sign flips and the population inverts, so **none of the persistence
 structure above is known to transfer.**
 
+**THE TRAILING WINDOW: CALENDAR OR EPOCHS? BOTH — and the two sites that matter were already correct.**
+The hypothesis was that one calendar window ranks a 4 h name on 42 settlements and an 8 h name on 21, i.e. the
+T54 / R4 unit defect a third time. Measured in the code:
+
+| site | window | unit | obs for a 4 h name | obs for an 8 h name |
+|---|---|---|---|---|
+| `selector._TRAILING_SQL` (the trail7 entry gate) | `LIMIT 7` after epoch-bucketing | **EPOCHS** | 7 | 7 |
+| `risk.funding_flip` (R4's exit floor) | `LIMIT 7` after epoch-bucketing | **EPOCHS** | 7 | 7 |
+| `selector._FUNDING_SQL` (gross APR, `mean_r`, `sd_r` — the RANKING) | `lookback_days = 14` | **CALENDAR** | ~84 | ~42 |
+| `main._modelled_rate` (the modelled figure in realised ÷ modelled) | `lookback_days = 14` | **CALENDAR** | ~84 | ~42 |
+
+**So the 2026-09-04 interval fix reached the floors and stopped there.** The gate and the exit rule are
+epoch-based and give both intervals equal evidence — the defect is **not** present where it was predicted. The
+**estimator** behind the ranking and the modelled rate is calendar-based and does give 8 h names **half the
+observations**. That is the same unit inconsistency, at a **fifth site**, and it was missed because the fix was
+scoped to "floors".
+
+**THE WINNER'S-CURSE PREDICTION IS FALSIFIED — 8 h names are UNDER-represented at every stage.**
+
+| stage | 8 h share |
+|---|---|
+| eligible universe (153-name depth basket) | **23.2%** (35 of 151) |
+| names ever reaching a top-5 ranked list | **19.0%** (4 of 21) |
+| positions actually opened | **12.0%** (6 of 50) |
+
+The prediction was over-representation from noisier estimates. The opposite happens, monotonically. The likely
+cause is the **old flat R4 floor**, which exited 8 h names by construction whenever funding returned to the
+default and whose twin gated them at entry — most of these 50 positions predate the 2026-09-04 fix.
+
+**AND realised ÷ modelled CARRIES NO INTERVAL SIGNATURE: 4 h = 0.783, 8 h = 0.788** (dollar-weighted; 20 and 6
+position-groups). If the curse were driving the shortfall, the half-evidence 8 h names should be materially
+worse. They are identical to within 0.005. **So the curse is not detectable, and its absence is itself the
+evidence.** Set against prompt-85's level decay of **0.930**, the residual is the mean-of-a-right-skewed-series
+bias in `_modelled_rate`, which applies equally at both intervals — consistent with what is seen.
+**Level decay and the winner's curse cannot be separated by any other route here, because interval is the only
+observable that distinguishes their evidence counts, and it shows nothing. n=6 on the 8 h side: this is a
+low-power test and should be re-run when more 8 h round trips exist.**
+
+**DOES EACH NAME HAVE ITS OWN CLOCK? NO — one window fits every subgroup, and it is ~10 days, not 7.**
+Spearman(trailing-W, forward-7) across W, with the best W chosen on the **fit half (to 2026-08-31)** and
+evaluated on the **test half (2026-09-01 onward)**:
+
+| group | W=2 | W=3 | W=5 | W=7 | W=10 | W=14 | fit picks | test rho |
+|---|---|---|---|---|---|---|---|---|
+| ALL | 0.648 | 0.640 | 0.633 | 0.669 | **0.674** | 0.658 | W=10 | 0.666 |
+| 4 h names | 0.670 | 0.667 | 0.659 | 0.688 | 0.696 | **0.706** | W=10 | 0.698 |
+| 8 h names | 0.622 | 0.603 | 0.600 | **0.661** | 0.656 | 0.607 | W=10 | 0.634 |
+| gate | 0.631 | 0.625 | 0.615 | 0.640 | **0.645** | 0.633 | W=10 | 0.634 |
+| mexc | 0.662 | 0.652 | 0.647 | 0.693 | **0.702** | 0.682 | W=10 | 0.695 |
+
+**The fit half picks W=10 for every single group**, and W=10 is the test half's own best for ALL, 8 h, gate and
+mexc. **No observable — interval, venue — moves the optimum.** What differs between groups is how *predictable*
+they are (mexc 0.695 vs gate 0.634 at W=10), not what window to use. **The per-name-clock hypothesis is not
+supported, and the honest form of that is: timescales do not differ in any way we can predict, so a per-name
+window would be 153 fitted numbers buying nothing.**
+**W=10 also agrees independently with the 10.4-day half-life** measured from top-decile retention — two different
+routes to the same number.
+**But the response curve is FLAT: 0.633 to 0.674 across the whole range W=2..14, a spread of 0.041, and only
+0.005 separates W=7 from W=10.** The current settings (7 epochs at the gate, 14 calendar days at the ranking)
+both sit inside that flat region.
+
+**ONE LINE: the single trailing window is NEITHER a correctness defect nor a worthwhile tuning opportunity — the
+two sites that could have been wrong in units are already epoch-based, the estimator that is calendar-based shows
+no measurable consequence, and the optimum is flat enough that moving 7 to 10 buys 0.005 of Spearman.**
+**NOTHING CHANGED.**
+
+**CORRECTION TO PROMPT-85 §2, found by this addendum.** That section measured persistence over **7 CALENDAR
+days** while describing it as the selector's "trailing-7". The selector's trail7 **gate** is **7 epochs** (28 h
+for a 4 h name, not 7 days); what 7 calendar days actually approximates is the **ranking** input, whose real
+window is 14 calendar days. The persistence result stands as a statement about calendar windows — and the W-sweep
+above re-derives it across W=2..14 — but the label was wrong and the number was not measuring the gate.
+
 **Collector stall-detection sweep, 2026-09-14.** Six collectors (`basis`, `bybit`, `carry`, `lending`, `lp`,
 `venues`) already derive liveness from **successful writes** and escalate: soft-stall rebuilds the HTTP session,
 hard-stall exits for a clean systemd restart. **`carry-depth` logged stale-socket age and never escalated** — and
