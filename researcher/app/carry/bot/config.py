@@ -19,6 +19,11 @@ def _f(name: str, default: float) -> float:
     return float(os.getenv(name, str(default)))
 
 
+def _b(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    return default if v is None else v.strip().lower() in ("1", "true", "yes", "on")
+
+
 def _i(name: str, default: int) -> int:
     return int(os.getenv(name, str(default)))
 
@@ -173,6 +178,25 @@ class CarryBotConfig:
     # Thresholds for `liveness.evaluate`. The accrual limit is a MULTIPLE of the
     # shortest settlement interval in the open book, not a fixed clock, so a
     # missed epoch is loud by construction. See liveness.py for the post-mortem.
+    # ---- the UNPRICEABLE EXIT (2026-09-14) -------------------------------
+    # `executor.close_carry` returns (None, None) for the fills when it cannot
+    # find a book curve — i.e. when the name must be sold into a book too thin
+    # to price. That is not an edge case: it is the state every exit rule
+    # exists FOR. A delisting, a venue incident and a crash all arrive with a
+    # thin book attached.
+    #
+    # PAPER (default True): proceed. The position is closed, `exit_cost_usd` is
+    # the pessimistic sweep charge, `close_price` is written NULL because the
+    # fill is genuinely unknown, and the close is TAGGED so these exits can be
+    # segregated from the exit-cost statistics rather than silently averaged in.
+    #
+    # LIVE: this is a decision nobody has made yet, and it is a G5 decision, not
+    # a code detail. Setting it False makes the bot refuse to close blind and
+    # escalate instead — the position stays open, loudly, and a human decides.
+    # Guessing a fill you cannot observe is exactly what must not happen with
+    # money on the table, so live must set this deliberately either way.
+    allow_unpriced_exit: bool = _b("CARRY_ALLOW_UNPRICED_EXIT", True)
+
     accrual_grace_mult: float = _f("CARRY_ACCRUAL_GRACE_MULT", 1.25)
     select_stall_mult: float = _f("CARRY_SELECT_STALL_MULT", 3.0)
     fail_escalate: int = _i("CARRY_FAIL_ESCALATE", 3)

@@ -41,6 +41,21 @@ logger = logging.getLogger("carry-depth")
 
 _STATS_INTERVAL = 30.0
 
+# ---- stall escalation (2026-09-14) ---------------------------------------
+# This collector feeds `executor.close_carry`'s book curves. When it goes quiet
+# the bot cannot price an exit — which is how a dead socket here becomes an
+# UNPRICEABLE EXIT there, in exactly the circumstances an exit matters. Until
+# now a stale socket was logged as a WARNING and nothing ever escalated, which
+# is the same "loud enough to see, never loud enough to act" failure the carry
+# bot had. Six sibling collectors already exit for a clean systemd restart on a
+# hard stall; this one now matches them.
+_STALL_SOFT_SECS = float(os.getenv("CARRY_L2_STALL_SOFT_SECS", 300.0))
+_STALL_HARD_SECS = float(os.getenv("CARRY_L2_STALL_HARD_SECS", 900.0))
+
+
+class L2Stalled(RuntimeError):
+    """No perp socket has produced a message for _STALL_HARD_SECS."""
+
 
 async def _load_multipliers() -> dict:
     """Contract multipliers for the perp legs, via the existing spec cache.
@@ -118,6 +133,30 @@ async def main() -> None:
                         max((a for _, a in ages), default=0.0))
             if stale:
                 logger.warning("[carry/l2] STALE perp sockets: %s", ", ".join(stale))
+
+            # Escalate on the WORK, not on the process being up: the freshest
+            # perp socket is the youngest message across all of them. If even
+            # that is old, every curve this collector serves is stale and the
+            # bot downstream will start failing to price exits.
+            freshest = min((a for _, a in ages if a >= 0), default=1e9)
+            if freshest > _STALL_HARD_SECS:
+                logger.error(
+                    "[carry/l2] HARD STALL: no perp message on ANY socket for "
+                    "%.0fs (limit %.0fs) — EXITING for a clean systemd restart. "
+                    "Downstream effect: close_carry cannot price an exit.",
+                    freshest, _STALL_HARD_SECS)
+                stop.set()
+                raise L2Stalled(f"no perp message for {freshest:.0f}s")
+            elif freshest > _STALL_SOFT_SECS:
+                # Deliberately a warning and nothing more: each socket already
+                # reconnects itself inside `_run`, and there is no verified
+                # forced-reconnect entry point to call from here. Inventing one
+                # would be a second unverified path in a file whose whole
+                # problem was an unverified assumption about socket health.
+                logger.error(
+                    "[carry/l2] SOFT STALL: freshest perp socket %.0fs old "
+                    "(limit %.0fs) — self-reconnect expected; hard stall at %.0fs",
+                    freshest, _STALL_SOFT_SECS, _STALL_HARD_SECS)
 
     st = asyncio.create_task(stats())
     await stop.wait()

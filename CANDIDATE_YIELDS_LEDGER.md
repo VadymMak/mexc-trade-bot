@@ -229,7 +229,22 @@ book marked to market:
 | **95% CI, bootstrap over days** (n=10, capital-day weighted, B=50k) | **[+15.83%, +32.10%]** |
 | **95% CI, bootstrap over positions** (n=7) | **[+11.01%, +37.99%]** |
 | **comparator** | **SOFR 3.60%**, USD, mid-September 2026 |
-| **verdict** | **the interval EXCLUDES the rate — premium +20.3 pp at the point, +12.2 pp at the lower bound** |
+| **verdict** | **WITHDRAWN 2026-09-14 — see below. The interval excluded the rate, but the book was not the one the strategy chose** |
+
+**WITHDRAWN THE NEXT DAY, and the threshold is unchanged.** The exit path had been broken since 2026-09-04:
+`close_group` passed two untyped SQL parameters, so **every** attempted close raised, and R4's **2,595** exit
+requests in the window were all denied. The measured book is therefore the chosen book **plus every position the
+strategy tried to sell and could not** — 55+ hours of it, 23% of the window. The arithmetic was right and
+described the wrong thing, for the second time (16.4% was the first). **The standard is not moved:** the
+both-legs net must have a confidence interval excluding the USD risk-free rate. It must now be measured on a
+window in which exits execute, which begins **2026-09-14 07:46:41Z**.
+
+**The first honest exit datum, n=1.** `gate/INX_USDT` closed 07:47:34Z, 53 s after the fix was deployed — the
+first completed round trip since 2026-09-02 and the first with both basis marks recorded live. Held 5.95 d on
+$173.94: funding **+$1.0819**, entry **−$0.3754**, exit **−$0.1467**, basis **+$0.1491**, **net +$0.7089
+(+16.7% annualised)**. **Actual exit cost 8.43 bps against a 17.57 bps provision — conservative by 2.1×**, the
+first evidence the provision *overstates* rather than understates. **Cost ÷ income 48.2%**, against 246% over all
+41 pre-fix round trips. One observation; it is not an average and must not be used as one.
 
 Excluding the best single position (BTW) gives **+18.09%**; excluding the worst (GUA) **+27.88%**; excluding both
 **+22.14%**. Unlike the previous window, where POWER alone decided the sign, **no single name decides this one.**

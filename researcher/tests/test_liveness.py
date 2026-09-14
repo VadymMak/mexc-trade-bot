@@ -145,6 +145,43 @@ def test_replay_of_the_2026_09_10_stall():
           verdict().severity == liveness.OK)
 
 
+def test_would_have_fired_on_2026_09_05():
+    """The episode the first post-mortem mis-attributed to normal cadence.
+
+    Measured from the receipts: accrual silent 04:00:44Z -> 10:17:37Z (6.28 h)
+    and again 12:01:11Z -> 15:38:44Z (3.63 h); 374 `cycle failed` lines that
+    day. The book then was 5 positions, shortest settlement interval 4 h, so
+    the accrual limit is 5 h. Both sub-episodes must fire, and the second one
+    must fire on the SELECTION and FAILURE arms even though it is under the
+    accrual limit — otherwise a 3.6 h hole stays invisible.
+    """
+    book5 = dict(open_positions=5, min_interval_h=4.0, select_every_min=60.0)
+
+    first = liveness.evaluate(**book5, accrual_age_s=6.28 * H,
+                              select_age_s=6.28 * H, consecutive_failures=200)
+    check("09-05 first hole (6.28h) FIRES", first.severity == liveness.STALLED,
+          first.detail)
+    check("09-05 first hole names the missed epoch",
+          "epoch(s) missed" in first.detail)
+
+    # The shorter hole: 3.63 h is UNDER the 5 h accrual limit, so the accrual
+    # arm alone would miss it. Selection (3x60min=180min) and the failure
+    # counter must carry it.
+    second = liveness.evaluate(**book5, accrual_age_s=3.63 * H,
+                               select_age_s=3.63 * H, consecutive_failures=150)
+    check("09-05 second hole (3.63h) FIRES despite being under the accrual limit",
+          second.severity == liveness.STALLED, second.detail)
+    check("09-05 second hole fires on selection, not accrual",
+          "selection pass" in second.detail and "epoch(s) missed" not in second.detail,
+          second.detail)
+
+    # And the earliest possible detection: 3 consecutive failures is ~3 min in.
+    early = liveness.evaluate(**book5, accrual_age_s=180.0, select_age_s=180.0,
+                              consecutive_failures=3)
+    check("09-05 would have been caught ~3 minutes in, not 6 hours",
+          early.severity == liveness.STALLED, early.detail)
+
+
 def test_seeding_does_not_hide_a_stall_across_a_restart():
     now = [1000.0]
     marks = liveness.LivenessMarks(lambda: now[0])
@@ -175,6 +212,12 @@ async def test_close_group_untyped_param_is_detectable():
         print("  SKIP  database checks (asyncpg unavailable)")
         return
     dsn = os.getenv("CARRY_DSN") or os.getenv("NEON_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not dsn:
+        import re as _re
+        env = os.path.join(os.path.dirname(__file__), "..", ".env")
+        if os.path.exists(env):
+            m = _re.search(r"^NEON_DATABASE_URL=(.*)$", open(env).read(), _re.M)
+            dsn = m.group(1).strip() if m else None
     if not dsn:
         print("  SKIP  database checks (no CARRY_DSN/NEON_DATABASE_URL)")
         return
@@ -222,6 +265,7 @@ def main() -> int:
               test_empty_book_is_not_a_stall,
               test_never_accrued_with_an_open_book_fires,
               test_replay_of_the_2026_09_10_stall,
+              test_would_have_fired_on_2026_09_05,
               test_seeding_does_not_hide_a_stall_across_a_restart):
         print(f"\n{t.__name__}")
         t()

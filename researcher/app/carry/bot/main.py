@@ -77,6 +77,7 @@ class CarryBot:
         # a real stall to zero. See liveness.py.
         self.marks = liveness_mod.LivenessMarks(_t.monotonic)
         self._liveness_fired = False
+        self.unpriced_exits = 0
 
     async def setup(self) -> None:
         await self.store.ensure_schema()
@@ -92,7 +93,7 @@ class CarryBot:
     async def seed_liveness(self) -> None:
         """Seed the marks from the database so a restart during a real stall
         does not present as a healthy strategy with a fresh clock."""
-        row = await self.pool.fetchrow(liveness_mod.SEED_SQL, self.run_id)
+        row = await self.pool.fetchrow(liveness_mod.SEED_SQL, self.store.run_id)
         if not row:
             return
         now = dt.datetime.now(dt.timezone.utc)
@@ -107,7 +108,7 @@ class CarryBot:
         """Evaluate the strategy's own artefacts. Called at the TOP of every
         tick, BEFORE any work, so it still runs on a tick whose body raises —
         which is the entire failure mode it exists to catch."""
-        row = await self.pool.fetchrow(liveness_mod.SEED_SQL, self.run_id)
+        row = await self.pool.fetchrow(liveness_mod.SEED_SQL, self.store.run_id)
         open_legs = int(row["open_legs"] or 0) if row else 0
         min_iv = float(row["min_interval_h"]) if (row and row["min_interval_h"]) else None
         v = liveness_mod.evaluate(
@@ -367,6 +368,38 @@ class CarryBot:
                 cost, note, spot_fill, perp_fill = await self.exec.close_carry(
                     ex, sym, float(g["notional_usd"]))
                 reason = "; ".join(v.rule for v in exits)
+
+                # ---- THE UNPRICEABLE EXIT -------------------------------
+                # No book curve => no fill price. This is the state the exit
+                # rule EXISTS FOR, not an anomaly, so it gets a NAME, a
+                # COUNTER and an EVENT rather than a NULL that disappears into
+                # an average. Until 2026-09-14 it was an exception, and the
+                # exception was retried silently 2,554 times.
+                priced = spot_fill is not None and perp_fill is not None
+                if not priced:
+                    self.unpriced_exits += 1
+                    await self.store.event(
+                        "risk", "exit_unpriced",
+                        f"UNPRICEABLE EXIT on {reason}: no book curve, so no "
+                        f"fill price. {note}. "
+                        + (f"Closing at the modelled sweep cost ${cost:,.4f}; "
+                           "close_price stays NULL and the close is tagged "
+                           "UNPRICED."
+                           if self.cfg.allow_unpriced_exit else
+                           "REFUSING to close blind (allow_unpriced_exit=0) — "
+                           "the position stays OPEN and is escalated."),
+                        ex, sym,
+                        {"exit_cost_usd": cost, "note": note,
+                         "spot_fill": spot_fill, "perp_fill": perp_fill,
+                         "allowed": self.cfg.allow_unpriced_exit,
+                         "unpriced_exits_total": self.unpriced_exits})
+                    if not self.cfg.allow_unpriced_exit:
+                        # Leave it open, loudly. A blind exit is a guess at a
+                        # price nobody observed; with capital at risk that is a
+                        # human's call, not a default.
+                        continue
+                    reason += " [UNPRICED]"
+
                 # BOOK THE BASIS LEG. Mid-to-mid, from the same trailing-median
                 # estimator used at entry, so their difference measures the
                 # market and not the estimator.
