@@ -796,10 +796,13 @@ owes — but it now governs a case that has never fired, so it is not urgent.**
 **Collector stall-detection sweep, 2026-09-14.** Six collectors (`basis`, `bybit`, `carry`, `lending`, `lp`,
 `venues`) already derive liveness from **successful writes** and escalate: soft-stall rebuilds the HTTP session,
 hard-stall exits for a clean systemd restart. **`carry-depth` logged stale-socket age and never escalated** — and
-that is the collector whose silence *causes* the unpriceable exit downstream, because `close_carry` reads its
-curves. It now hard-stalls and exits when the **freshest** perp socket exceeds 900 s (soft warning at 300 s; no
-forced reconnect, because each socket already self-reconnects and inventing a second unverified path in that file
-is how it got into trouble the first time). **`ersh-tape` and `ersh-l2` have no stall detection at all — recorded
+that is the collector whose silence makes `close_carry` price an exit against a stale book. It now hard-stalls and
+exits when the **freshest** perp socket exceeds 900 s (soft warning at 300 s; no forced reconnect, because each
+socket already self-reconnects and inventing a second unverified path in that file is how it got into trouble the
+first time) — **and, after the 2026-09-14 measurement below, when the spot sweep exceeds 2700 s on its own looser
+clock, which is the side that actually stalls.** The original claim that this collector's silence *causes* an
+unpriceable exit is withdrawn: it causes a STALE curve, never a missing one, because `latest_curve` has no age
+bound. **`ersh-tape` and `ersh-l2` have no stall detection at all — recorded
 and left, the ёрш line is closed.**
 
 **Standing watch:** the listing-obligation hypothesis is **untested, not refuted** — the earlier "refuted" call
