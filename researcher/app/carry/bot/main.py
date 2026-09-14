@@ -24,6 +24,7 @@ import logging
 import os
 import signal
 import sys
+import time as _t
 import uuid
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from .book import BookSource, paired_mids
 from .config import CarryBotConfig
 from .executor import build_executor
 from . import basis as basis_mod
+from . import liveness as liveness_mod
 from .intervals import IntervalResolver
 from .risk import NeutralityManager, RiskManager, Verdict
 from .selector import Selector
@@ -69,6 +71,13 @@ class CarryBot:
         # three cycles are often three views of one observation.
         self._neutrality_breaches: dict[str, tuple[int, str]] = {}
 
+        # Liveness stamped by the strategy's own output. Monotonic and
+        # in-process so a database hiccup cannot make a dead strategy look
+        # alive; seeded from the database in `setup` so a restart cannot reset
+        # a real stall to zero. See liveness.py.
+        self.marks = liveness_mod.LivenessMarks(_t.monotonic)
+        self._liveness_fired = False
+
     async def setup(self) -> None:
         await self.store.ensure_schema()
         await self.intervals.ensure_schema()
@@ -80,6 +89,50 @@ class CarryBot:
             f"places_real_orders={self.exec.places_real_orders}")
 
     # ---- 1. health (PER EXCHANGE) -----------------------------------------
+    async def seed_liveness(self) -> None:
+        """Seed the marks from the database so a restart during a real stall
+        does not present as a healthy strategy with a fresh clock."""
+        row = await self.pool.fetchrow(liveness_mod.SEED_SQL, self.run_id)
+        if not row:
+            return
+        now = dt.datetime.now(dt.timezone.utc)
+        def age(ts):
+            return None if ts is None else max(0.0, (now - ts).total_seconds())
+        self.marks.seed(age(row["last_accrual"]), age(row["last_select"]))
+        logger.info("[carry/bot][liveness] seeded: last accrual %s, last select %s",
+                    f"{age(row['last_accrual'])/3600.0:.1f}h ago" if row["last_accrual"] else "never",
+                    f"{age(row['last_select'])/60.0:.0f}min ago" if row["last_select"] else "never")
+
+    async def liveness(self) -> "liveness_mod.LivenessVerdict":
+        """Evaluate the strategy's own artefacts. Called at the TOP of every
+        tick, BEFORE any work, so it still runs on a tick whose body raises —
+        which is the entire failure mode it exists to catch."""
+        row = await self.pool.fetchrow(liveness_mod.SEED_SQL, self.run_id)
+        open_legs = int(row["open_legs"] or 0) if row else 0
+        min_iv = float(row["min_interval_h"]) if (row and row["min_interval_h"]) else None
+        v = liveness_mod.evaluate(
+            open_positions=open_legs // 2,
+            min_interval_h=min_iv,
+            accrual_age_s=self.marks.accrual_age_s,
+            select_age_s=self.marks.select_age_s,
+            select_every_min=self.cfg.select_every_min,
+            consecutive_failures=self.marks.consecutive_failures,
+            accrual_grace_mult=self.cfg.accrual_grace_mult,
+            select_stall_mult=self.cfg.select_stall_mult,
+            fail_escalate=self.cfg.fail_escalate)
+        if v.fired and not self._liveness_fired:
+            self._liveness_fired = True
+            await self.store.event(
+                "risk", "stall",
+                f"STRATEGY LIVENESS {v.severity.upper()}: {v.detail}",
+                data=v.data)
+        elif not v.fired and self._liveness_fired:
+            self._liveness_fired = False
+            await self.store.event(
+                "info", "stall",
+                "strategy liveness RECOVERED: " + v.detail, data=v.data)
+        return v
+
     async def health(self) -> dict:
         """Returns {exchange: action} where action is 'none' | 'freeze' | 'derisk'.
 
@@ -539,6 +592,9 @@ class CarryBot:
                     ex, sym, {"epoch": epoch, "rate": rate,
                               "realised_usd": realised, "modelled_usd": modelled})
                 n += 1
+        if n:
+            # Stamped BY THE WORK: a receipt that actually reached the database.
+            self.marks.accrual_written()
         return n
 
     async def _modelled_rate(self, ex: str, sym: str, iv: float) -> float:
@@ -571,6 +627,8 @@ class CarryBot:
             ", ".join(f"{c.ex}/{c.sym} {c.net_apr:.1f}%" for c in ranked[:5]),
             data={"passed": len(ranked), "evaluated": len(allc),
                   "reject_reasons": rejects})
+        # Stamped BY THE WORK: a selection pass that actually reached the end.
+        self.marks.select_completed()
 
         open_now = await self.store.open_groups()
         already = {(g["exchange"], g["symbol"]):
@@ -705,9 +763,21 @@ async def main() -> None:
         with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(sig, stop.set)
 
+    await bot.seed_liveness()
     last_select = 0.0
-    import time as _t
     while not stop.is_set():
+        # LIVENESS FIRST, BEFORE ANY WORK. The 2026-09 failure aborted the cycle
+        # part-way through, after the risk events were written and before the
+        # accrual was, so every signal emitted INSIDE the body of work was
+        # either already sent or never reached. A check that runs before the
+        # body is the only one that still runs on a tick that raises.
+        try:
+            v = await bot.liveness()
+            if v.fired:
+                logger.error("[carry/bot][liveness] %s: %s", v.severity.upper(), v.detail)
+        except Exception as exc:                  # noqa: BLE001
+            logger.warning("[carry/bot][liveness] check itself failed: %r", exc)
+
         try:
             if _t.monotonic() - last_select > cfg.select_every_min * 60:
                 await bot.cycle()
@@ -719,8 +789,14 @@ async def main() -> None:
                     if await bot.accrue():
                         await bot.report()
                     bot.books.reset_cache()
+            bot.marks.cycle_ok()
         except Exception as exc:
-            logger.exception("[carry/bot] cycle failed: %r", exc)
+            bot.marks.cycle_failed()
+            # Escalating, counted, and named — the old handler logged an
+            # identical anonymous traceback ~1,700 times in a row at one level,
+            # so nothing in the log said "this is not transient".
+            logger.exception("[carry/bot] cycle failed (%d in a row): %r",
+                             bot.marks.consecutive_failures, exc)
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=cfg.tick_secs)
 

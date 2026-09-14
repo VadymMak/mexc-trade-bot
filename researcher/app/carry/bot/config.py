@@ -169,6 +169,14 @@ class CarryBotConfig:
     book_cache_entries: int = _i("CARRY_BOOK_CACHE_ENTRIES", 16)
 
     # ---- loop -------------------------------------------------------------
+    # ---- strategy liveness (2026-09-14) ---------------------------------
+    # Thresholds for `liveness.evaluate`. The accrual limit is a MULTIPLE of the
+    # shortest settlement interval in the open book, not a fixed clock, so a
+    # missed epoch is loud by construction. See liveness.py for the post-mortem.
+    accrual_grace_mult: float = _f("CARRY_ACCRUAL_GRACE_MULT", 1.25)
+    select_stall_mult: float = _f("CARRY_SELECT_STALL_MULT", 3.0)
+    fail_escalate: int = _i("CARRY_FAIL_ESCALATE", 3)
+
     tick_secs: float = _f("CARRY_TICK_SECS", 60.0)
     select_every_min: float = _f("CARRY_SELECT_EVERY_MIN", 60.0)
 

@@ -3,7 +3,7 @@
 **This file is the plan. Everything else is appendix.** Edited in place, never appended to; history lives in git.
 If something here is stale, fix it here — do not write a new status document.
 
-Last updated: 2026-09-04 · Supersedes `CURRENT_STATUS.md`
+Last updated: 2026-09-14 · Supersedes `CURRENT_STATUS.md`
 
 ---
 
@@ -35,25 +35,43 @@ A question without a pre-committed consequence is a hobby. Each gate states what
 for each answer**, decided before the data arrives.
 
 ### G1 — Does the carry (perp funding) yield hold across regimes?
-- **Status:** open. **The basis leg is now BOOKED (2026-09-04) — the instrument is fixed, the answer is not.**
-  A carry position earns funding *and* the change in the spot–perp basis; until this date only the first existed
-  in the record (`close_price` was NULL on every closed leg). Both are now booked, mid-to-mid with execution cost
-  kept as its own line, and the 46 historical positions are backfilled and flagged. **The 16.4% net APR stays
-  WITHDRAWN.** Booked over the whole run: funding-only **−$2.2711**, basis **+$0.7459**, total **−$1.5251**. Over
-  the 14-position post-churn-fix window: funding-only **+$2.0981**, realised basis **−$0.2993**, total
-  **+$1.7988** — and the open book carries **−$2.26 unrealised**, of which **−$2.42 is gate/POWER_USDT alone**
-  while the other four net **+$0.16**. Marked to market the window is **−$0.46**. The honest statement is
-  unchanged: the carry P&L **is not distinguishable from zero**, and the reason is now measured rather than
-  suspected. What the window *can* still support is a conditional, in §3.
-  The window did **not** supply a second
-  regime: median funding across 1,190–1,203 names sat at exactly the `5e-05` default on every one of the 10 days,
-  55–64% of names at or below it, no trend; BTC 78.6k → 80.9k (+3.0%, range 77.2–80.9k). This is 9 more days of
-  the resting regime, so the gate's actual question is untouched.
-  Two things make the 16.4% fragile rather than reassuring: **57.5% of the income came from 3 names held
-  continuously for the whole window** (BTW, LYN, H) and 72.9% from the 4 still open — the rotating names
-  contributed 21.9%; and **the opportunity set thinned monotonically inside the window** — names passing all gates
-  9.8 → 4.7/day, top-ranked modelled APR 76% → 38%, with `payback` rejections rising 29 → 51 as `trail7`
-  rejections fell 104 → 80.
+- **Status: the pre-committed threshold is MET, and that is the narrowest of the things it could mean.**
+  Measured 2026-09-14 over the window the threshold named — generation 18 onward, **2026-09-04 06:06:13Z →
+  2026-09-14 06:33Z, 10.019 days** — both legs, mid-to-mid, open book marked to market:
+  funding **+$7.3729**, basis **−$0.3098**, entry cost **−$0.5306**, exit-cost provision **−$0.6742**, net
+  **+$5.8583** on mean deployed capital of **$892.18**. Annualised **+23.92%** (**+22.20%** with the $69.10 of
+  added margin in the base). **95% CI [+15.83%, +32.10%]** — block bootstrap over **days** (n=10, ratio estimator
+  weighting by capital-days, B=50,000); over **positions** (n=7) it is **[+11.01%, +37.99%]**. The comparator is
+  **SOFR 3.60%** (USD, mid-September 2026), not the euro rate — the yields are USDT-denominated and covered
+  interest parity makes the hedge cost ≈ (USD rf − EUR rf). **Both intervals exclude 3.60%; the premium is
+  +20.3 pp at the point estimate and +12.2 pp at the interval's lower bound.**
+  **No single name decides it.** Leave-one-out spans **+18.09%** (drop BTW, the best) to **+27.88%** (drop GUA,
+  the worst); ex-both **+22.14%**. Every one of the seven leave-one-out values clears 3.60% by more than 14 pp.
+  Nor does the exit assumption: the provision is the **realised median exit cost of the 41 closed round trips
+  (9.4 bps)**; at their realised **p90 (19.5 bps)** the window is **+21.0%**, at the **worst ever observed
+  (55.9 bps)** it is **+10.4%**, and reaching 3.60% would need **79 bps — 1.4× the worst exit this book has ever
+  paid.** Death risk is not in the interval and does not close it either: at the book's venue mix (71.8% MEXC)
+  blended death is ~20.6%/yr, costing **1.6 pp/yr at mean LGD and 13.7 pp/yr at the p95 LGD of 66.5%** →
+  **+22.4%** / **+10.2%**.
+  **Three things make this a passage, not a yield, and they must be quoted with it.**
+  (1) **Zero round trips completed inside the window — and root-caused on 2026-09-14 as a BUG, not a quiet
+  market.** Nothing has closed since 2026-09-02 08:04Z; the window contains 2 opens and 0 closes. The reason is
+  that `close_group` raised on every attempt (§3): R4 requested **2,595 exits** in the window and **not one could
+  be executed.** So the book under test is not the book the strategy chose — it is that book **plus every position
+  the strategy tried to sell and could not**. Every dollar is accrual plus an unrealised mark, and this project has
+  already been taught once that a mark is not a fill (arb: mark 95.7% win → executable 0% win, −127 bps).
+  **The fix is committed but not yet deployed; on restart `gate/INX_USDT` closes immediately (§5).**
+  (2) **The whole run, marked to liquidation, is +$2.0795 over 26.09 days = +2.72% annualised — BELOW SOFR.**
+  The 41 closed round trips lost **−$7.9899** (funding +$5.94 against **$14.62** of entry+exit cost;
+  **cost ÷ income 246%**). The window clears the bar only because the pre-commitment placed it after the churn
+  regime — which was the right call, but it means **the record as a whole has not yet paid.**
+  (3) **76.2% of the window's income is the above-default tail, and the tail is decaying inside the window.**
+  Of 340 receipts, 24.4% pay exactly `5e-05`, 74.7% above it; **at the default rate the same window annualises to
+  +0.99%.** Second-half ÷ first-half mean rate: INX 0.25 · HANA 0.40 · POWER 0.46 · LYN 0.52 · BTW 0.89 · H 1.01 ·
+  GUA 1.48. The decay has **not yet** reached the net — second half alone **+20.71% [+8.93%, +32.58%]**, last
+  3 days **+20.84% [+8.30%, +33.34%]**, both still excluding 3.60%.
+  **So G1 is answered on its own terms and hands the programme to G2 and G5, with the standing condition that a
+  completed round trip — not another accrual day — is what would confirm it.**
 - **Answered by:** accumulating settlements across generations for several more weeks. Gaps excluded; no unbroken
   window needed. **No repair shortens this.**
 - **≥ ~10% net APR persists →** proceed to G2. **Collapses to the resting state →** carry is a deposit with
@@ -142,10 +160,12 @@ Edit a line if a new result contradicts it; never add a second.
 - **Aave's high rate is the price of being locked in** — USDC sat at 12.54% for 23.1% of observations, and at
   those moments utilisation was **0.99975** (supply $2.031bn ≈ borrows $2.031bn). When utilisation fell to 92.4%
   the rate went to 3.71%. **The high rate and the inability to exit are the same variable.**
-- **Carry engine cost ÷ income is 87.9% on COMPLETE round trips, not 27%.** The 27% was measured over 21.5 h on
-  positions whose exit cost had not yet been booked; it was a partial-lifecycle number. On the 14 round trips that
-  opened *and* closed after the Phase-3b fixes: income $5.69, cost $5.00, net **+$0.69**. The engine fixes are real
-  (rebalances 491/day → 3; 0 errors) — the cost ratio was not.
+- **Carry engine cost ÷ income is 246% over ALL 41 completed round trips — 87.9% was a favourable subset.**
+  The 27% was a partial-lifecycle number (21.5 h, exit cost unbooked); 87.9% was the 14 round trips that opened
+  *and* closed after the Phase-3b fixes (income $5.69, cost $5.00, net +$0.69). Over the full closed set:
+  **funding +$5.9396 against $14.6182 of entry+exit cost, net −$7.9899.** Realised cost per round trip, in bps of
+  notional: **entry p50 10.1, exit p50 9.4, exit p90 19.5, exit max 55.9.** The engine fixes are real
+  (rebalances 491/day → 3; 0 errors) — **the cost ratio never was, and the churn is what made it.**
 - **Carry has a break-even holding period of ~3.5 days**, and it is sharp. Round trips post-fix, by hold length:
   **<2 d → cost 1665% of income (0/2 profitable) · 2–3.5 d → 133% (0/3) · 3.5–6 d → 47% (6/6) · >6 d → 43% (3/3)**.
   Nothing held under 3.5 days has ever made money. **The R4 funding-flip exit and the entry payback gate are in
@@ -170,6 +190,10 @@ Edit a line if a new result contradicts it; never add a second.
   room, so positions already open never consume it. Measured drift over 9 days: MEXC share of deployed capital
   **51.0% → 64.8 → 74.4 → 89.9 → 93.6%**, against a 40% cap. It matters because MEXC carries 24.3%/yr instrument
   death vs Gate's 11.3%: the book concentrates into the venue with double the death rate, silently.
+  **Re-measured 2026-09-14, still unfixed, and the drift has partly REVERSED without the cap being enforced:**
+  93.5% for 09-04→09-08, then **71.8%** once one Gate name (INX, $174) was opened on 09-08 — still **1.8× the
+  40% cap**. Largest single name **36.3% → 24.4%** against the 6.7% line (**3.6×**). This is not R7 working; it is
+  one large Gate entry moving a 7-name book, and it is exactly the fragility a per-name cap exists to remove.
 - **Only one of the carry position's two P&L legs is booked, and the missing one is the same size as the
   answer.** Long spot + short perp earns funding *and* the change in the spot–perp basis between entry and exit;
   `close_price` is NULL on every leg, so the second is never booked. Reconstructed mid-to-mid over the window:
@@ -266,6 +290,45 @@ Edit a line if a new result contradicts it; never add a second.
   `pnl − (realised − entry − exit − remediation)` is **exactly 0.00000000 across all 92 legs** — because that is
   how it is computed. `close_price` is **NULL on every closed leg**: no spot/perp basis change is marked at exit,
   no price P&L of any kind is booked. The paper carry P&L is funding minus modelled costs and nothing else.
+- **WITHDRAWN 2026-09-14 — "the R4 interval fix worked" was read off a broken exit path.** The 2026-09-14 claim
+  was that holds lengthened (41 round trips at a **median 0.00 days** before; 7 of 7 open past **3.5 days** after)
+  because R4 had stopped exiting by construction. **That is not why.** R4 fired `FIRED->exit` **2,595 times**
+  between 2026-09-05 and 2026-09-14 and **every single one was denied by an exception** — the exit path has been
+  incapable of closing a position since the 2026-09-04 migration. Holds did not lengthen because the rule improved;
+  they lengthened because **the bot physically cannot close.** The interval-aware floor may still be correct — the
+  8 h arithmetic in `tests/test_basis_booking.py` is unchanged and still passes — but **this window contains no
+  evidence either way, because no exit it requested was ever executed.** The honest state of R4 is *untested in
+  production since 2026-09-04*.
+- **THE BUG: `close_group` passed two untyped parameters, and it broke the exit leg for nine days.**
+  `close_price = CASE WHEN leg='spot' THEN $5 ELSE $6 END` — with both arms untyped and both values NULL,
+  Postgres has no anchor, infers **TEXT**, and the UPDATE raises `DatatypeMismatchError` against a
+  `double precision` column. The fills are NULL exactly when `executor.close_carry` cannot find a book curve, i.e.
+  **when the name must be exited into a thin book — the one moment an exit matters.** Fixed by casting both to
+  `::double precision`. **This is the same defect, in the same statement, as the `$10` INTEGER truncation caught on
+  2026-09-04 — the comment explaining that bug sits two lines below the one that still had it.** Fixing an
+  instance of a defect class is not fixing the class; the adjacent parameters must be audited at the same time.
+  `tests/test_liveness.py` reproduces the failure against the live database and passes only on the cast form.
+- **The `basis-now` gate is firing in production and screens exactly the failure that created it.**
+  ~**180 rejections** across 161 selection passes in the window (1–1.5 per pass), against `trail7` 10,059 and
+  `payback` 10,690. Confirmed on the causing position: the 2 h median mid basis for `gate/POWER_USDT` ending at
+  its own open (2026-09-02 11:52:35Z, n=24 observations) was **−961.9 bps — 6.4× the 150 bps gate.** POWER's
+  basis was genuinely dislocated, not an artifact: Gate's median basis that day was **−530 bps** (min −1841), and
+  it has never returned to the band (−40 to −110 bps daily median since, min −560 on 09-14). **POWER is a
+  perp≠spot name, and the live gate now rejects its whole class at entry.**
+- **A mark is not a fill, and the live basis marks are too few to test.** Only **2 of 48** positions carry a
+  live-recorded entry mark (`live-median2h`: GUA −39.8 bps, INX +12.6 bps over 5.9 d); the other 46 are
+  `backfill-median2h`. The backfilled closed set (n=41) is **median 0.0 bps, IQR 0.0 to +5.2, range −74.1 to
+  +42.0**, total +$0.7459. The two live figures sit inside that range and **agree in scale (tens of bps)** — but
+  n=2 cannot test agreement, and the only thing established is that the live path has produced **no POWER-class
+  artifact**. In-window basis is indistinguishable from zero: **−1.27% annualised, CI [−7.52%, +4.25%]**.
+- **The passing set has never reached the 15 names the concentration work requires.** Across 161 selection passes
+  in the window the count ran **5.0–9.8/day (max 11, of 153 evaluated)**; combined with the earlier 212 cycles,
+  **0 of 373 selection cycles have ever produced ≥15 passing names.** G4 is failing on supply, not on the cap.
+- **A carry position's capital is not its notional — margin top-ups are real capital and are not in the
+  denominator.** The open book has consumed **$69.10** of added margin (`mexc/BTW_USDT` **$57.15** on a $109
+  notional over 36 remediations; `gate/POWER_USDT` **$11.95** on $24 over 40). Including it moves the window from
+  **+23.92% to +22.20%** — small here, but it scales with rebalancing, and BTW is simultaneously the book's
+  largest income source and its largest margin consumer.
 - **Durability:** `data_checksums=on`, `fsync=on`, `full_page_writes=on`; **0 checksum failures for the cluster's
   whole life.** Corruption is not the risk; the single copy is.
 - **#2 CONFIRMED on the repeat. The 2026-09-04 08:00Z settlement (22 executable instruments) reproduces the
@@ -442,7 +505,7 @@ exactly that.
 
 | what | state | readable when |
 |---|---|---|
-| paper carry bot, **generation 18** (2026-09-04 06:06:13Z) | running, paper-mode intact; **first generation that books the basis leg** | continuously; G1 needs a second regime, not more days |
+| paper carry bot, **generation 20** (2026-09-10 06:28:44Z) | running, paper-mode intact; gen 18 (09-04 06:06:13Z → 09-10 06:28:34Z, 6.01 d) is the window G1 was judged on | **G1's threshold is met (§2); what it now needs is a completed round trip, not more accrual days** |
 | #2 dated basis (`mexc-basis`) | 5 venues; **08-28 AND 09-04 settlements both observed end to end** | **answered negative, and the repeat confirmed it** — next settlements 09-11 and quarterly 09-25 would add regimes, not change the sign |
 | #3 lending (`mexc-lending`) | 5 sources, 14 series, **6 earnable**, 2 assets; 11.1 d, 5-min cadence | **rates already readable** (SE ≤0.15pp on all six); what is NOT readable is regime persistence, and the **USD risk-free comparator is not collected at all** |
 | #4 stable LP (`mexc-lp`) | 16 chains, 201–212 pools/day (**129 clean**); 11.1 d, 30-min cadence, 1 weekend | fee side readable now and **below its own gas break-even**; the **adverse leg has no readable date — the collector stores no pool price** |
@@ -471,12 +534,55 @@ venue-funding, ersh-tape, ersh-l2, basis, lending, lp — plus 3 timers (2 backu
 Row counts **as of 2026-09-04 03:40Z** (they only grow; the stamp is what makes them readable):
 `funding_basis_snapshots` +3,135,054 since 2026-08-26 · `paper_carry_events` 559,839 lifetime.
 
-**Generations 11–16, and why there are six of them.** `apt-daily-upgrade` runs unattended each morning ~06:10–06:35
-UTC and its needrestart step **restarts every service on the box, PostgreSQL included** — so the bot loses its
-database, exits 1, and systemd restarts it. That is the whole explanation for gens 11→12 (2026-08-27 06:12) and
-12→13/14/15/16 (2026-09-01 06:29–06:33), and for `NRestarts=1` understating six generation boundaries. No reboot
-since 2026-08-26 06:27:48Z. **This is a G5 fact, not a curiosity: an automated job stops a running strategy weekly,
-at a time nobody is watching, and the machine has no UPS.** Longest clean generation is **gen 12, 5 d 00:17**.
+**Generations 11–20, and the correction: the mass restart is NOT daily.** `apt-daily-upgrade` runs unattended
+every morning ~06:10–06:35 UTC, but its needrestart step only **restarts every service on the box, PostgreSQL
+included**, when a library upgrade actually lands — so the bot loses its database, exits 1, and systemd restarts
+it. Measured over the 19 days since the 08-26 reboot, that happened on **exactly three days — 08-27, 09-01 and
+09-10** (the fourth stop, 09-04, was the deliberate migration). `apt-daily-upgrade` ran on all the others,
+including **09-14 06:22:21Z, 6 minutes before this audit, with no restart.** The earlier "each morning" reading
+was wrong; the honest form is **unpredictable and roughly weekly, at a time nobody is watching.** It remains a G5
+fact for the same reason. **Generations since the 09-04 migration: gen 18 (09-04 06:06:13Z → 09-10 06:28:34Z,
+6.01 d) · gen 19 (09-10 06:28:34Z, died on arrival, exit 1 — PostgreSQL was stopping underneath it) · gen 20
+(09-10 06:28:44Z → present, 4.00 d).** `NRestarts=1` again understates: two boundaries. No reboot since
+2026-08-26 06:27:49Z (uptime 19 d). Longest clean generation is now **gen 18, 6 d 00:22.**
+
+**ROOT-CAUSED 2026-09-14 — it was never a stall, and it was never 28 hours. It was a crash loop, it has
+happened five times, and it totals 55+ hours.** The 2026-09-14 reading ("the main loop stalled for 28.07 h while
+the risk thread kept beating") was **wrong in mechanism and understated in scope**. The loop is
+**single-threaded**. What actually happened is an exception thrown **part-way through the cycle**:
+
+    cycle():  health() -> check_risk() -> accrue() -> rebalance() -> report()
+                 |            |              |
+                 +-- risk events written ----+          X never reached
+
+`check_risk` raised on every tick (the `close_group` bug above), so the cycle aborted **after** the risk events
+had been written and **before** the accrual was. Hence the signature: risk events continuous with a max gap of
+**14.9 min**, accrual and selection silent for over a day, `NRestarts` unchanged, systemd `active (running)`
+throughout. **2,554 `cycle failed` lines, all one error**, in five episodes:
+**09-05 04:05→15:28 · 09-10 12:04→09-11 19:28 · 09-13 08:51→09-14 06:54 (ongoing at the time of writing)** —
+the earlier read caught only the middle one because it dismissed the shorter gaps as normal ~70-min cadence.
+
+**THE DEFECT CLASS, sharpened: it is not "a probe on the wrong thread", it is a liveness signal emitted BEFORE
+the point of failure.** Anything that says "I am alive" early in a body of work keeps saying it while the rest of
+that work fails. The only signal that cannot lie this way is one derived from the work's **output** — a receipt
+written, a selection pass completed. This is the fifth instance of the project's standing defect class (a check
+reporting on something other than the thing it is believed to check).
+
+The accounting still survived it: on each resume the bot **caught up every missed epoch at that epoch's own
+rate** — 340 receipts, **zero skipped epochs** — so the P&L series is continuous. What was lost is **55+ hours of
+selection and exit evaluation** out of a 240-hour window (~23%): no name could be entered, exited or re-ranked.
+**This is the G5 item.** An unwatched live book would have been unmanaged for over a day at a time, repeatedly,
+with every indicator green — and with an exit it had already decided to take sitting unexecuted.
+
+**FIXED 2026-09-14, in two parts.** (1) The cast, above. (2) **Detection derived from the work itself**
+(`app/carry/bot/liveness.py`): time since the last funding receipt was *written* and since the last selection pass
+*completed*, evaluated at the **top of every tick, before any work**, so it still runs on a tick whose body
+raises. The accrual threshold is **a multiple of the shortest settlement interval in the open book**
+(1.25×, so 5 h on a 4 h book) rather than a fixed clock — a missed epoch is loud by construction. Consecutive
+cycle failures are counted and escalated instead of logging an identical anonymous traceback ~1,700 times at one
+level. **The alarm is proved to fire:** `tests/test_liveness.py` replays the 09-10 episode against a fake clock
+and the detector fires **3 minutes in** rather than 28 hours later, and the DB test reproduces the original
+`DatatypeMismatchError` so the check demonstrably *can* fail. 22 checks, all passing.
 
 **Carry data coverage 2026-08-26 → 2026-09-04 (8.9 d).** `paper_carry_events`: **no gap over 15 min** after the
 08-26 outage — the bot's own receipts are continuous, so the window needs no sub-windowing.
@@ -485,14 +591,22 @@ at a time nobody is watching, and the machine has no UPS.** Longest clean genera
 not resolve or reach its edge). **The server is on WiFi**; that is the second-largest single point of failure
 after the breaker.
 
-**The carry headline, written as the conditional it actually is.** The window supports no level, only this:
+**The carry headline, no longer a conditional — both of its conditions have now been met.** It used to read:
 *carry earns roughly 20–35% gross APR on deployed capital in the resting regime **if** a position is held past the
-~3.5-day break-even, **and if** the unbooked spot–perp basis term is small.* **The first condition is currently
-prevented by R4; the second is unknown and is the larger of the two.** Everything downstream — the 87.9% cost
-ratio, the weight-cap table, the R7 valuation — is denominated in funding-only P&L and inherits that second
-unknown. **Booking the basis leg at exit is the single highest-value fix in the project**, because until it exists
-no carry number means anything; it is also cheap, since `close_price` is already a column and the marks already
-exist in `funding_basis_snapshots`.
+~3.5-day break-even, **and if** the unbooked spot–perp basis term is small.* As of this window **both hold**: the
+R4 interval fix lets positions run (7 of 7 past 3.5 d, none exited), and the basis leg is booked and measures
+**−1.27% annualised, CI [−7.52%, +4.25%] — indistinguishable from zero**, exactly as the conditional hoped. The
+realised net is **+23.92% [+15.83%, +32.10%]**. **What replaces the old conditional is a narrower one:** that
+number is **76.2% above-default tail** on a book with **zero completed round trips**, and the whole run marked to
+liquidation is **+2.72%**. So: *carry clears the USD risk-free rate while the above-default tail persists and if
+exits cost what entries cost — and neither has yet been observed end to end in the fixed engine.*
+
+**Carry data coverage 2026-09-04 06:06:13Z → 2026-09-14 06:33Z (10.019 d).** `funding_basis_snapshots`:
+**zero gaps over 15 min**, 343,826–348,886 rows/day across 1,197–1,215 names — the marks are well supported.
+`paper_carry_events`: the risk stream has **zero gaps over 15 min** (max 14.9 min); the accrual stream has **one,
+the 28.07 h main-loop stall above**, which cost no receipts. **Clean accounting window: the whole 10.019 days, one
+piece.** **Clean *selection* windows: two — 6.25 d (09-04 06:06 → 09-10 12:00) and 2.60 d (09-11 16:05 →
+09-14 06:33)** — so any statistic about opportunity set or rotation must be computed inside those, not across.
 
 **The `max_basis_bps` gate cannot see a regime break.** It tests `abs(basis_mean) > 150 bps` on a *lookback mean*,
 so `gate/POWER_USDT` was opened on 2026-09-02 while its basis had been sitting at **−900…−1250 bps for the hour
@@ -500,10 +614,41 @@ before entry** — the 14-day mean was still inside the gate. Same defect class 
 a lookback, applied to a series that had just broken. That single position is now 92% of the window's unbooked
 basis mark.
 
-**Carry book today:** 5 names, $857 spot notional, $645 of $1,080 capital deployed (59.7%, down from 100% on
-08-26 as exited names could not be replaced). 9 closes in the window, **8 of them R4-funding-flip**, 1 R5-depth
-collapse; 6 opens. **Zero instrument deaths** — against an expectation of **0.05** at the measured 12.3%/yr base
-rate over 17 names × 9 days, so this observation carries no information about the death rate in either direction.
+**Carry book today (2026-09-14):** **7 names, $714.01 spot notional, $1,071 deployed**, held
+**5.90–24.84 days**. In the whole 10-day window there were **2 opens (09-08: mexc/GUA, gate/INX) and 0 closes** —
+nothing has closed since **2026-09-02 08:04Z**. Weights **24.4 / 21.6 / 16.2 / 15.3 / 13.8 / 4.8 / 3.8%**
+(largest gate/INX_USDT, against the 6.7% line); **MEXC 71.8%** against the 40% cap. **Zero instrument deaths** —
+against an expectation of **0.024** at 12.3%/yr over 7 names × 10 days, so again no information about the death
+rate in either direction, and the CI above therefore prices **none** of it.
+
+**PRE-COMMITTED FORECAST, recorded 2026-09-14, readable 2026-09-28.** Written down before the fact so it can
+be wrong. **76.2%** of the verdict window's income was the above-default funding tail, and that tail decayed
+inside the window (second-half ÷ first-half mean rate: INX 0.25 · HANA 0.40 · POWER 0.46 · LYN 0.52 · BTW 0.89 ·
+H 1.01 · GUA 1.48). At the venue default the same window annualises to **+0.99%**; as measured it was **+23.92%**,
+and the net has not followed the rates down yet (second half **+20.71%**, last 3 days **+20.84%**).
+
+> **The prediction: if the decay is the driver, the both-legs net annualised over 2026-09-14 → 2026-09-28 falls
+> materially below the +23.92% of the verdict window — concretely, below +15.83%, the lower bound of its 95%
+> interval. If it does not, the decay is NOT what sets this yield and something else is supporting it, which is
+> the more interesting outcome and the one that would need explaining.**
+
+Read it on the same basis as the verdict window (both legs, mid-to-mid, exit-cost provision, capital-day
+weighted), and read it **only over clean sub-windows** — the crash loop above cost 23% of the last window and the
+fix has not yet been deployed. Neither branch may be reinterpreted afterwards: below +15.83% confirms the tail is
+the yield; at or above it falsifies the decay hypothesis as the explanation.
+
+**WHAT WOULD ACTUALLY CLOSE A POSITION — read 2026-09-14, and the answer is "one already should have".** The
+question was whether the exit leg can be measured on this book. Measured state of the seven:
+**R4 is FIRING RIGHT NOW on `gate/INX_USDT`** — trailing-7 **7.8%** on capital against the **8.0%** floor,
+**−0.20 pp** through it — and has been firing and being denied on every tick since **2026-09-13 08:51Z**. The
+next closest are `gate/POWER_USDT` at **+6.40 pp** of headroom and `mexc/HANA_USDT` at **+9.80 pp**. **R5-depth is
+healthy on all seven**, none near. **`payback` cannot close anything at all** — it exists only in
+`selector.evaluate`, so it is an *entry* gate and was never an exit rule.
+**So the correct statement is not "nothing will close for weeks".** It is: **the strategy has already decided to
+exit a position and has been physically unable to, for over a day.** The moment the fixed code runs, `gate/INX`
+closes and produces **the first completed round trip since 2026-09-02** — which is exactly the payment the
++23.92% needs to stop being an accrual figure. **Until then the exit provision stays a provision, and the reason
+is a bug rather than a quiet market.**
 
 **Blocking, two minutes of work:** the backup ships nowhere. On the Mac — Remote Login ON,
 `mkdir -p ~/mexc-backups`, append the `mexc-backup@trading-server` ed25519 key to `~/.ssh/authorized_keys`, then

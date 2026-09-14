@@ -253,7 +253,18 @@ class BotStore:
             """UPDATE paper_carry_positions
                SET status='closed', closed_ts=now(),
                    exit_cost_usd  = $2,
-                   close_price    = CASE WHEN leg='spot' THEN $5 ELSE $6 END,
+                   -- $5/$6 MUST be cast for the SAME reason $10 is, and the
+                   -- omission cost 2,554 failed exits between 2026-09-05 and
+                   -- 2026-09-14. When `close_carry` cannot find a book curve it
+                   -- returns (None, None) for the fills; with both arms of the
+                   -- CASE untyped Postgres has no anchor, infers TEXT, and the
+                   -- UPDATE raises DatatypeMismatchError against a double
+                   -- precision column. The exit path then failed EVERY time a
+                   -- name had to be exited into a thin book — the one moment it
+                   -- matters. A NULL fill price is a legitimate input (we may
+                   -- genuinely not know the touch); an untyped one is not.
+                   close_price    = CASE WHEN leg='spot' THEN $5::double precision
+                                         ELSE $6::double precision END,
                    exit_basis_bps = $4,
                    exit_basis_ts  = $7,
                    exit_basis_n   = $8,
