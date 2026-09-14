@@ -57,3 +57,49 @@ alongside unadjusted p-values with the count visible, as before.
 - **A window exists AND volume before `t_premium` discriminates** -> the lead is **INFORMATION**,
   and Stage 3 stays open on the hypothesis the evidence actually supports, which after §2 of
   prompt-84 is churn, not accumulation.
+
+---
+
+# Addendum 2 — onset value, and the persistence of heat (2026-09-14)
+
+**Written before either test was run.** Declares the hypotheses added by prompt-85 against the
+same family.
+
+## New hypotheses
+
+| # | hypothesis |
+|---|---|
+| 24 | perfect-foresight entry at t=0 on the sustained population is **net positive after measured costs** |
+| 25 | trailing-7 funding rank predicts forward-7 funding (Spearman != 0) |
+| 26 | persistence-per-hot-name differs between gate and mexc |
+
+**Family is now 26. Bonferroni alpha = 0.05/26 = 0.00192**, tightened from 0.00217. The prompt
+holds alpha at 0.00217; the tighter figure is used because it is the conservative one and cannot
+flatter a result.
+
+## Costs used, and why
+
+`§1.1` is a **two-leg** position, so the cost is the carry engine's OWN measured round trip, not the
+dated-basis venue table: **entry p50 10.1 bps + exit p50 9.4 bps = 19.5 bps of notional**, measured
+over 41 completed round trips. The dated-basis figure for the same venue (**gate 19.04 bps**) is
+quoted beside it as an independent check; they agree to within 0.5 bps. `okx 5.21` / `bybit 23.02`
+are not used — we hold no carry positions there.
+
+## Restrictions committed
+
+- **Sustained population only** (duration > 1 h). The blip half is untradeable by construction:
+  95.3% of it peaks at t=0, so by the time an onset is detectable it is over. **The 1 h cut remains
+  POST-HOC and is flagged everywhere it appears.**
+- **Split by direction, never pooled.** Shorts-crowded and longs-crowded differ in duration
+  (p50 1.00 h vs 2.08 h) and are treated as separate populations.
+- **Medians and distributions, never means.** Sample count stated for every figure.
+- **Names that died inside the window stay in the sample.** Dropping them is survivorship bias in
+  its exact classic shape, and it would make persistence look better than it is.
+- **One regime.** Bear market throughout; most income is earned standing long against crowded
+  shorts, and in a bull market the population inverts.
+
+## Guardrail
+
+This session **measures and does not tune**. What the persistence structure implies for the trailing
+window and for R4's floor is reported; neither is changed. A parameter fitted on the window that
+suggested it is not a parameter, and any change needs out-of-sample validation in time.
