@@ -44,8 +44,9 @@ for each answer**, decided before the data arrives.
   rate. What is withdrawn is the measurement, not the standard. This is the second time a correctly computed carry
   number has described something other than what it was believed to describe (16.4% was the first), and both times
   the cause was the same: **the instrument was broken in a way the number could not show.**
-  **Reopened by:** a window that begins after the 2026-09-14 07:46:41Z restart, in which exits actually execute.
-  The first datum exists (§5, `gate/INX_USDT`) and it is n=1.
+  **Reopened by:** a window that begins after the **2026-09-14 09:25:00Z** restart (generation 26), in which
+  exits actually execute. The first datum exists (§5, `gate/INX_USDT`) and it is n=1.
+  **THE PROJECT IS FROZEN UNTIL 2026-09-28 (§5). The reading session is pre-defined in §5 and needs no prompt.**
   **The withdrawn measurement, kept for the record only — do not quote it as a result:**
   Measured 2026-09-14 over the window the threshold named — generation 18 onward, **2026-09-04 06:06:13Z →
   2026-09-14 06:33Z, 10.019 days** — both legs, mid-to-mid, open book marked to market:
@@ -334,6 +335,24 @@ Edit a line if a new result contradicts it; never add a second.
   If `open_carry` ever stops requiring both curves — a relaxation that would look like a small liquidity
   concession — **the exit exposure appears with no other warning anywhere in the system.** Treat any change to
   `open_carry`'s curve requirement as a change to the exit path.
+- **A FIFTH INTERVAL SITE EXISTS, LATENT, WITH NO MEASURED EFFECT — AND IS DELIBERATELY NOT SCHEDULED FOR
+  REPAIR.** `selector._FUNDING_SQL` (gross APR, `mean_r`, `sd_r` — the ranking) and `main._modelled_rate` are
+  **calendar-based** (`lookback_days = 14`), so an 8 h name contributes **~42 observations against a 4 h name's
+  ~84**. That is the T54 / R4 unit inconsistency again. **Measured consequence: none.** realised ÷ modelled is
+  **0.783 at 4 h and 0.788 at 8 h** — identical to within 0.005. **The lesson is the SCOPING, not the bug:** the
+  2026-09-04 fix was framed as "make the floors interval-aware", and it found every floor and stopped, leaving a
+  site with the same defect standing in the same package. **A defect-class sweep must be scoped by the defect,
+  never by the component.** Recorded so it is neither re-discovered as new nor repaired for its own sake; it
+  earns a fix only if a measurement ever shows it costing something.
+- **REJECTED HYPOTHESIS — the winner's curse does NOT select 8 h names.** The prediction was that a noisier
+  trailing estimate produces more extreme values, so 8 h names (half the observations) would be
+  **over**-represented among selections. They are **under**-represented, monotonically:
+  **23.2% of the eligible universe (35/151) → 19.0% of names ever in a top-5 ranked list (4/21) → 12.0% of
+  positions actually opened (6/50).** The likely cause is the **old flat R4 floor**, which exited 8 h names by
+  construction whenever funding returned to the default and whose twin gated them at entry; most of those 50
+  positions predate the 2026-09-04 fix. **Why the test was weak, so it is not over-read in either direction:**
+  interval is the *only* observable separating evidence counts, and the 8 h side rests on **n=6** round trips.
+  **Re-run when more 8 h round trips exist** — a null at n=6 is not a null.
 - **THE RULE: fixing an instance of a defect class is not fixing the class.** The comment explaining the `$10`
   INTEGER truncation sat **two lines below** a parameter that still had the same defect, and it stayed there for
   ten days. Runtime-dependent parameter typing has now appeared **three times**, twice in the same statement. The
@@ -556,6 +575,56 @@ exactly that.
 | 6 net-net | no | no — pinned 3.00–3.65% is visibly near the anchor | no — 0.19% median is below it |
 
 ## 5. In flight
+
+> ## ❄ FROZEN UNTIL 2026-09-28 — declared 2026-09-14
+>
+> **Nothing changes in: the selector, R4, R7, `_modelled_rate`, any trailing window, the collectors, the schema,
+> or any parameter. No research prompts. No tuning. No "small additions."**
+> `CARRY_ALLOW_UNPRICED_EXIT` stays as it is — it governs a case that has never fired.
+>
+> **Why this is a stop, not a pause.** What is missing before the verdict is **time, not analysis**. The
+> instrument is finished (SQL type class swept with a permanent test, liveness measured from the work and
+> replayed against real incidents, both P&L legs booked, price age stamped, depth staleness watched on the leg
+> that actually fails). All four candidate yields are read; #2/#3/#4 closed negative; the imbalance line closed
+> on value. The window question is answered and the answer is *change nothing* — the curve is flat from W=2 to
+> W=14 and 7 → 10 buys **0.005** of Spearman.
+> **Every change restarts the clean window.** One window was already spent to gain the age stamp, which was
+> worth it. Spending another to gain 0.005 is not.
+>
+> **The only things that justify breaking the freeze, each a REPAIR and never an improvement:**
+> 1. **The liveness detector fires** — accrual or selection stalls, or consecutive cycle failures escalate.
+> 2. **The process is down and systemd is not recovering it.**
+> 3. **A collector hard-stalls and does not come back.**
+> 4. **Data-loss risk** — a disk, a corruption, or an outage that threatens the record.
+>
+> If one fires: **fix the minimum that restores service, record the stop/start boundary, and state explicitly
+> that the clean window restarted and what date it now reads.** Bundle nothing else into that restart.
+
+**THE 2026-09-28 SESSION, DEFINED HERE SO IT NEEDS NO PROMPT.** Run exactly this, in this order, and nothing
+more.
+
+1. **Coverage first.** Generation boundaries since **2026-09-14 09:25:00Z**, every gap over 15 minutes, the clean
+   sub-windows and their lengths. **If the window restarted, say what it now reads and STOP** — the verdict waits
+   for a full window rather than being taken on a short one.
+2. **The number.** Both legs, mid-to-mid, open book marked to market, with a confidence interval **over days and
+   over positions**, stating the unit of independence for each.
+3. **The threshold, unchanged since 2026-09-04.** Does the interval **exclude the USD risk-free rate** (SOFR
+   ~3.6%; state the exact figure used)? **If it covers it, the candidate-yields programme closes.** Do not
+   soften, do not widen scope, do not re-run on a different window.
+4. **The three-way decomposition** — *a total that falls without saying which moved is not a result*:
+   **realised exit costs · funding decay · stale-priced exits** (the third measurable for the first time, via
+   `entry_book_age_s` / `exit_book_age_s`).
+5. **The tail-decay forecast**, committed 2026-09-14: net **below +15.83%** if decay is the driver; if it is not
+   below, decay is not what sets this yield and something else is supporting it.
+6. **The same number excluding the best and the worst single position.** `gate/POWER_USDT` alone decided a
+   previous window's sign.
+7. **Completed round trips** — how many, and **each one's actual exit cost against its provision**, name by name,
+   never averaged. Precedent: `gate/INX_USDT` paid **8.43 bps against a 17.57 bps provision**, so the provision
+   *overstates*; one observation is not a rate. *(The instruction defining this session was truncated mid-clause
+   at "actual exit cost against"; "against its provision" is the completion, chosen to match the INX precedent
+   and flagged here as a reconstruction rather than a quotation.)*
+
+
 
 | what | state | readable when |
 |---|---|---|
@@ -954,22 +1023,27 @@ detectability; this closes it on **value**, which no criterion had asked about. 
 in the answer.**
 
 **HEAT PERSISTS — the selector's central bet, tested for the first time and it holds.** 12,887 name-day
-observations, 1,196 names, 11 anchors, deaths retained. The selector *ranks* on trailing-7 rather than
-thresholding, so the test is the ranking's, not a cutoff's.
+observations, 1,196 names, 11 anchors, deaths retained. The selector *ranks* rather than thresholds, so the test
+is the ranking's, not a cutoff's.
+**LABEL CORRECTED 2026-09-14 (addendum 85a):** every window below is **7 CALENDAR DAYS**, written `trailing-7d`.
+It is **not** the selector's trail7 *gate*, which is **7 EPOCHS** — 28 h for a 4 h name, 56 h for an 8 h one.
+Seven calendar days approximates the **ranking** input, whose true window is **14 calendar days**
+(`lookback_days`). The result stands as a statement about calendar windows, and the W-sweep below re-derives it
+across W=2..14; only the name was wrong.
 
-| trailing-7 decile | trailing-7 (x1e-5) | **forward-7 p50** | forward / trailing |
+| trailing-7d decile | trailing-7d (x1e-5) | **forward-7d p50** | forward / trailing |
 |---|---|---|---|
 | 1 (coldest) | −23.27 | −4.62 | 0.20 |
 | 5 | 5.00 | 5.00 | 1.00 |
 | 9 | 10.00 | 9.98 | 1.00 |
 | **10 (hottest)** | **16.97** | **16.06** | **0.95** |
 
-**Unconditional forward-7 median is exactly 5.00e-5 — the venue default — so the top decile's 16.06e-5 is 3.2x
+**Unconditional forward-7d median is exactly 5.00e-5 — the venue default — so the top decile's 16.06e-5 is 3.2x
 what an unranked name pays.** The ranking selects something real.
-**Spearman(trailing-7, forward-7) = 0.6686, 95% CI [0.6541, 0.6819]**, n=12,887.
+**Spearman(trailing-7d, forward-7d) = 0.6686, 95% CI [0.6541, 0.6819]**, n=12,887.
 
 **Rank persistence and level decay are different failures, and only one of them is happening.**
-**Rank: 62.6% of top-decile names are still top-decile 7 days later** (85.4% still in the top three, against 30%
+**Rank: 62.6% of top-decile names are still top-decile 7 calendar days later** (85.4% still in the top three, against 30%
 by chance) — n=465, and that figure rests on only **4 anchor pairs**, which is the measurement's main limit.
 **Level: a top-decile name realises a median 0.930 of its own trailing rate** (p25 0.633, p75 1.206). So the
 ranking holds *and* the level barely decays.
@@ -978,13 +1052,13 @@ ranking holds *and* the level barely decays.
 **0.930 x 0.914 = 0.850.** Consistent with, not proof of — but it means the 0.85 is *mostly estimator bias, not
 decay*, and the mean→median fix remains the right correction.
 
-**THE HALF-LIFE OF HEAT IS ~10.4 DAYS, which is LONGER than the window that measures it.** From 62.6% top-decile
-retention at 7 days, exponential half-life = 10.4 d. **So trailing-7 is not buying the past — heat outlives the
-window.** The implication is that a *longer* window (10–14 d) would average more noise out while the signal is
-still alive, and the same applies to **R4's exit floor, which reads the same trailing-7 metric**: a floor computed
-over a window shorter than the half-life of the thing it measures will exit on noise. **NOTHING IS CHANGED HERE.**
-A parameter fitted on the window that suggested it is not a parameter; this is a hypothesis for out-of-sample
-validation in time, and it is the highest-value one the dataset has produced.
+**THE HALF-LIFE OF HEAT IS ~10.4 CALENDAR DAYS.** From 62.6% top-decile retention at 7 calendar days,
+exponential half-life = 10.4 d. **Heat outlives a one-week window.** **SUPERSEDED IN ITS IMPLICATION by addendum
+85a:** the W-sweep showed the response curve is **flat** (Spearman 0.633–0.674 across W=2..14) and that
+**W=7 → W=10 buys 0.005**. So the earlier reading — that a longer window "would average more noise out" and that
+R4's floor is computed over too short a window — is **not wrong but not material**, and R4's floor is in any case
+**epoch-based, not calendar-based**, so the half-life does not apply to it in the way that sentence implied.
+**NOTHING IS CHANGED, and on this evidence nothing should be.**
 
 **VENUE: persistence is a NAME property, not a venue property — and this cuts the R7 cap's price.** Per hot name,
 **gate realises 0.88 of its trailing rate and mexc 0.96**; frequency of being in the top decile is **gate 9.5% vs
@@ -1108,6 +1182,13 @@ okx have `venue_basis_raw` and `future_oi` 100% NULL.
 
 ## 7. Working rules
 
+- **A PRE-REGISTRATION MUST CONTAIN A VALUE CRITERION, NOT ONLY A DETECTION CRITERION.** All four imbalance kill
+  criteria asked whether an onset could be **caught**; not one asked whether it was **worth catching**. Stage 3
+  opened on detectability and closed on value — perfect foresight at t=0 pays a median **−13.62 bps** after the
+  measured 19.5 bps round trip, so the detector was irrelevant before it was ever built. **This is the project's
+  standing defect class — a correctly specified test of the wrong quantity — appearing for the first time in the
+  RESEARCH DESIGN rather than in code.** Every future pre-registration states, before the data: *what would this
+  be worth if the prediction were perfect?* If that number is negative, nothing downstream matters.
 - **A NEW CHECK MUST BE REPLAYED AGAINST A RECORDED REAL FAILURE, NEVER AN IMAGINED ONE.** Proven twice in one
   week, and both times the replay found something reasoning had missed. The liveness detector was replayed
   against the **2026-09-05** episode, not only the 09-10 one it was written for — and that is what showed the
