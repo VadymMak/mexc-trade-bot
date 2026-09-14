@@ -793,6 +793,68 @@ against stale books are identifiable after the fact instead of being averaged in
 is a schema change and is **not** done here. **`CARRY_ALLOW_UNPRICED_EXIT` remains a live-policy decision the user
 owes — but it now governs a case that has never fired, so it is not urgent.**
 
+**IMBALANCE ANATOMY — Stage 1 and Stage 2 run 2026-09-14, pre-registered in `RESEARCH_IMBALANCE_PREREG.md`
+(commit `14a0633`) before any outcome query.** The question behind it: 76.2% of carry income came from the
+above-default funding tail and we had never asked whether those episodes have a life.
+
+**Feature inventory — and the decisive feature already exists.** `funding_basis_snapshots` carries
+**`perp_open_interest`, 100% populated since 2026-08-20** (26 days, ~5 min cadence, p95 gap 5.06 min), alongside
+perp/spot volume, basis, both books' top-of-book sizes, depth5, spreads and marks, over **1,199 names**
+(mexc 684 / gate 515). OI is *not* missing; the proposal to scope a collector for it is unnecessary. Also held:
+`carry_book_l2` (153-name basket, 50 levels, 2 min), `venue_funding_snapshots` (1,102 names, 4 other venues),
+`tape_prints`/`book_ticker` (67 ёрш names only — too narrow to screen 1,199).
+
+**Episode definition (pre-registered, causal).** Resting = `|funding| <= 1e-04` (2x the universal `5e-05`
+default). **Onset t=0 = the FIRST crossing of `|funding| >= 2.5e-04` after 24 h wholly at rest** — never the peak,
+which is the look-ahead trap. End = return to rest sustained 12 h. **648 episodes, 353 names, 620 completed /
+28 censored.** Sign split **456 shorts-crowded (negative) / 192 longs-crowded**, which is the expected direction
+in this regime. **179 names first-time-only, 174 recurring.** Venue split is lopsided: **gate 564 episodes,
+mexc 84.**
+
+**STAGE 1 — the label conflates TWO ANIMALS, and this is the main descriptive result.** The duration distribution
+is **bimodal**: **47.9% of episodes are over within one hour** (median **0.17 h**, and **95.3% of them peak at
+t=0 itself**), while the rest run a median **16 h**. A post-hoc cut at 1 h (**declared: not pre-registered**)
+separates them cleanly — 297 spikes vs 323 sustained, and 109 names produce only spikes, 133 only sustained,
+102 both. **The spike half has no anatomy to study: funding ticks above threshold for one or two 5-minute reads
+and returns.** Among the sustained half the shape is **spike-and-decay, not ramp-and-plateau** — the peak falls in
+the first quarter of the episode **58.2%** of the time (median at 10.4% of elapsed duration). Peak size, all
+episodes: p50 **12.1x** the venue default, p90 **44x**, p99 **349x**.
+
+**Traps, checked.** *Manufactured tape:* the pre-registered volume-CV proxy (declared in the prereg as a proxy
+for T9, which needs tape we hold for only 67 names) flags **38 of 1,220 names, every one MEXC, every one with
+mean 24 h volume pinned at $67–71k** — the constant-rate emitter signature, reproduced independently. It removes
+only **4 of 666 onsets (0.6%)**: manufactured volume is real and is **not** what drives these episodes.
+*Survivorship:* **58 of 1,257 names stop reporting** inside the window and are **kept**, per the prereg.
+*Multiple testing:* **20 pre-registered hypotheses, Bonferroni alpha 0.0025.** *Regime:* one bear market, stamped.
+
+**STAGE 2 — something does lead t=0, it survives out of sample in time, and it is not what the hypothesis
+predicted.** Base rate first: **4.25–4.43% of eligible name-days contain an onset** (eligible = resting for 24 h
+with enough history). Of 20 hypotheses, 6 clear Bonferroni in sample. With the direction **fixed on the fit half
+(< 2026-09-04)** and measured on the held-out half:
+
+| feature (6 h or 24 h change to t=0) | fit AUC | **test AUC** | top-5% precision | lift vs 4.25% base |
+|---|---|---|---|---|
+| `svol_6` spot volume | 0.538 | **0.562** | 16.1% | **3.78x** |
+| `basis_24` | 0.457 | **0.549** | 13.8% | 3.24x |
+| `oivol_6` OI / perp volume | 0.428 | **0.572** | 12.4% | 2.92x |
+| `pvol_6` perp volume | 0.568 | **0.556** | 11.4% | 2.68x |
+| `ret_6` price return | 0.568 | 0.521 (p=0.27) | — | **FAILED out of sample** |
+
+**Three things must be said with those numbers.** (1) **The effect is small.** An AUC near 0.56 means 84–88% of
+the top-5% flagged moments do **not** become onsets. (2) **The direction contradicts the crowd-arriving
+hypothesis.** `oivol_6` discriminates *downward* — OI/volume **falls** — while volume rises. That is **churn, not
+accumulation**: a crowd arriving would show OI rising faster than turnover. **Open interest on its own is the
+weakest of the lot** (`oi_6` AUC 0.477, `oi_24` 0.536), so the pre-registered primary hypothesis is the one the
+data least supports, and the ratio's signal comes from its volume denominator. (3) **Near-tautology risk, and it
+is the biggest threat to the reading:** funding is struck off the perp premium index, which responds to the same
+order flow that produces the volume. "Volume rises in the 6 h before funding crosses" may be mechanically
+entailed rather than informative. The statistics are sound; what they *mean* is not settled.
+
+**KILL CRITERION: #4 — a lead survived out of sample in time, so Stage 3 opens; it is NOT begun here, and it must
+never be discussed as continuous with carry, because it is a directional position in which principal can be
+lost.** The honest size of the prize is a 2.7–3.8x lift on a 4.25% base rate from a 26-day single-regime sample,
+with the mechanism unresolved between "early warning" and "arithmetic restatement of the same flow".
+
 **Collector stall-detection sweep, 2026-09-14.** Six collectors (`basis`, `bybit`, `carry`, `lending`, `lp`,
 `venues`) already derive liveness from **successful writes** and escalate: soft-stall rebuilds the HTTP session,
 hard-stall exits for a clean systemd restart. **`carry-depth` logged stale-socket age and never escalated** — and
