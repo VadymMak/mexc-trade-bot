@@ -37,9 +37,19 @@ class Curve:
     cumc[j] = sum of v_i * f_i through j (slippage-weighted notional)
     """
 
-    __slots__ = ("f", "cumv", "cumc", "total", "touch")
+    # `ts` / `age_s` are populated ONLY by `latest_curve`, which is the path that
+    # prices a real entry or exit. They are the INPUT that belongs beside the
+    # output: a fill priced off this curve is only interpretable if you know how
+    # old the curve was. `latest_curve` takes max(ts) with NO age bound, so a
+    # dead feed yields an arbitrarily old price and nothing marks it as old —
+    # the same silent failure the basis marks had before 2026-09-04, fixed the
+    # same way (inputs beside outputs). Measured 2026-09-14: perp books were
+    # never worse than 3.9 min stale in 24 h, spot reached 22.5 min.
+    __slots__ = ("f", "cumv", "cumc", "total", "touch", "ts", "age_s")
 
     def __init__(self, levels: list[tuple[float, float]], side: str) -> None:
+        self.ts = None
+        self.age_s = None
         prices = [p for p, _ in levels]
         p1 = max(prices) if side == "bid" else min(prices)
         self.touch = p1
@@ -184,9 +194,16 @@ class BookSource:
 
     async def latest_curve(self, ex: str, sym: str, market: str, side: str
                            ) -> Curve | None:
-        """The most recent book — what a paper entry actually executes against."""
+        """The most recent book — what a paper entry actually executes against.
+
+        The returned Curve carries `ts` (the snapshot it came from) and `age_s`
+        (how stale it was when served). NO age LIMIT is applied here on purpose:
+        a threshold picked before the distribution is known is how the depth
+        watchdog ended up guarding the leg that does not fail. Measure first,
+        then set the limit from the recorded ages.
+        """
         rows = await self._pool.fetch(
-            """SELECT price, size_usd FROM carry_book_l2
+            """SELECT price, size_usd, ts, now() AS srv_now FROM carry_book_l2
                WHERE exchange=$1 AND symbol=$2 AND market=$3 AND side=$4
                  AND ts = (SELECT max(ts) FROM carry_book_l2
                            WHERE exchange=$1 AND symbol=$2 AND market=$3)
@@ -196,7 +213,14 @@ class BookSource:
         if len(levels) < 3:
             return None
         c = Curve(levels, side)
-        return c if c.f else None
+        if not c.f:
+            return None
+        # Age is measured against the DATABASE clock, not this process's, so a
+        # clock skew between bot and collector cannot manufacture a fresh-looking
+        # book. Both timestamps come from the same row.
+        c.ts = rows[0]["ts"]
+        c.age_s = max(0.0, (rows[0]["srv_now"] - rows[0]["ts"]).total_seconds())
+        return c
 
 
 class PairedMarks:

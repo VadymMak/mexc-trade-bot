@@ -81,6 +81,18 @@ UPDATE paper_carry_positions
    SET funding_only_pnl_usd = paper_pnl_usd
  WHERE funding_only_pnl_usd IS NULL;
 
+-- THE AGE OF THE BOOK WE PRICED AGAINST (2026-09-14). `book.latest_curve`
+-- takes max(ts) with NO age bound, so a dead depth feed yields an arbitrarily
+-- old price and nothing marks it as old. A missing price fails loudly; a stale
+-- one fails silently, which is worse. INPUTS BESIDE OUTPUTS, exactly as the
+-- basis mark carries n / last_ts / source: these two columns are what make
+-- entry_cost_usd and exit_cost_usd interpretable after the fact.
+-- Deliberately NO limit is enforced anywhere yet — the distribution has to be
+-- measured before a threshold is chosen.
+ALTER TABLE paper_carry_positions
+    ADD COLUMN IF NOT EXISTS entry_book_age_s DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS exit_book_age_s  DOUBLE PRECISION;
+
 CREATE TABLE IF NOT EXISTS paper_carry_events (
     id        BIGSERIAL PRIMARY KEY,
     ts        TIMESTAMPTZ DEFAULT now(),
@@ -140,7 +152,7 @@ class BotStore:
                        entry_cost_usd: float, interval_hours: float,
                        last_epoch: int, entry_depth_usd: float,
                        depth_basis: str, notes: str,
-                       entry_basis=None) -> int:
+                       entry_basis=None, book_age_s: float | None = None) -> int:
         """`entry_basis` is a basis.BasisMark, stored on BOTH legs so either row
         is self-describing. An unmarked entry stores NULL, never 0 bps: a
         missing mark and a flat basis must stay distinguishable."""
@@ -152,16 +164,17 @@ class BotStore:
                   last_epoch, entry_depth_usd, depth_basis, notes,
                   paper_pnl_usd, funding_only_pnl_usd,
                   entry_basis_bps, entry_basis_ts, entry_basis_n,
-                  basis_mark_source)
+                  basis_mark_source, entry_book_age_s)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,$13,$14,$15,
-                       $16,$16,$17,$18,$19,$20)
+                       $16,$16,$17,$18,$19,$20,$21::double precision)
                RETURNING id""",
             self.run_id, group_id, ex, sym, leg, side, notional_usd, entry_price,
             leverage, entry_cost_usd, interval_hours, last_epoch, entry_depth_usd,
             depth_basis, notes, -entry_cost_usd,
             (eb.bps if eb else None), (eb.last_ts if eb else None),
             (eb.n if eb else None),
-            (eb.source if entry_basis is not None else None))
+            (eb.source if entry_basis is not None else None),
+            book_age_s)
         return row["id"]
 
     async def open_positions(self) -> list:
@@ -217,7 +230,8 @@ class BotStore:
     async def close_group(self, group_id: str, exit_cost_usd: float,
                           reason: str, exit_basis=None,
                           spot_close_price: float | None = None,
-                          perp_close_price: float | None = None) -> dict:
+                          perp_close_price: float | None = None,
+                          book_age_s: float | None = None) -> dict:
         """Close both legs and BOOK THE BASIS LEG. Returns the booked terms.
 
         MID-TO-MID, COSTS SEPARATE (see basis.py). The basis term is struck
@@ -280,13 +294,14 @@ class BotStore:
                    paper_pnl_usd  = paper_pnl_usd - $2
                                     + CASE WHEN leg='spot'
                                            THEN $10::double precision ELSE 0 END,
+                   exit_book_age_s = $11::double precision,
                    notes = coalesce(notes,'') || ' | closed: ' || $3
                WHERE group_id=$1 AND status='open'""",
             group_id, exit_cost_usd / 2.0, reason, exit_bps,
             spot_close_price, perp_close_price,
             (xb.last_ts if xb else None), (xb.n if xb else None),
             (xb.source if exit_basis is not None else "unmarked"),
-            pnl_basis)
+            pnl_basis, book_age_s)
         return {"basis_pnl_usd": pnl_basis, "entry_basis_bps": entry_bps,
                 "exit_basis_bps": exit_bps, "notional_usd": notional,
                 "marked": entry_bps is not None and exit_bps is not None}

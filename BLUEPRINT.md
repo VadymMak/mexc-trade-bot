@@ -321,6 +321,19 @@ Edit a line if a new result contradicts it; never add a second.
   eye to the line; it was never the condition. **This matters because the two readings imply opposite things: a
   bug that fires only in a crisis is a risk-control failure, while one that fires always is a total outage that is
   easier to find. This was the second.** The measurement behind the correction is in §5.
+- **WITHDRAWN 2026-09-14 — the chain "depth silence -> no book curve -> the position cannot be sold" is wrong at
+  its middle link.** `latest_curve` takes `max(ts)` with **no age bound**, so a dead feed never yields *no* curve;
+  it yields a **stale** one. And depth does not vanish once present: **0 of 101,576 snapshots** across 608 legs
+  had fewer than 3 usable levels, the thinnest ever seen had **21**. The only unpriceable legs belong to
+  **2 of 153** names (`gate/HOODX`, `gate/AI`, both missing perp), and **neither can ever be held** because
+  `open_carry` requires the same market's curves. **A name that can be bought can be sold.**
+- **KEPT AND PROMOTED — the admission rule was already doing the work, silently and by accident, and that is a
+  DEPENDENCY nobody is maintaining.** The reason the unpriceable exit has never occurred is not a safeguard anyone
+  designed: it is that `executor.open_carry` refuses to open a leg it cannot price, which happens to exclude
+  exactly the names whose exit would be unpriceable. **An accidental safety property has no owner and no test.**
+  If `open_carry` ever stops requiring both curves — a relaxation that would look like a small liquidity
+  concession — **the exit exposure appears with no other warning anywhere in the system.** Treat any change to
+  `open_carry`'s curve requirement as a change to the exit path.
 - **THE RULE: fixing an instance of a defect class is not fixing the class.** The comment explaining the `$10`
   INTEGER truncation sat **two lines below** a parameter that still had the same defect, and it stayed there for
   ten days. Runtime-dependent parameter typing has now appeared **three times**, twice in the same statement. The
@@ -546,7 +559,7 @@ exactly that.
 
 | what | state | readable when |
 |---|---|---|
-| paper carry bot, **generation 25** (2026-09-14 07:46:41Z) | running, paper-mode intact; **first generation whose exit path works.** Gens 1–24 could not close a position after 2026-09-04 | **G1 SUSPENDED (§2).** The clean window starts here; forecast readable 2026-09-28 |
+| paper carry bot, **generation 26** (2026-09-14 09:25:00Z) | running, paper-mode intact; **first generation that stamps the age of every book it prices against.** Gen 25 fixed the exit path; gens 1–24 could not close at all | **G1 SUSPENDED (§2).** The clean window restarts here; forecast readable 2026-09-28 |
 | #2 dated basis (`mexc-basis`) | 5 venues; **08-28 AND 09-04 settlements both observed end to end** | **answered negative, and the repeat confirmed it** — next settlements 09-11 and quarterly 09-25 would add regimes, not change the sign |
 | #3 lending (`mexc-lending`) | 5 sources, 14 series, **6 earnable**, 2 assets; 11.1 d, 5-min cadence | **rates already readable** (SE ≤0.15pp on all six); what is NOT readable is regime persistence, and the **USD risk-free comparator is not collected at all** |
 | #4 stable LP (`mexc-lp`) | 16 chains, 201–212 pools/day (**129 clean**); 11.1 d, 30-min cadence, 1 weekend | fee side readable now and **below its own gas break-even**; the **adverse leg has no readable date — the collector stores no pool price** |
@@ -662,63 +675,54 @@ nothing has closed since **2026-09-02 08:04Z**. Weights **24.4 / 21.6 / 16.2 / 1
 against an expectation of **0.024** at 12.3%/yr over 7 names × 10 days, so again no information about the death
 rate in either direction, and the CI above therefore prices **none** of it.
 
-**THE CLEAN WINDOW STARTS AT 2026-09-14 07:46:41Z.** Everything before it measures a book that could not exit.
-**Do not pool across this boundary.** Deliberate restart, recorded rather than taken by accident during an
-unwatched upgrade: stop **07:46:02Z**, running **07:46:41Z**, **generation 25**. Generations 21–24 (07:46:02, :12,
-:22, :32) died in 39 seconds on a bug of mine — `seed_liveness` read `self.run_id`, which lives on
-`self.store`. It surfaced instantly because the process *exited* rather than stalling, which is the failure mode
-systemd can already see; the smoke test that missed it had checked that `CarryBot` **constructs**, not that the
-new path **runs**. Same trap as the rest of this session, one size down.
-All **six** surviving positions came through with entry marks and provenance intact (BTW, LYN, H, HANA at
-`backfill-median2h`; POWER at `backfill-median2h`; GUA at `live-median2h`), and there has been **no `cycle failed`
-and no unpriced exit since.**
+**THE CURVE-AGE STAMP, shipped 2026-09-14.** `latest_curve` now returns the **age of the curve it served**
+alongside the curve (`Curve.ts` / `Curve.age_s`), measured against the **database clock** so a skew between bot
+and collector cannot manufacture a fresh-looking book. The **worst (oldest) of the two legs binds** — a position
+is only as well priced as its stalest leg — and that figure is stored as **`entry_book_age_s`** and
+**`exit_book_age_s`** on `paper_carry_positions`, beside `entry_cost_usd` / `exit_cost_usd`. Inputs beside
+outputs, exactly as the basis mark carries `n` / `last_ts` / `source`. Without it an exit priced off a
+twenty-minute-old book is indistinguishable, afterwards, from one priced off a live one — and two currently-held
+names were already caught in long spot stalls (`mexc/BULLA` 21.0 min, `mexc/H` 15.7 min).
+**NO AGE LIMIT IS ENFORCED ANYWHERE, deliberately.** A threshold picked before the distribution is known is
+precisely how the depth watchdog came to guard the leg that does not fail. Measure for a few weeks, then set the
+limit from the recorded ages. `tests/test_book_age.py` (17 checks) drives the real path against the live books
+and proves the value **survives the write**: `open_leg` and `close_group` are executed for real inside a
+transaction that is then rolled back, storing **entry 102.283391 s / exit 102.285319 s** and leaving **0 rows**
+behind.
 
-**The first full cycle completed end to end at 07:59:59Z** — close, risk pass, accrual, selection over 153 names
-(~12 min), two opens and a health report, with no failures. The engine is doing the whole job again for the first
-time since 2026-09-04. Resulting book: **8 names, $719.72 notional**, `mexc/H` 21.4 · `mexc/GUA` 16.1 ·
-`gate/FF` 15.4 · `mexc/BTW` 14.4 · `mexc/HANA` 13.7 · `mexc/BULLA` 10.3 · `mexc/LYN` 4.8 · `gate/POWER` 3.8%.
+**TWO DELIBERATE DEPLOYMENTS, 2026-09-14.**
+- **`mexc-carry-depth`, stop 09:24:16Z, running 09:24:18Z** — it had been on the 09-10 process, so the corrected
+  `evaluate_stall` was on disk and not in force. **The spot arm is now the binding one**, which was the point: at
+  the measured 24 h worst, perp sits at **26%** of its hard limit and spot at **50%** of its own, and
+  `evaluate_stall([234], 1350)` returns `soft` on the spot reason while perp alone stays silent. The separate
+  limits are not a convenience: **applying perp's 900 s to a 153-symbol REST sweep would have exited the collector
+  nine times in one day for stalls that self-recovered, taking healthy perp sockets down with it. A watchdog that
+  kills a healthy component to punish a slow one is not a safety feature.**
+- **`mexc-carry-paper`, stop 09:24:59.993Z, running 09:25:00.397Z — GENERATION 26.** One clean boundary, no
+  failed starts (contrast generations 21-24), **0 `cycle failed` since**. All **8 groups / 16 legs** came through
+  with entry marks and provenance intact (2 distinct sources: 6 `backfill-median2h`, 2 `live-median2h`).
+  `gate/POWER_USDT` — still the first genuine test of the interval-aware floor, since it is the only 8 h name held
+  — sits at **trailing-7 10.5% on capital against the 4.0% floor at 8 h, 0 negative epochs**: healthy, 6.5 pp of
+  headroom, and **still untested**, because under the OLD flat 8.0% floor it would already have been exited.
 
-**THE FIRST HONEST EXIT DATUM — `gate/INX_USDT`, closed 2026-09-14 07:47:34Z, 53 seconds after the restart.**
-The first completed round trip since 2026-09-02, and the first ever with both marks recorded live
-(`live-median2h -> live-median2h`, n=24 at each end). Held **5.95 days** on **$173.94** notional:
+**THE CLEAN WINDOW NOW STARTS AT 2026-09-14 09:25:00Z (generation 26).** It was reset one day after the previous
+start, on purpose: **the cost of restarting now is one day of window; the cost of not restarting was fourteen days
+of exit data in which no exit could be attributed to a live or a stale book.** Everything before this timestamp
+measures a book whose prices carry no age. **Do not pool across it.**
 
-| | |
-|---|---|
-| funding realised | **+$1.0819** |
-| entry cost (both legs) | **−$0.3754** |
-| exit cost (both legs) | **−$0.1467** |
-| basis, +20.3 → +11.7 bps | **+$0.1491** |
-| **net** | **+$0.7089** = **+16.7% annualised** on capital |
+**PRE-COMMITTED FORECAST — restated 2026-09-14 against the new start, readable 2026-09-28.** Unchanged in
+substance; only the window moves.
 
-**Exit cost against provision: $0.1467 actual = 8.43 bps of notional, against a provision of $0.3056 = 17.57 bps.
-The provision was conservative by 2.1×** — the first evidence that the 0.814×-entry rule *overstates* exit cost,
-where every prior fear was that it understated it. **Cost ÷ income on this round trip: 48.2%**, against **246%**
-over the 41 pre-fix round trips and **87.9%** over the n=14 subset. **n=1. Do not average it into anything yet.**
-It was a fully priced exit — `modelled maker exit`, book curve present — so it tests the normal path, not the
-unpriceable one.
+> **Measured over 2026-09-14 09:25:00Z -> 2026-09-28, on completed round trips and open positions marked to
+> market, the both-legs net annualised comes in BELOW +15.83% — the lower bound of the withdrawn window's
+> interval. If it does not, the tail decay is NOT what sets this yield and something else is supporting it.**
 
-**R4's first genuine production test, and it behaved.** It fired at trailing-7 **7.5%** against the **8.0%** floor
-on a name that entered at **55.1%**, exited it **after** the ~3.5-day break-even at 5.95 days, and the round trip
-was **profitable**. Re-entry was blocked for 96 h (exit #2) with the hysteresis bar at 16%. **One precision: INX
-is a Gate name on a 4 h interval, and the interval-aware fix only changed 8 h floors — so this tests R4's core
-exit logic, NOT the interval fix.** That fix's first real test is `gate/POWER_USDT` (8 h, floor 4.0%, currently
-9.7%), still open.
-
-**PRE-COMMITTED FORECAST — restated 2026-09-14 on the clean window, readable 2026-09-28.** The original was
-written against the contaminated window; the comparison is only valid against something the strategy could
-actually trade. **76.2%** of the withdrawn window's income was the above-default funding tail, and that tail
-decayed inside it (second ÷ first half mean rate: INX 0.25 · HANA 0.40 · POWER 0.46 · LYN 0.52 · BTW 0.89 ·
-H 1.01 · GUA 1.48). At the venue default the same window annualised to **+0.99%**.
-
-> **The prediction: measured over 2026-09-14 07:46:41Z → 2026-09-28, on completed round trips and open positions
-> marked to market, the both-legs net annualised comes in BELOW +15.83% — the lower bound of the withdrawn
-> window's interval. If it does not, the tail decay is NOT what sets this yield and something else is supporting
-> it, which is the more interesting outcome and the one that would need explaining.**
-
-Read on the same basis (both legs, mid-to-mid, costs as separate lines, capital-day weighted) and over clean
-sub-windows only. Neither branch may be reinterpreted afterwards. **Note the forecast is now made against a book
-that can exit, so a fall could come from realised exit costs rather than from funding decay — report the
-decomposition, not just the total.**
+**The decomposition is now three-way and all three must be reported separately, because a fall can come from any
+of them and they imply different things:** (1) **realised exit costs** — real, and the first datum
+(`gate/INX_USDT`, 8.43 bps against a 17.57 bps provision) says the provision *overstates*; (2) **funding decay** —
+the tail thinning, which is the hypothesis under test; (3) **stale-priced exits** — now measurable for the first
+time via `exit_book_age_s`, and previously invisible. A total that falls without saying which of the three moved
+is not a result.
 
 **WHAT WOULD ACTUALLY CLOSE A POSITION — read 2026-09-14, and the answer is "one already should have".** The
 question was whether the exit leg can be measured on this book. Measured state of the seven:
@@ -892,6 +896,16 @@ okx have `venue_basis_raw` and `future_oi` 100% NULL.
 - **Multi-venue as diversification** — same factor everywhere.
 
 ## 7. Working rules
+
+- **A NEW CHECK MUST BE REPLAYED AGAINST A RECORDED REAL FAILURE, NEVER AN IMAGINED ONE.** Proven twice in one
+  week, and both times the replay found something reasoning had missed. The liveness detector was replayed
+  against the **2026-09-05** episode, not only the 09-10 one it was written for — and that is what showed the
+  3.63 h hole sits *under* the accrual limit and is caught only by the selection and failure arms. The depth rule
+  asserts that the **old perp-only test returns "ok" during the real 22.5-minute stall**, which is what
+  demonstrated the shipped watchdog guarded the leg that does not fail. A check validated against an invented
+  scenario validates the imagination, not the system. **Corollary, learned from generations 21-24: the replay
+  must drive the code path, not construct the object.** A smoke test that built `CarryBot` passed while
+  `seed_liveness` was broken.
 
 1. **Every prompt names the gate it serves in its first line** — G1…G5, or explicitly `FIX` / `HOUSEKEEPING`.
    A prompt serving no gate and not labelled a fix is drift.

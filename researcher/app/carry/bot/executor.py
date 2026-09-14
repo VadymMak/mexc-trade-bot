@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 class ExecutionResult:
     __slots__ = ("ok", "reason", "group_id", "spot_price", "perp_price",
-                 "notional_usd", "entry_cost_usd", "spot_slip", "perp_slip")
+                 "notional_usd", "entry_cost_usd", "spot_slip", "perp_slip",
+                 "book_age_s")
 
     def __init__(self, ok: bool, reason: str = "") -> None:
         self.ok, self.reason = ok, reason
@@ -30,6 +31,9 @@ class ExecutionResult:
         self.spot_price = self.perp_price = 0.0
         self.notional_usd = self.entry_cost_usd = 0.0
         self.spot_slip = self.perp_slip = 0.0
+        # Worst (oldest) of the two legs' books. The WORSE one binds: a position
+        # is only as well priced as its stalest leg.
+        self.book_age_s = None
 
 
 class PaperExecutor:
@@ -61,11 +65,13 @@ class PaperExecutor:
 
         s_slip = spot_ask.slip_bps(notional_usd) or 0.0
         p_slip = perp_bid.slip_bps(notional_usd) or 0.0
+        ages = [a for a in (spot_ask.age_s, perp_bid.age_s) if a is not None]
         maker = self._cfg.maker_bps[ex]
         # entry cost = both legs' impact + both legs' maker fee, on notional
         entry_cost = notional_usd * ((s_slip + p_slip + 2 * maker) / 1e4)
 
         r = ExecutionResult(True)
+        r.book_age_s = max(ages) if ages else None
         r.group_id = f"{ex}-{sym}-{uuid.uuid4().hex[:8]}"
         r.spot_price, r.perp_price = sp, pp
         r.notional_usd = notional_usd
@@ -103,14 +109,20 @@ class PaperExecutor:
             f"{market} {direction} ${usd:,.0f} @ {price:.6g} ({slip:.1f}bps slip)"
 
     async def close_carry(self, ex: str, sym: str, notional_usd: float
-                          ) -> tuple[float, str, float | None, float | None]:
-        """Returns (exit_cost_usd, note, spot_fill, perp_fill).
+                          ) -> tuple[float, str, float | None, float | None,
+                                     float | None]:
+        """Returns (exit_cost_usd, note, spot_fill, perp_fill, book_age_s).
 
         Exit sells spot (hits the bid) and covers perp (lifts the ask). The two
         fill prices are returned so `close_price` can finally be populated —
         it was NULL on every closed leg until 2026-09-04. They are recorded as
         INPUTS ONLY: the basis P&L is struck mid-to-mid, because these fills
         carry the exit spread that `exit_cost_usd` already charges.
+
+        `book_age_s` is the WORST (oldest) book age across the two legs, in
+        seconds — the input that makes `exit_cost_usd` interpretable. Without it
+        an exit priced off a 20-minute-old book is indistinguishable afterwards
+        from one priced off a live one.
         """
         spot_bid = await self._books.latest_curve(ex, sym, "spot", "bid")
         perp_ask = await self._books.latest_curve(ex, sym, "perp", "ask")
@@ -119,6 +131,9 @@ class PaperExecutor:
         p = perp_ask.slip_bps(notional_usd) if perp_ask else None
         sf = spot_bid.vwap_price(notional_usd, "bid") if spot_bid else None
         pf = perp_ask.vwap_price(notional_usd, "ask") if perp_ask else None
+        ages = [c.age_s for c in (spot_bid, perp_ask)
+                if c is not None and c.age_s is not None]
+        age = max(ages) if ages else None
         if s is None or p is None:
             # Exit into a book too thin to absorb us: charge the taker cost of
             # sweeping what is there. This is the honest pessimistic case.
@@ -126,9 +141,9 @@ class PaperExecutor:
             cost = notional_usd * ((self._cfg.max_rt_slip_bps + 2 * taker) / 1e4)
             return (cost, "exit book too thin — charged sweep cost",
                     (spot_bid.touch if spot_bid else None),
-                    (perp_ask.touch if perp_ask else None))
+                    (perp_ask.touch if perp_ask else None), age)
         return (notional_usd * ((s + p + 2 * maker) / 1e4),
-                "modelled maker exit", sf, pf)
+                "modelled maker exit", sf, pf, age)
 
 
 class LiveExecutor:

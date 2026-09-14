@@ -365,8 +365,8 @@ class CarryBot:
 
             exits = [v for v in verdicts if v.fired and v.action == "exit"]
             if exits:
-                cost, note, spot_fill, perp_fill = await self.exec.close_carry(
-                    ex, sym, float(g["notional_usd"]))
+                cost, note, spot_fill, perp_fill, book_age = \
+                    await self.exec.close_carry(ex, sym, float(g["notional_usd"]))
                 reason = "; ".join(v.rule for v in exits)
 
                 # ---- THE UNPRICEABLE EXIT -------------------------------
@@ -408,7 +408,8 @@ class CarryBot:
                     window_h=self.cfg.basis_mark_window_h, source="live")
                 booked = await self.store.close_group(
                     g["group_id"], cost, reason, exit_basis=xb,
-                    spot_close_price=spot_fill, perp_close_price=perp_fill)
+                    spot_close_price=spot_fill, perp_close_price=perp_fill,
+                    book_age_s=book_age)
                 bp = booked["basis_pnl_usd"]
                 bmsg = (f"basis {booked['entry_basis_bps']:+.1f} -> "
                         f"{booked['exit_basis_bps']:+.1f}bps = ${bp:+,.4f}"
@@ -423,6 +424,7 @@ class CarryBot:
                               "exit_basis_bps": booked["exit_basis_bps"],
                               "basis_marks": xb.n,
                               "basis_mark_source": xb.source,
+                              "book_age_s": book_age,
                               "spot_close_price": spot_fill,
                               "perp_close_price": perp_fill})
                 # Exile it. Without this the selector re-admitted the name on
@@ -706,7 +708,8 @@ class CarryBot:
                     res.group_id, cand.ex, cand.sym, leg, side, notional, price,
                     self.cfg.leverage if leg == "perp" else 1.0,
                     res.entry_cost_usd / 2.0, iv, epoch, cand.depth_usd,
-                    cand.depth_basis, note, entry_basis=eb)
+                    cand.depth_basis, note, entry_basis=eb,
+                    book_age_s=res.book_age_s)
             await self.store.event(
                 "info", "open",
                 f"PAPER open ${notional:,.0f}/leg (capital ${capital:,.0f}) "
@@ -718,6 +721,7 @@ class CarryBot:
                  "net_apr": cand.net_apr, "gross_apr": cand.gross_apr,
                  "entry_cost_usd": res.entry_cost_usd,
                  "entry_basis_bps": eb.bps, "basis_marks": eb.n,
+                 "book_age_s": res.book_age_s,
                  "basis_mark_source": eb.source, "basis_now_bps": cand.basis_now,
                  "depth_usd": cand.depth_usd, "depth_basis": cand.depth_basis})
 
