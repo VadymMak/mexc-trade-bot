@@ -859,6 +859,76 @@ never be discussed as continuous with carry, because it is a directional positio
 lost.** The honest size of the prize is a 2.7–3.8x lift on a 4.25% base rate from a 26-day single-regime sample,
 with the mechanism unresolved between "early warning" and "arithmetic restatement of the same flow".
 
+**THE SEQUENCING TEST — information, not arithmetic, and the definition of `t_premium` was committed first**
+(`RESEARCH_IMBALANCE_ADDENDUM.md`, commit `56519eb`; family widened to 23 hypotheses, Bonferroni
+alpha 0.00217). `t_premium` = the first moment in `[t0-24h, t0]` at which `basis_bps` leaves a MAD band built
+from `[t0-7d, t0-24h]` — a baseline window that **ends before** the window under test — in the direction of the
+funding sign. Exact timestamps, not row offsets, because this is a timing question and the row approximation errs
+by minutes.
+
+- **A volume-before-premium window exists.** Of 630 episodes with a usable baseline, the premium moved inside the
+  window in **52.1%** and volume in **20.5%**; both moved in **88 (14.0%)**, which is the sequencing sample. In
+  **62.5%** of those, **volume moved first**, with a **median lead of 380 minutes** (p25 105, p75 793, p90 1256).
+- **And the discrimination sits where the premium has NOT yet moved.** Stratifying every point by whether the
+  premium had already left its band at t-6h: **stratum B (premium not yet moved) holds 583 of 588 onsets and
+  `svol_6` discriminates there at AUC 0.5611, p=2.9e-06** — significant at the tightened alpha. Stratum A
+  (premium already moved) has only **33 points and 5 onsets**, too few to test.
+- **Verdict, by the rule committed before the run: INFORMATION, not arithmetic.** With two honest limits: the
+  test is **one-sided** — it shows the signal is present before the premium moves, not that it is absent after,
+  because stratum A is too small to contrast — and the volume never leaves its own band at all in **79.5%** of
+  episodes, so where the lead exists it is real but it is a minority phenomenon.
+
+**THREE THINGS FROM THE STAGE-2 TABLE THAT MUST BE STATED, NOT BURIED.**
+1. **`oi_6` has AUC 0.477 — BELOW 0.5.** The direct measure of crowd size is not merely weak, it is **slightly
+   inverted**, and it is the **pre-registered primary hypothesis**. This is the single strongest piece of
+   evidence against the accumulation story.
+2. **`oivol_6` discriminates downward: open interest falls relative to volume.** That is **churn, not
+   accumulation** — the same positions changing hands faster, not new ones arriving. **The crowd may not be
+   arriving at all.** Stage 3, if it opens, would be testing a different hypothesis from the one that opened it.
+3. **The strength is in the volume denominator, not in open interest.** Side by side: **`svol_6` test AUC 0.562**
+   (top-5% precision 16.1%, 3.78x lift) against **`oivol_6` 0.572** — and `oi_6` 0.477, `oi_24` 0.536. **Nobody
+   may later read the ratio as an OI result.**
+
+**WHERE CARRY'S INCOME ACTUALLY COMES FROM — and it is NOT these episodes.** Joining 958 carry receipts
+($+20.2105 lifetime) against the 648-episode catalogue:
+
+| | income | share |
+|---|---|---|
+| earned INSIDE a catalogued episode | **$+0.1082** | **0.5%** |
+| earned OUTSIDE any episode | **$+20.1022** | **99.5%** |
+
+On the above-default component alone the split is the same: **0.6% inside, 99.4% outside.** All 7 inside-receipts
+fall in the sustained half; **the spike population contributed exactly $0.0000**, which confirms rather than
+assumes that a trailing-window selector is immune to threshold blips.
+
+**The reason is structural and it reframes the whole study.** The episode definition requires **24 h wholly at
+rest** before the crossing, so it catalogues **transitions INTO the tail**. Carry's selector ranks on a trailing
+window, so it picks names that are **persistently IN the tail** — and such a name can almost never produce an
+onset, because it is never at rest. Measured: `mexc/BTW_USDT`, carry's largest earner at **$5.78**, spends
+**3.1%** of snapshots at rest and **71.1%** hot, median rate **6.2x** the default — and produced **zero
+episodes**. Across the held book the top four earners (BTW, H, HANA, LYN, **$12.3 of $20.2**) produced **zero
+episodes between them**, against a universe averaging **78.9% at rest / 7.3% hot**. **The episode catalogue and
+carry's income are near-disjoint populations by construction.** The imbalance study does not explain where
+carry's money comes from; it studies a different object.
+
+**VENUE AND DIRECTION — and the venue split is mostly an artefact.** gate 564 episodes vs mexc 84 looked like a
+venue-behaviour difference. Measured: **gate names sit at rest 86.3% of the time against MEXC's 73.3%** (exactly
+at the `5e-05` default 46.2% vs 44.6%, so the default itself is not the difference). **Gate names rest more, so
+they far more often satisfy the 24-h-rest precondition an onset requires.** The split is therefore largely **the
+definition interacting with each venue's resting behaviour**, not evidence that crowding happens on Gate — and it
+dovetails with the paragraph above: MEXC's chronically-warm names are the ones carry holds, which is why carry's
+income and the episodes do not overlap. **This does not transfer to venue selection**, which remains a death-rate
+question.
+**Direction: shorts-crowded 456 vs longs-crowded 192 (2.4:1), inside one bear market** — and negative funding
+occupies only **12-15%** of all snapshots, so negative excursions are far more *eventful* than their frequency.
+The two halves are **not the same animal**: shorts-crowded episodes are shorter (p50 **1.00 h** vs **2.08 h**)
+with slightly smaller peaks. **Most of this income is earned standing on the long side against crowded shorts.
+In a bull market the sign flips and the population is a different one, so none of this transfers** — the regime
+caveat is now sharper than anything previously written here.
+
+**KILL CRITERION: still #4 — the lead survived out of sample AND survives the mechanism test, so Stage 3 remains
+open, on the churn hypothesis rather than the accumulation one that opened it. Stage 3 is NOT begun.**
+
 **Collector stall-detection sweep, 2026-09-14.** Six collectors (`basis`, `bybit`, `carry`, `lending`, `lp`,
 `venues`) already derive liveness from **successful writes** and escalate: soft-stall rebuilds the HTTP session,
 hard-stall exits for a clean systemd restart. **`carry-depth` logged stale-socket age and never escalated** — and
