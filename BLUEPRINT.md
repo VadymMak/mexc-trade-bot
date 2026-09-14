@@ -929,6 +929,75 @@ caveat is now sharper than anything previously written here.
 **KILL CRITERION: still #4 — the lead survived out of sample AND survives the mechanism test, so Stage 3 remains
 open, on the churn hypothesis rather than the accumulation one that opened it. Stage 3 is NOT begun.**
 
+**AN ONSET IS NOT WORTH CATCHING — the predictive line CLOSES.** Hypotheses declared before the run
+(`RESEARCH_IMBALANCE_ADDENDUM.md` addendum 2, commit `e76f16d`; family 26, Bonferroni alpha 0.00192). The whole
+imbalance programme was built to *predict* an onset and never once asked whether an onset is **worth** anything.
+Tested at the **upper bound — perfect foresight, entering exactly at t=0**, which no detector can match, on the
+**sustained population only** (n=323; the blip half is untradeable by construction, 95.3% of it peaking at t=0),
+costed at the carry engine's **own measured round trip of 19.5 bps** (entry p50 10.1 + exit p50 9.4 over 41
+completed round trips; the independent gate dated-basis figure of 19.04 bps agrees to 0.5 bps):
+
+| market-neutral carry, entered at t=0, held to episode end | p25 | **p50** | p75 | profitable |
+|---|---|---|---|---|
+| all (n=301) | −25.98 | **−13.62** | +0.75 | **26.6%** |
+| shorts-crowded (n=200) | −24.26 | **−13.92** | +0.71 | 26.0% |
+| longs-crowded (n=101) | −30.27 | **−12.21** | +0.90 | 27.7% |
+
+**The arithmetic is not close.** Median funding collected over the *whole* episode is **1.66 bps** against a
+**19.5 bps** round trip — the cost is **12x** everything the episode pays. A 16-hour median episode at a 4 h
+settlement is four epochs; four epochs at these rates cannot pay for one entry. The directional alternative is
+worse: standing against the crowd returns a median **−97.9 bps at 24 h** with a **40.2%** win rate.
+**So: perfect foresight at t=0 does not pay after costs, therefore the detector is irrelevant — a detector that
+fires ~6 h earlier at AUC 0.562 and 16.1% top-5% precision can only capture a fraction of an upper bound that is
+itself negative. The predictive line is CLOSED, and Stage 3 does not open.** Kill criterion #4 opened Stage 3 on
+detectability; this closes it on **value**, which no criterion had asked about. **The gap was in the question, not
+in the answer.**
+
+**HEAT PERSISTS — the selector's central bet, tested for the first time and it holds.** 12,887 name-day
+observations, 1,196 names, 11 anchors, deaths retained. The selector *ranks* on trailing-7 rather than
+thresholding, so the test is the ranking's, not a cutoff's.
+
+| trailing-7 decile | trailing-7 (x1e-5) | **forward-7 p50** | forward / trailing |
+|---|---|---|---|
+| 1 (coldest) | −23.27 | −4.62 | 0.20 |
+| 5 | 5.00 | 5.00 | 1.00 |
+| 9 | 10.00 | 9.98 | 1.00 |
+| **10 (hottest)** | **16.97** | **16.06** | **0.95** |
+
+**Unconditional forward-7 median is exactly 5.00e-5 — the venue default — so the top decile's 16.06e-5 is 3.2x
+what an unranked name pays.** The ranking selects something real.
+**Spearman(trailing-7, forward-7) = 0.6686, 95% CI [0.6541, 0.6819]**, n=12,887.
+
+**Rank persistence and level decay are different failures, and only one of them is happening.**
+**Rank: 62.6% of top-decile names are still top-decile 7 days later** (85.4% still in the top three, against 30%
+by chance) — n=465, and that figure rests on only **4 anchor pairs**, which is the measurement's main limit.
+**Level: a top-decile name realises a median 0.930 of its own trailing rate** (p25 0.633, p75 1.206). So the
+ranking holds *and* the level barely decays.
+**This resolves realised ÷ modelled = 0.85 into two multiplicative parts:** level decay **0.930**, and a residual
+**0.914** which is the mean-of-a-right-skewed-series bias in `_modelled_rate` already identified as worth ~15%.
+**0.930 x 0.914 = 0.850.** Consistent with, not proof of — but it means the 0.85 is *mostly estimator bias, not
+decay*, and the mean→median fix remains the right correction.
+
+**THE HALF-LIFE OF HEAT IS ~10.4 DAYS, which is LONGER than the window that measures it.** From 62.6% top-decile
+retention at 7 days, exponential half-life = 10.4 d. **So trailing-7 is not buying the past — heat outlives the
+window.** The implication is that a *longer* window (10–14 d) would average more noise out while the signal is
+still alive, and the same applies to **R4's exit floor, which reads the same trailing-7 metric**: a floor computed
+over a window shorter than the half-life of the thing it measures will exit on noise. **NOTHING IS CHANGED HERE.**
+A parameter fitted on the window that suggested it is not a parameter; this is a hypothesis for out-of-sample
+validation in time, and it is the highest-value one the dataset has produced.
+
+**VENUE: persistence is a NAME property, not a venue property — and this cuts the R7 cap's price.** Per hot name,
+**gate realises 0.88 of its trailing rate and mexc 0.96**; frequency of being in the top decile is **gate 9.5% vs
+mexc 10.4%**, i.e. barely distinguishable. **So MEXC is not "hot more often" — it is very slightly stickier when
+hot.** The income advantage of concentrating in MEXC is therefore **small (0.96 vs 0.88)** while its instrument
+death rate is **24.3%/yr against Gate's 11.3%**. **The R7 venue cap was priced at ~8 pp of yield to buy 0.5 pp of
+expected value; this says the yield given up is smaller than that figure assumed.** R7 is out of scope here and
+is NOT changed — but the number it was priced against has moved.
+
+**Regime stamp, sharper than before:** one bear market throughout, and 2.4:1 of this is earned standing long
+against crowded shorts. In a bull market the sign flips and the population inverts, so **none of the persistence
+structure above is known to transfer.**
+
 **Collector stall-detection sweep, 2026-09-14.** Six collectors (`basis`, `bybit`, `carry`, `lending`, `lp`,
 `venues`) already derive liveness from **successful writes** and escalate: soft-stall rebuilds the HTTP session,
 hard-stall exits for a clean systemd restart. **`carry-depth` logged stale-socket age and never escalated** — and
