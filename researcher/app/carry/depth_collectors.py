@@ -283,6 +283,14 @@ class SpotDepthPoller:
         self._fails: dict[tuple[str, str], int] = {}
         self.polls = 0
         self.errors = 0
+        # Monotonic stamp of the last SUCCESSFUL snapshot write. The class
+        # docstring above claimed "REST needs no watchdog"; measured 2026-09-14,
+        # that was wrong — the only book staleness on the box is on THIS side
+        # (spot max 22.5 min in 24 h against perp's 3.9 min), because a sweep of
+        # 153 symbols with 10 s timeouts stretches when many of them fail. The
+        # retry logic works per symbol; the SWEEP is what goes slow, and nothing
+        # was measuring the sweep.
+        self.last_ok_at = 0.0
 
     async def start(self) -> None:
         self._stop.clear()
@@ -352,3 +360,4 @@ class SpotDepthPoller:
         await self._store.add_snapshot(ex, sym, "spot",
                                        _levels(d.get("bids")),
                                        _levels(d.get("asks")), LEVELS)
+        self.last_ok_at = time.monotonic()

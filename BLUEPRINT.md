@@ -312,13 +312,15 @@ Edit a line if a new result contradicts it; never add a second.
   8 h arithmetic in `tests/test_basis_booking.py` is unchanged and still passes — but **this window contains no
   evidence either way, because no exit it requested was ever executed.** The honest state of R4 is *untested in
   production since 2026-09-04*.
-- **THE EXIT FAILED PRECISELY WHEN THE NAME HAD TO BE SOLD INTO A THIN BOOK — THE ONE MOMENT AN EXIT MATTERS.**
-  `executor.close_carry` returns `(None, None)` for the fills when it cannot find a book curve, and the untyped
-  `CASE WHEN` then raised. **This is not an accounting defect. It is a risk control that fails in exactly the state
-  it exists for.** A delisting, a venue incident, a funding collapse, a crash — every scenario the exit rule was
-  written to handle arrives with a thin book attached. **With real capital this bug means you cannot get out in the
-  only circumstances where getting out is the point, and the monitor stays green while you cannot.** Everything
-  else found on 2026-09-14 is secondary to that sentence.
+- **CORRECTED 2026-09-14 — the exit did NOT fail "precisely when the book was thin". It failed on EVERY exit,
+  unconditionally, and no thin book was ever involved.** The earlier claim was that `close_carry` returning
+  `(None, None)` was the trigger. It was not. **Postgres infers parameter types at PREPARE, from the SQL text
+  alone — the values are irrelevant.** Demonstrated directly against the live database: the untyped statement
+  raises `DatatypeMismatchError` for `(None, None)`, for `(0.006, 0.0059)` and for one of each. So all **2,554**
+  failures were the type error and **none** was an unpriceable book. The `(None, None)` return was what drew the
+  eye to the line; it was never the condition. **This matters because the two readings imply opposite things: a
+  bug that fires only in a crisis is a risk-control failure, while one that fires always is a total outage that is
+  easier to find. This was the second.** The measurement behind the correction is in §5.
 - **THE RULE: fixing an instance of a defect class is not fixing the class.** The comment explaining the `$10`
   INTEGER truncation sat **two lines below** a parameter that still had the same defect, and it stayed there for
   ten days. Runtime-dependent parameter typing has now appeared **three times**, twice in the same statement. The
@@ -734,6 +736,62 @@ is a provision no longer, and the reason it had been one was a bug rather than a
 `mkdir -p ~/mexc-backups`, append the `mexc-backup@trading-server` ed25519 key to `~/.ssh/authorized_keys`, then
 `SHIP_ENABLED=1` / `SHIP_REQUIRED=1` in `/etc/mexc-backup.conf`. **Until then the backup sits on the disk it
 protects.**
+
+**THE UNPRICEABLE EXIT IS A NON-EVENT — measured 2026-09-14, read-only, and no shadow ledger was built.**
+The question was what the bot should do when it cannot price an exit, and whether to run a shadow ledger to find
+out. **The history answers it without code: the condition has never occurred, and it is currently unreachable.**
+
+- **Base rate: 0 of 101,576 snapshots** across **608 legs** over 6 h had fewer than 3 usable levels. On the eight
+  held names over 24 h, **0 of ~20,000**; the thinnest snapshot seen anywhere had **21 usable levels**, against a
+  threshold of 3.
+- **In all three denial episodes** — `mexc/H` 09-05, `mexc/GUA` 09-10→11, `gate/INX` 09-13→14 — every exit-side
+  leg was **fully priceable at every snapshot** (min 21 levels). So during all 2,554 denied exits the book was
+  always there. This is the measurement behind the §3 correction.
+- **The only way to get an unpriceable leg is a name with no depth stream at all**, and there are exactly **2 of
+  153**: `gate/HOODX_USDT` and `gate/AI_USDT`, both missing perp. **Neither has ever been held, and neither can
+  be:** `executor.open_carry` requires the same market's curves and refuses to open without them. **Entry and exit
+  read the same source, so a name that can be bought can be sold.**
+- **Therefore the exit branch is not where the risk lives, and §2's shadow ledger was not built.** Observing an
+  event that has never occurred, on a path that structurally cannot reach it, would have been a second engine
+  watching nothing.
+
+**WHAT IS REAL IS STALENESS, AND `latest_curve` DOES NOT BOUND IT.** The query takes `max(ts)` for the leg with
+**no age limit at all**, so a dead feed does not produce "no price" — it produces **an arbitrarily old price, with
+nothing marking it as old**. That is the worse failure of the two, and it is invisible in the way the pre-2026-09-04
+basis marks were. Measured over 24 h and 398,450 inter-snapshot intervals:
+
+| | p50 | p95 | p999 | max | >15 min | >60 min |
+|---|---|---|---|---|---|---|
+| perp (websocket) | 2.01 | 2.11 | 2.84 | **3.9 min** | 0 | 0 |
+| spot (REST sweep) | 2.25 | 2.99 | 11.25 | **22.5 min** | 30 | 0 |
+
+**Everything recovered; nothing was ever permanently lost.** All 30 long gaps are **MEXC spot, zero Gate**, and
+they cluster in **two correlated bursts** (09-13 12:36 and 09-13 16:27–16:50, 6 and 9 names at once) — the
+signature of a sweep stalling, not of per-name market events. **So the ours/market's split is: ours 30, market's
+0.** Two currently-held names were caught in it (`mexc/BULLA` 21.0 min, `mexc/H` 15.7 min).
+
+**AND THAT INDICTS THE FIX SHIPPED THE DAY BEFORE.** `carry-depth`'s new hard stall watched the **freshest perp
+socket** — and perp's worst gap in 24 h was **3.9 min** while spot's was **22.5 min**. **The escalation watched
+the leg that does not fail and ignored the one that does**, which is the standing defect class committed by the
+very change meant to close it. `SpotDepthPoller`'s docstring asserted "REST needs no watchdog"; the retry logic is
+per symbol and works, but nothing measured **the sweep**, which is what goes slow. Corrected: the poller now
+stamps `last_ok_at` on a successful snapshot **write**, and `evaluate_stall` is a pure function judging spot and
+perp on **separate limits** — spot soft 900 s / hard 2700 s, deliberately looser, because applying perp's 900 s to
+a 153-symbol REST sweep would have exited the collector **nine times in one day** for stalls that self-recovered,
+taking healthy perp sockets down with it. `tests/test_depth_stall.py` drives a real poll through `_one` to prove
+the stamp moves (and does not move on a failed poll), and asserts the **old perp-only rule returns "ok" during the
+real 22.5-minute stall** — the check that can fail. 19 checks. **Not yet deployed: `carry-depth` is still running
+the 09-10 process.**
+
+**WHAT THIS IMPLIES FOR ADMISSION AND SIZING, which is where it actually lands.** The exit branch needs no policy
+because the condition does not arise; the admission rule is already doing the work, silently and by accident —
+`open_carry` refusing a name with no curve is what keeps the two structurally unpriceable names out of the book.
+The open exposure is that **an exit can be priced against a book up to ~22 minutes old and nothing records that it
+was**. The cheap fix, by exact analogy with the basis mark's `n` / `last_ts` / `source` columns, is to have
+`latest_curve` return the **age** of the curve it served and to store it beside `exit_cost_usd`, so exits priced
+against stale books are identifiable after the fact instead of being averaged into the exit-cost statistics. That
+is a schema change and is **not** done here. **`CARRY_ALLOW_UNPRICED_EXIT` remains a live-policy decision the user
+owes — but it now governs a case that has never fired, so it is not urgent.**
 
 **Collector stall-detection sweep, 2026-09-14.** Six collectors (`basis`, `bybit`, `carry`, `lending`, `lp`,
 `venues`) already derive liveness from **successful writes** and escalate: soft-stall rebuilds the HTTP session,

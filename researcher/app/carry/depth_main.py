@@ -52,9 +52,59 @@ _STATS_INTERVAL = 30.0
 _STALL_SOFT_SECS = float(os.getenv("CARRY_L2_STALL_SOFT_SECS", 300.0))
 _STALL_HARD_SECS = float(os.getenv("CARRY_L2_STALL_HARD_SECS", 900.0))
 
+# SPOT NEEDS ITS OWN, LOOSER THRESHOLDS — and the reason is a correction.
+# The perp thresholds above were shipped on 2026-09-14 watching the perp
+# websockets. Measured the same day over 24 h and 398k inter-snapshot
+# intervals, perp's worst gap was 3.9 min and spot's was 22.5 min: the
+# escalation watched the leg that does not fail and ignored the one that does.
+# Spot is a REST sweep of 153 symbols, so it is inherently burstier than a
+# socket; applying the 900 s perp limit to it would have exited the collector
+# nine times in one day for stalls that self-recovered, taking healthy perp
+# sockets down with it. These limits sit above observed behaviour (p999
+# 11.25 min, max 22.5 min) so they escalate on a real break, not on a slow sweep.
+_SPOT_STALL_SOFT_SECS = float(os.getenv("CARRY_L2_SPOT_STALL_SOFT_SECS", 900.0))
+_SPOT_STALL_HARD_SECS = float(os.getenv("CARRY_L2_SPOT_STALL_HARD_SECS", 2700.0))
+
 
 class L2Stalled(RuntimeError):
-    """No perp socket has produced a message for _STALL_HARD_SECS."""
+    """A depth stream has stopped producing for longer than its hard limit."""
+
+
+def evaluate_stall(perp_ages, spot_age,
+                   perp_soft=None, perp_hard=None,
+                   spot_soft=None, spot_hard=None):
+    """Pure stall decision. Returns (action, reasons).
+
+    `action` is one of "ok", "soft", "hard". PURE so the test can drive it with
+    the measured numbers instead of waiting for a socket to die — the thing the
+    generations-21-24 smoke test failed to do for the carry bot.
+
+    `perp_ages` is seconds since each perp socket's last message (negative =
+    never); `spot_age` is seconds since the last successful spot snapshot WRITE
+    (negative = never). Perp is judged on its FRESHEST socket: if even the best
+    one is old, every curve is stale.
+    """
+    perp_soft = _STALL_SOFT_SECS if perp_soft is None else perp_soft
+    perp_hard = _STALL_HARD_SECS if perp_hard is None else perp_hard
+    spot_soft = _SPOT_STALL_SOFT_SECS if spot_soft is None else spot_soft
+    spot_hard = _SPOT_STALL_HARD_SECS if spot_hard is None else spot_hard
+
+    action, reasons = "ok", []
+    freshest = min((a for a in perp_ages if a >= 0), default=1e9)
+    if freshest > perp_hard:
+        action = "hard"
+        reasons.append(f"perp: freshest socket {freshest:.0f}s > {perp_hard:.0f}s")
+    elif freshest > perp_soft:
+        action = "soft"
+        reasons.append(f"perp: freshest socket {freshest:.0f}s > {perp_soft:.0f}s")
+    if spot_age >= 0:
+        if spot_age > spot_hard:
+            action = "hard"
+            reasons.append(f"spot: last write {spot_age:.0f}s > {spot_hard:.0f}s")
+        elif spot_age > spot_soft and action != "hard":
+            action = "soft"
+            reasons.append(f"spot: last write {spot_age:.0f}s > {spot_soft:.0f}s")
+    return action, reasons
 
 
 async def _load_multipliers() -> dict:
@@ -138,25 +188,23 @@ async def main() -> None:
             # perp socket is the youngest message across all of them. If even
             # that is old, every curve this collector serves is stale and the
             # bot downstream will start failing to price exits.
-            freshest = min((a for _, a in ages if a >= 0), default=1e9)
-            if freshest > _STALL_HARD_SECS:
+            # One decision, taken by a PURE function the test can drive with
+            # the measured numbers. Spot and perp have separate limits because
+            # they have separate failure behaviour (see the constants above).
+            spot_age = (now - spot.last_ok_at) if spot.last_ok_at else -1.0
+            action, reasons = evaluate_stall([a for _, a in ages], spot_age)
+            if action == "hard":
                 logger.error(
-                    "[carry/l2] HARD STALL: no perp message on ANY socket for "
-                    "%.0fs (limit %.0fs) — EXITING for a clean systemd restart. "
-                    "Downstream effect: close_carry cannot price an exit.",
-                    freshest, _STALL_HARD_SECS)
+                    "[carry/l2] HARD STALL (%s) — EXITING for a clean systemd "
+                    "restart. Downstream effect: close_carry prices exits "
+                    "against a stale or missing book.", "; ".join(reasons))
                 stop.set()
-                raise L2Stalled(f"no perp message for {freshest:.0f}s")
-            elif freshest > _STALL_SOFT_SECS:
-                # Deliberately a warning and nothing more: each socket already
-                # reconnects itself inside `_run`, and there is no verified
-                # forced-reconnect entry point to call from here. Inventing one
-                # would be a second unverified path in a file whose whole
-                # problem was an unverified assumption about socket health.
+                raise L2Stalled("; ".join(reasons))
+            if action == "soft":
                 logger.error(
-                    "[carry/l2] SOFT STALL: freshest perp socket %.0fs old "
-                    "(limit %.0fs) — self-reconnect expected; hard stall at %.0fs",
-                    freshest, _STALL_SOFT_SECS, _STALL_HARD_SECS)
+                    "[carry/l2] SOFT STALL (%s) — sockets self-reconnect; hard "
+                    "stall at perp %.0fs / spot %.0fs",
+                    "; ".join(reasons), _STALL_HARD_SECS, _SPOT_STALL_HARD_SECS)
 
     st = asyncio.create_task(stats())
     await stop.wait()
