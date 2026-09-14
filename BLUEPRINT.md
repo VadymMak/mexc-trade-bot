@@ -201,10 +201,12 @@ Edit a line if a new result contradicts it; never add a second.
   room, so positions already open never consume it. Measured drift over 9 days: MEXC share of deployed capital
   **51.0% → 64.8 → 74.4 → 89.9 → 93.6%**, against a 40% cap. It matters because MEXC carries 24.3%/yr instrument
   death vs Gate's 11.3%: the book concentrates into the venue with double the death rate, silently.
-  **Re-measured 2026-09-14, still unfixed, and the drift has partly REVERSED without the cap being enforced:**
-  93.5% for 09-04→09-08, then **71.8%** once one Gate name (INX, $174) was opened on 09-08 — still **1.8× the
-  40% cap**. Largest single name **36.3% → 24.4%** against the 6.7% line (**3.6×**). This is not R7 working; it is
-  one large Gate entry moving a 7-name book, and it is exactly the fragility a per-name cap exists to remove.
+  **Re-measured 2026-09-14, still unfixed, and it moved BOTH WAYS inside one day on a single name:**
+  93.5% for 09-04→09-08, then **71.8%** once one Gate name (INX, $174) opened on 09-08, then **back to 80.8%**
+  at 08:00Z when INX closed and the selector replaced it with mexc/BULLA ($74) and gate/FF ($111). Still
+  **2.0× the 40% cap**. Largest single name **36.3% → 24.4% → 21.4%** against the 6.7% line (**3.2×**). None of
+  this is R7 working — the venue mix is a by-product of which single name happens to open or close, which is
+  exactly the fragility a cap exists to remove.
 - **Only one of the carry position's two P&L legs is booked, and the missing one is the same size as the
   answer.** Long spot + short perp earns funding *and* the change in the spot–perp basis between entry and exit;
   `close_price` is NULL on every leg, so the second is never booked. Reconstructed mid-to-mid over the window:
@@ -668,6 +670,11 @@ new path **runs**. Same trap as the rest of this session, one size down.
 All **six** surviving positions came through with entry marks and provenance intact (BTW, LYN, H, HANA at
 `backfill-median2h`; POWER at `backfill-median2h`; GUA at `live-median2h`), and there has been **no `cycle failed`
 and no unpriced exit since.**
+
+**The first full cycle completed end to end at 07:59:59Z** — close, risk pass, accrual, selection over 153 names
+(~12 min), two opens and a health report, with no failures. The engine is doing the whole job again for the first
+time since 2026-09-04. Resulting book: **8 names, $719.72 notional**, `mexc/H` 21.4 · `mexc/GUA` 16.1 ·
+`gate/FF` 15.4 · `mexc/BTW` 14.4 · `mexc/HANA` 13.7 · `mexc/BULLA` 10.3 · `mexc/LYN` 4.8 · `gate/POWER` 3.8%.
 
 **THE FIRST HONEST EXIT DATUM — `gate/INX_USDT`, closed 2026-09-14 07:47:34Z, 53 seconds after the restart.**
 The first completed round trip since 2026-09-02, and the first ever with both marks recorded live
